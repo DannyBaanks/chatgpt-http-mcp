@@ -36,6 +36,34 @@ if (!existsSync(chrome)) {
   process.exit(2);
 }
 
+if (process.argv.includes("--status")) {
+  const dbPath = join(profileDir, "Default", "Cookies");
+  if (!existsSync(dbPath)) {
+    console.error(`Sin base de cookies del perfil: ${dbPath}`);
+    process.exit(1);
+  }
+  const { Database } = await import("bun:sqlite");
+  const db = new Database(dbPath, { readonly: true });
+  const rows = db
+    .query("select host_key as host, name from cookies order by host_key")
+    .all() as Array<{ host: string; name: string }>;
+  const hosts = new Map<string, string[]>();
+  for (const row of rows) {
+    const list = hosts.get(row.host) ?? [];
+    list.push(row.name);
+    hosts.set(row.host, list);
+  }
+  console.log(`perfil: ${profileDir}`);
+  console.log(`cookies en DB: ${rows.length}`);
+  for (const [host, names] of [...hosts.entries()].sort()) {
+    const session = names.filter((name) => /session|__Secure|clearance|token/i.test(name));
+    console.log(`  ${host}: ${names.length}${session.length ? `  sesion: ${session.join(", ")}` : ""}`);
+  }
+  const hasSession = rows.some((row) => /session|__Secure|clearance/i.test(row.name));
+  console.log(hasSession ? "ESTADO: sesion detectada (podes exportar)" : "ESTADO: SIN cookies de sesion (falta completar el login)");
+  process.exit(hasSession ? 0 : 1);
+}
+
 if (check) {
   console.log("login --check (no abre nada):");
   console.log(`  chrome:  ${chrome}`);
@@ -105,7 +133,11 @@ try {
     `cookies de sesion detectadas: ${interesting.length > 0 ? interesting.join(", ") : "NINGUNA (revisa el login)"}`,
   );
   if (interesting.length === 0) {
-    console.error("No se detectaron cookies de sesion; repeti el login (fase 1) antes de continuar.");
+    console.error("");
+    console.error("NO HAY SESION en este perfil: el login no llego a completarse.");
+    console.error("Revisa con:  bun run login -- --status");
+    console.error("Si dice SIN cookies: corre 'bun run login' otra vez, inicia sesion");
+    console.error("en la ventana y recien despues cerrala por completo.");
     await context.close();
     process.exit(1);
   }
