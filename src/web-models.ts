@@ -38,7 +38,7 @@ export interface WebModelRoute {
   slug: string;
   displayName: string;
   description: string;
-  backendModel: "gpt-5.6-sol" | "gpt-5.6-luna";
+  backendModel: "gpt-5.6-sol" | "gpt-5.6-luna" | "gpt-6.1-sol";
   defaultEffort: CodexEffort;
   supportedEfforts: readonly CodexEffort[];
   requiresSol: boolean;
@@ -92,6 +92,17 @@ const PRO_ROUTE: WebModelRoute = {
   requiresPro: true,
 };
 
+const SOL_61_ROUTE: WebModelRoute = {
+  slug: "chatgpt-web/gpt-6.1-sol",
+  displayName: "GPT-6.1 Sol (Web)",
+  description: "GPT-6.1 Sol through ChatGPT with Medium, High, or account-supported Extra High reasoning.",
+  backendModel: "gpt-6.1-sol",
+  defaultEffort: "high",
+  supportedEfforts: ["medium", "high", "xhigh"],
+  requiresSol: true,
+  requiresPro: false,
+};
+
 const GPT6_PRO_ROUTE: WebModelRoute = {
   slug: "chatgpt-web/gpt-6-pro",
   displayName: "GPT-6 Pro (Web)",
@@ -107,6 +118,7 @@ const VISIBLE_ROUTES: readonly WebModelRoute[] = [
   LUNA_ROUTE,
   SOL_INSTANT_ROUTE,
   SOL_ROUTE,
+  SOL_61_ROUTE,
   PRO_ROUTE,
   GPT6_PRO_ROUTE,
 ];
@@ -147,7 +159,11 @@ export function resolveLimits(
   caps: AccountCapabilities,
 ): ContextLimits {
   let base: ContextLimits;
-  if (backendModel === "gpt-5.6-luna") {
+  if (backendModel === "gpt-6.1-sol") {
+    base = effort === "low"
+      ? limits(INSTANT_CONTEXT_WINDOW, INSTANT_AUTO_COMPACT_TOKEN_LIMIT)
+      : limits(MEDIUM_HIGH_CONTEXT_WINDOW, MEDIUM_HIGH_AUTO_COMPACT_TOKEN_LIMIT);
+  } else if (backendModel === "gpt-5.6-luna") {
     base = limits(LUNA_CONTEXT_WINDOW, LUNA_CONTEXT_WINDOW);
   } else if (caps.proAvailable) {
     const contextWindow = effort === "max" ? PRO_MODEL_CONTEXT_WINDOW : PRO_STANDARD_CONTEXT_WINDOW;

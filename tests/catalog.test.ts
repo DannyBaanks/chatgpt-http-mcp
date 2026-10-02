@@ -26,10 +26,12 @@ test("gating: luna-only, sol, pro y extra high", () => {
   expect(availableRoutes(SOL).map((r) => r.slug)).toEqual([
     "chatgpt-web/gpt-5.6-sol-instant",
     "chatgpt-web/gpt-5.6-sol",
+    "chatgpt-web/gpt-6.1-sol",
   ]);
   expect(availableRoutes(SOL_PRO).map((r) => r.slug)).toEqual([
     "chatgpt-web/gpt-5.6-sol-instant",
     "chatgpt-web/gpt-5.6-sol",
+    "chatgpt-web/gpt-6.1-sol",
     "chatgpt-web/gpt-5.6-pro",
     "chatgpt-web/gpt-6-pro",
   ]);
@@ -54,7 +56,7 @@ test("augment agrega filas Web, preserva nativas y no muta el input", () => {
   const before = JSON.stringify(fixture);
   const merged = augmentCatalog(fixture, SOL_PRO) as { models: Array<Record<string, unknown>> };
   expect(JSON.stringify(fixture)).toBe(before);
-  expect(merged.models).toHaveLength(1 + 4);
+  expect(merged.models).toHaveLength(1 + 5);
   const native = merged.models[0];
   expect(native.slug).toBe("gpt-5.6-sol");
   const web = merged.models.filter((m) => (m.slug as string).startsWith("chatgpt-web/"));
@@ -82,8 +84,8 @@ test("catalogo sin template o sin models falla cerrado", () => {
 test("diff de filas detecta faltantes y extras", () => {
   const full = augmentCatalog(fixture, SOL_PRO) as unknown;
   const partial = { models: [{ slug: "chatgpt-web/gpt-5.6-sol" }] } as unknown;
-  const diffAgainstFull = diffWebRows(partial, full); // faltan 3 filas
-  expect(diffAgainstFull.missing.length).toBe(3);
+  const diffAgainstFull = diffWebRows(partial, full); // faltan las otras filas web
+  expect(diffAgainstFull.missing.length).toBe(4);
   expect(diffAgainstFull.ok).toBe(false);
   const diffAgainstPartial = diffWebRows(full, partial); // tenemos extras, no faltantes
   expect(diffAgainstPartial.missing).toEqual([]);
