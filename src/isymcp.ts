@@ -11,10 +11,13 @@
 //   isymcp models restore
 //   isymcp command "texto"
 import { spawn } from "node:child_process";
+import readline from "node:readline";
 import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { runHook } from "./hooks";
 import { defaultExportPath, exportLines, formatLine, parseBound, readAll, selectLines } from "./logs";
+import { MENU, brandHeader, select, visible, visibleLabels } from "./menu";
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
 
 const ROOT = join(import.meta.dir, "..");
@@ -211,11 +214,89 @@ function logs(args: string[]): void {
   console.log(`lineas: ${saved.count}`);
 }
 
+async function ask(question: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question(question);
+  rl.close();
+  return answer.trim();
+}
+
+async function runAction(id: string): Promise<void> {
+  await runHook(`before:${id}`);
+  if (id === "up") {
+    startServer();
+    await new Promise((r) => setTimeout(r, 800));
+    console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
+    tunnel("connect");
+  } else if (id === "down") {
+    tunnel("stop");
+    stopServer();
+  } else if (id === "restart") {
+    tunnel("stop");
+    stopServer();
+    startServer();
+    tunnel("connect");
+  } else if (id === "status") {
+    await status();
+  } else if (id === "server-start") startServer();
+  else if (id === "server-stop") stopServer();
+  else if (id === "tunnel-connect") tunnel("connect");
+  else if (id === "tunnel-stop") tunnel("stop");
+  else if (id === "tunnel-status") tunnel("status");
+  else if (id === "logs-50") logs(["--last", "50"]);
+  else if (id === "logs-20") logs(["--last", "20"]);
+  else if (id === "logs-all") logs(["export", "--all"]);
+  else if (id === "logs-window") {
+    const since = await ask("desde (2026-10-02T16:00): ");
+    const until = await ask("hasta (2026-10-02T17:00): ");
+    logs(["export", "--since", since, "--until", until]);
+  } else if (id === "models-dry") models(undefined);
+  else if (id === "models-apply") models("apply");
+  else if (id === "models-restore") models("restore");
+  else if (id === "command") {
+    const text = await ask("texto de la tarea: ");
+    const effort = await ask("effort [high]: ") || "high";
+    if (text) command(text, effort);
+  }
+  await runHook(`after:${id}`);
+}
+
+async function openMenu(items = visible(MENU), title = "¿Qué hacemos?"): Promise<void> {
+  for (;;) {
+    const index = await select(title, items);
+    if (index < 0) {
+      console.log("nos vemos :p");
+      return;
+    }
+    const item = items[index];
+    if (!item || item.id === "quit") {
+      console.log("nos vemos :p");
+      return;
+    }
+    console.log("");
+    if (item.children) {
+      await openMenu(visible(item.children), item.label);
+      continue;
+    }
+    await runAction(item.id);
+    console.log("");
+  }
+}
+
 const [cmd, sub, ...rest] = process.argv.slice(2);
 const effortFlag = rest.includes("--effort") ? rest[rest.indexOf("--effort") + 1] : undefined;
 
-if (!cmd || cmd === "status") {
+if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
+  console.log("");
+  console.log(brandHeader());
+  await openMenu();
+} else if (!cmd || cmd === "status") {
   await status();
+} else if (cmd === "tree") {
+  console.log(brandHeader());
+  for (const label of visibleLabels()) console.log(`  ${label}`);
+  const leaked = visibleLabels().filter((label) => label.startsWith("hook."));
+  if (leaked.length) throw new Error(`hook visible: ${leaked.join(",")}`);
 } else if (cmd === "help" || cmd === "--help" || cmd === "-h") {
   help();
 } else if (cmd === "up") {
