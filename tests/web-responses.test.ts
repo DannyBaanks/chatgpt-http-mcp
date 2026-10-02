@@ -122,6 +122,12 @@ describe("mergeWebRows", () => {
     expect(merged.kept).toBe(1);
   });
 
+  test("sin cache no tira: la ruta se instala igual", () => {
+    const merged = mergeWebRows({ models: [] }, caps);
+    expect(merged.kept).toBe(0);
+    expect(merged.added.length).toBeGreaterThan(0);
+  });
+
   test("saca las filas web viejas antes de agregar las nuevas", () => {
     const merged = mergeWebRows({ models: [{ slug: "chatgpt-web/viejo" }, { ...template }] }, caps);
     expect(merged.models.some((m) => (m as { slug: string }).slug === "chatgpt-web/viejo")).toBe(false);

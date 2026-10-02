@@ -244,7 +244,9 @@ async function runAction(id: string): Promise<void> {
     await new Promise((r) => setTimeout(r, 800));
     console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
     tunnel("connect");
-    installIntoCodex(true);
+    try { installIntoCodex(true); } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+    }
   } else if (id === "down") {
     tunnel("stop");
     stopServer();
@@ -253,7 +255,9 @@ async function runAction(id: string): Promise<void> {
     stopServer();
     startServer();
     tunnel("connect");
-    installIntoCodex(true);
+    try { installIntoCodex(true); } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+    }
   } else if (id === "status") {
     await status();
   } else if (id === "server-start") startServer();

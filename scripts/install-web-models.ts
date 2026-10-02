@@ -15,7 +15,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseCapabilities } from "../src/config";
-import { augmentCatalog, CHATGPT_WEB_MODEL_PREFIX } from "../src/web-models";
+import { augmentCatalog, availableRoutes, CHATGPT_WEB_MODEL_PREFIX } from "../src/web-models";
 import { getTopLevelTomlString, setTopLevelTomlString } from "./install-codex";
 
 const DEFAULT_URL = "http://127.0.0.1:8791/v1";
@@ -38,11 +38,23 @@ export function mergeWebRows(cache: unknown, caps: ReturnType<typeof parseCapabi
   const kept = before.filter(
     (m) => !(m && typeof m === "object" && typeof (m as { slug?: unknown }).slug === "string" && (m as { slug: string }).slug.startsWith(CHATGPT_WEB_MODEL_PREFIX)),
   );
-  const augmented = augmentCatalog({ models: kept }, caps) as { models: Array<Record<string, unknown>> };
-  const added = augmented.models
-    .map((m) => m.slug)
-    .filter((s): s is string => typeof s === "string" && s.startsWith(CHATGPT_WEB_MODEL_PREFIX));
-  return { models: augmented.models, added, kept: kept.length };
+  // Sin cache (la referencia lo borra) no hay template nativo. El install igual
+  // apunta la ruta: Codex pide /v1/models al bridge y ahi se clonan las filas.
+  try {
+    const augmented = augmentCatalog({ models: kept }, caps) as { models: Array<Record<string, unknown>> };
+    const added = augmented.models
+      .map((m) => m.slug)
+      .filter((s): s is string => typeof s === "string" && s.startsWith(CHATGPT_WEB_MODEL_PREFIX));
+    return { models: augmented.models, added, kept: kept.length };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("template")) throw error;
+    return {
+      models: kept,
+      added: availableRoutes(caps).map((route) => route.slug),
+      kept: kept.length,
+    };
+  }
 }
 
 /**
