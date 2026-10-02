@@ -1,10 +1,14 @@
 // server.ts — servidor loopback estilo Responses para Codex.
 //
-// M2: rutas nativas reenviadas al backend de Codex. Las rutas Web
-// (catalogo clonado / transporte HTTP) llegan en M3/M4.
+// M2: rutas nativas reenviadas al backend de Codex.
+// M3: /v1/models clonado con filas Web.
+// M7: si el POST /v1/responses pide un modelo chatgpt-web/*, la llamada va al
+// browser persistente (src/web-turn.ts) en vez de al upstream nativo. Ese es
+// el punto donde Codex deja de hablar con Electron y habla con este CLI.
 import { loadConfig, type AppConfig } from "./config";
 import { filterHeaders, forwardNative, type NativeEndpoint, upstreamUrl } from "./passthrough";
 import { augmentCatalog } from "./web-models";
+import { handleWebResponses, peekWebRequest } from "./web-responses";
 
 type Route = { method: "GET" | "POST"; endpoint: NativeEndpoint };
 
@@ -72,6 +76,12 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
     }
     if (route.endpoint === "models" && config.webModels === "on") {
       return modelsWithWeb(req, config);
+    }
+    if (route.endpoint === "responses" && config.webModels === "on") {
+      // peek sobre un clon: el request original sigue intacto para el
+      // passthrough nativo cuando el modelo NO es Web.
+      const web = await peekWebRequest(req);
+      if (web) return handleWebResponses(req, config, web);
     }
     return forwardNative(req, route.endpoint, config);
   };
