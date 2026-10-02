@@ -7,10 +7,13 @@ export interface AppConfig {
   upstreamBase: string;
   webModels: "off" | "on";
   capabilities: AccountCapabilities;
+  /** Timeout de la fase de headers del upstream (el stream no se corta por esto). */
+  timeoutMs: number;
 }
 
 export const DEFAULT_PORT = 8791;
 export const DEFAULT_UPSTREAM = "https://chatgpt.com/backend-api/codex";
+export const DEFAULT_TIMEOUT_MS = 120_000;
 
 /** Caps por entorno: "sol,extrahigh,pro,bigger". Default conservador: sol. */
 export function parseCapabilities(raw: string | undefined): AccountCapabilities {
@@ -38,11 +41,17 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (webModels !== "off" && webModels !== "on") {
     throw new Error(`CODEX_WEB_HTTP_WEB_MODELS invalido: ${webModels} (off|on)`);
   }
+  const timeoutRaw = env.CODEX_WEB_HTTP_TIMEOUT_MS;
+  const timeoutMs = timeoutRaw ? Number(timeoutRaw) : DEFAULT_TIMEOUT_MS;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`CODEX_WEB_HTTP_TIMEOUT_MS invalido: ${timeoutRaw}`);
+  }
   return {
     hostname: env.CODEX_WEB_HTTP_HOST?.trim() || "127.0.0.1",
     port,
     upstreamBase: (env.CODEX_WEB_HTTP_UPSTREAM?.trim() || DEFAULT_UPSTREAM).replace(/\/+$/, ""),
     webModels,
     capabilities: parseCapabilities(env.CODEX_WEB_HTTP_CAPS),
+    timeoutMs,
   };
 }

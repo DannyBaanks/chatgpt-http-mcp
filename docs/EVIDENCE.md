@@ -61,14 +61,37 @@ bun run scripts/catalog-diff.ts       -> invariantes: OK
                                          parity viva: NOT_DEMONSTRATED (requiere login M1)
 ```
 
+## Que quedo implementado (M5)
+
+- `codex-web-http/src/responses/stream.ts:1` — wrapper SSE tolerante al cierre
+  sucio: reset tras `data: [DONE]` cierra normal; reset antes propaga
+  `UpstreamStreamError` (no se inventa un final).
+- `codex-web-http/src/responses/errors.ts:1` — taxonomia nombrada
+  (`upstream_unreachable`, `upstream_timeout`, `upstream_reset_mid_stream`,
+  `client_cancelled`, `catalog_augment_failed`, 404/405).
+- `codex-web-http/src/passthrough.ts:1` — timeout de headers
+  (`CODEX_WEB_HTTP_TIMEOUT_MS`, default 120 s; el stream no se corta por
+  timeout) y propagacion de la cancelacion del cliente al upstream.
+- `codex-web-http/tests/parity.test.ts:1` — 7 casos e2e + 2 unitarios.
+- `codex-web-http/reports/PARITY.md:1` — resultados y diferencias declaradas.
+
+Salida real:
+
+```text
+bun test   -> 22 pass / 0 fail
+```
+
 ## No demostrado
 
-- **Parity por cuenta del catalogo** (filas exactas que la referencia expone
-  para esta cuenta): NOT_DEMONSTRATED; requiere login M1 y capturar
-  `GET /v1/models` de la referencia.
+- **Parity viva contra la referencia** (un turno real comparado evento a
+  evento): NOT_DEMONSTRATED; requiere login M1/M4. El harness de 7 casos ya
+  esta listo para esa captura.
+- Semantica de reset segun transporte real de internet (aqui es loopback):
+  documentada como diferencia de plataforma en `reports/PARITY.md`.
+- **Parity por cuenta del catalogo**: NOT_DEMONSTRATED; requiere login M1 y
+  capturar `GET /v1/models` de la referencia.
 - `/v1/models` aumentado contra el upstream nativo real: requiere auth; los
   tests cubren el merge con fixture y mock.
 - E2E vivo contra `chatgpt.com` (requiere token del usuario; `e2e-native.ts`
   lo toma por entorno y hoy sale SKIPPED).
 - Transporte Web (M4): depende del gate M1.
-- Paridad de contrato Responses: pendiente de M5.

@@ -1,9 +1,11 @@
 // passthrough.ts — reenvio HTTP nativo hacia chatgpt.com/backend-api/codex.
 //
-// M2: transporte sin navegador. Se reenvian metodo, cabeceras (menos
-// hop-by-hop) y body; se devuelve status/body/stream del upstream tal cual.
-// No se leen ni escriben credenciales: el llamador (Codex) trae su auth.
+// M5: timeout de headers, propagacion de cancelacion del cliente y wrapper
+// SSE tolerante a reset (ver responses/stream.ts). No se leen ni escriben
+// credenciales: el llamador (Codex) trae su auth.
 import type { AppConfig } from "./config";
+import { errorJson } from "./responses/errors";
+import { isEventStream, withUncleanCloseTolerance } from "./responses/stream";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -49,6 +51,19 @@ export async function forwardNative(
     body = await req.arrayBuffer();
   }
 
+  // Timeout solo de la fase de headers: una vez que el upstream responde,
+  // el stream puede durar lo que dure el turno. La cancelacion del cliente
+  // se propaga durante toda la vida del request.
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, config.timeoutMs);
+  const onClientAbort = () => controller.abort();
+  if (req.signal.aborted) controller.abort();
+  else req.signal.addEventListener("abort", onClientAbort, { once: true });
+
   let upstream: Response;
   try {
     upstream = await fetch(upstreamUrl(config, endpoint, url.search), {
@@ -56,21 +71,33 @@ export async function forwardNative(
       headers,
       body,
       redirect: "manual",
+      signal: controller.signal,
     });
   } catch (error) {
-    return Response.json(
-      {
-        error: {
-          type: "upstream_unreachable",
-          message: error instanceof Error ? error.message : String(error),
-        },
-      },
-      { status: 502 },
+    if (timedOut) {
+      return errorJson(504, "upstream_timeout", `el upstream no respondio headers en ${config.timeoutMs}ms`);
+    }
+    if (req.signal.aborted) {
+      return errorJson(499, "client_cancelled", "el cliente cancelo la request");
+    }
+    return errorJson(
+      502,
+      "upstream_unreachable",
+      error instanceof Error ? error.message : String(error),
     );
+  } finally {
+    clearTimeout(timer);
   }
 
-  return new Response(upstream.body, {
+  const responseHeaders = filterHeaders(upstream.headers);
+  const contentType = upstream.headers.get("content-type");
+  const responseBody =
+    upstream.body && isEventStream(contentType)
+      ? withUncleanCloseTolerance(upstream.body)
+      : upstream.body;
+
+  return new Response(responseBody, {
     status: upstream.status,
-    headers: filterHeaders(upstream.headers),
+    headers: responseHeaders,
   });
 }

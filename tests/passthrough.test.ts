@@ -4,6 +4,17 @@ import type { AppConfig } from "../src/config";
 import { createHandler } from "../src/server";
 import { startServer } from "../src/server";
 
+function testConfig(upstreamBase: string, timeoutMs = 120_000): AppConfig {
+  return {
+    hostname: "127.0.0.1",
+    port: 0,
+    upstreamBase,
+    webModels: "off",
+    capabilities: { solAvailable: true, proAvailable: false },
+    timeoutMs,
+  };
+}
+
 interface Seen {
   method: string;
   path: string;
@@ -55,7 +66,7 @@ beforeAll(() => {
     },
   });
   base = `http://127.0.0.1:${mock.port}/backend-api/codex`;
-  server = startServer({ hostname: "127.0.0.1", port: 0, upstreamBase: base });
+  server = startServer(testConfig(base));
 });
 
 afterAll(() => {
@@ -122,11 +133,7 @@ test("rutas y metodos invalidos fallan con JSON nombrado", async () => {
 });
 
 test("upstream inalcanzable devuelve 502 nombrado, no excepcion", async () => {
-  const dead: AppConfig = {
-    hostname: "127.0.0.1",
-    port: 0,
-    upstreamBase: "http://127.0.0.1:1/backend-api/codex",
-  };
+  const dead: AppConfig = testConfig("http://127.0.0.1:1/backend-api/codex");
   const handler = createHandler(dead);
   const res = await handler(
     new Request("http://127.0.0.1/v1/models", { headers: { authorization: "Bearer x" } }),

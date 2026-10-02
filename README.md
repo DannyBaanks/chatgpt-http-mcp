@@ -38,7 +38,14 @@ Sin token sale `SKIPPED`: el script no lee `auth.json`.
 - M2 passthrough nativo + integracion con backup: implementado y testeado.
 - M3 catalogo Web clonado (subset visible): implementado detras de flag; el
   matching por cuenta queda pendiente del login (M1). Aviso MIT en
-  `THIRD_PARTY_NOTICES.md`. Ver `docs/EVIDENCE.md`.
+  `THIRD_PARTY_NOTICES.md`.
+- M5 streaming/cancelacion/timeout: wrapper SSE tolerante a reset, taxonomia
+  de errores y 7 casos de parity (`reports/PARITY.md`).
+- M1 (gate HTTP Web) / M4 (transporte): pendientes; M1 requiere login humano.
+
+`CODEX_WEB_HTTP_TIMEOUT_MS` (default 120000) limita solo la fase de headers
+del upstream; un stream largo no se corta por ese timeout. Ver
+`docs/EVIDENCE.md`.
 
 ### Catalogo Web (opt-in)
 
