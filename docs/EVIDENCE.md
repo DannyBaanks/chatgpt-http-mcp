@@ -35,9 +35,40 @@ Fecha: 2026-10-02.
   errores, hop-by-hop) y `codex-web-http/tests/install-codex.test.ts:1`
   (TOML, backup, restore) — sin credenciales ni tocar `~/.codex`.
 
+## Que quedo implementado (M3)
+
+- `codex-web-http/src/web-models.ts:1` — subset visible del catalogo Web
+  clonado (Luna / Instant / Sol / Pro / GPT-6 Pro): gating por capabilities,
+  efforts por ruta y limites de contexto (Luna 1 050 000; instante 41 000/32 000;
+  medium/high 90 000/80 000; Pro 111 193/112 193 con compact 95 000; bigger
+  context x3). Derivado de la referencia MIT: aviso en
+  `codex-web-http/THIRD_PARTY_NOTICES.md:1`.
+- Flag `CODEX_WEB_HTTP_WEB_MODELS=on` (default `off`) + `CODEX_WEB_HTTP_CAPS`
+  en `codex-web-http/src/config.ts:1`; `/v1/models` aumenta el catalogo nativo
+  solo cuando esta encendido, y falla cerrado (`catalog_augment_failed`) si el
+  upstream devuelve algo invalido.
+- `codex-web-http/scripts/catalog-diff.ts:1` — invariantes + diff de filas
+  contra una captura de referencia (`--reference`).
+- Fixture propio (no copiado): `codex-web-http/fixtures/native-models.sample.json:1`.
+- Tests: `codex-web-http/tests/catalog.test.ts:1` (gating, limits, augment sin
+  mutar, template obligatorio, diff).
+
+Salida real del verificador:
+
+```text
+bun test                              -> 13 pass / 0 fail
+bun run scripts/catalog-diff.ts       -> invariantes: OK
+                                         parity viva: NOT_DEMONSTRATED (requiere login M1)
+```
+
 ## No demostrado
 
+- **Parity por cuenta del catalogo** (filas exactas que la referencia expone
+  para esta cuenta): NOT_DEMONSTRATED; requiere login M1 y capturar
+  `GET /v1/models` de la referencia.
+- `/v1/models` aumentado contra el upstream nativo real: requiere auth; los
+  tests cubren el merge con fixture y mock.
 - E2E vivo contra `chatgpt.com` (requiere token del usuario; `e2e-native.ts`
   lo toma por entorno y hoy sale SKIPPED).
-- Catalogo Web clonado (M3) y transporte Web (M4): dependen del gate M1.
-- Paridad con la referencia: pendiente de M5.
+- Transporte Web (M4): depende del gate M1.
+- Paridad de contrato Responses: pendiente de M5.

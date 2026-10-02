@@ -36,6 +36,22 @@ Sin token sale `SKIPPED`: el script no lee `auth.json`.
 
 - M0 protocolo: `docs/PROTOCOL.md`.
 - M2 passthrough nativo + integracion con backup: implementado y testeado.
-  Ver `docs/EVIDENCE.md`.
-- M1 (gate HTTP Web) / M3 (catalogo) / M4 (transporte): pendientes segun
-  plan; M1 requiere un login humano unico.
+- M3 catalogo Web clonado (subset visible): implementado detras de flag; el
+  matching por cuenta queda pendiente del login (M1). Aviso MIT en
+  `THIRD_PARTY_NOTICES.md`. Ver `docs/EVIDENCE.md`.
+
+### Catalogo Web (opt-in)
+
+Hasta que exista el transporte Web (M4), las filas Web se exponen solo si se
+piden explicitamente, para que Codex no pueda seleccionar un modelo que aun no
+puede responder:
+
+```bash
+CODEX_WEB_HTTP_WEB_MODELS=on CODEX_WEB_HTTP_CAPS=sol,extrahigh,pro bun run start
+bun run scripts/catalog-diff.ts            # invariantes + parity NOT_DEMONSTRATED
+bun run scripts/catalog-diff.ts --reference /ruta/reference-models.json
+```
+
+`CODEX_WEB_HTTP_CAPS` acepta `sol`, `extrahigh`, `pro`, `bigger` (default
+`sol`). `--reference` compara las filas `chatgpt-web/*` contra una captura de
+la referencia y solo pasa si no falta ninguna.
