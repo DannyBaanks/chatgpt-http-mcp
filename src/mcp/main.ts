@@ -1,14 +1,19 @@
 // src/mcp/main.ts — entry point del servidor MCP stdio para el túnel.
 //
 // Protocolo: Model Context Protocol sobre stdio (lo que tunnel-client espera
-// como --mcp-command). Expone las tools del contract native que ChatGPT
-// invoca en un turno. V1: las tools responden con receipts sin broker real;
-// el broker se agrega cuando exista el turn dispatcher.
+// como --mcp-command). Expone las 8 tools del Codex GPT MCP (contrato native)
+// que ChatGPT invoca en un turno. V1: las tools responden con receipts sin
+// broker real; el broker se agrega cuando exista el turn dispatcher.
+//
+// El nombre publico del app ("Codex ISyMCP"), el token @CODEX ISYMCP y las
+// instructions viven en ./identity.ts — un solo lugar, para que la pagina y el
+// server no puedan divergir.
 //
 //   bun run src/mcp/main.ts --contract native --broker-socket /tmp/codex-web-http-broker.sock
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { buildInstructions } from "./identity";
 
 const args = process.argv.slice(2);
 function option(name: string, fallback: string): string {
@@ -30,13 +35,9 @@ const turnTokenSchema = z.string().min(20).max(256);
 
 const server = new McpServer({
   name: "codex-web-http",
-  version: "0.1.0",
+  version: "0.2.0",
 }, {
-  instructions: [
-    "Para cada turno de Codex Web GPT: empieza con codex_turn_start.",
-    "Usa el turn_token devuelto con las tools que necesites.",
-    "Cuando la tarea termine, envia la respuesta con codex_turn_complete.",
-  ].join(" "),
+  instructions: buildInstructions(contract),
 });
 
 server.registerTool(
@@ -167,6 +168,32 @@ server.registerTool(
     content: [{ type: "text", text: JSON.stringify({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
+    }) }],
+  }),
+);
+
+server.registerTool(
+  "codex_tool_call",
+  {
+    title: "Call any tool from the current Codex harness",
+    description: [
+      "Invoke an exact wire_name returned by codex_tool_inventory.",
+      "El harness Codex externo ejecuta la llamada, las aprobaciones y el ciclo de vida.",
+    ].join(" "),
+    inputSchema: {
+      [turnKey]: turnTokenSchema,
+      wire_name: z.string().min(1).max(1_000),
+      arguments: z.record(z.string(), z.unknown()).optional(),
+      input: z.string().max(5_000_000).optional(),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  async (input: Record<string, unknown>) => ({
+    content: [{ type: "text", text: JSON.stringify({
+      turn_token: input[turnKey],
+      wire_name: input.wire_name,
+      executed: false,
+      receipt: "V1: broker no implementado — la tool llega pero no ejecuta todavia",
     }) }],
   }),
 );
