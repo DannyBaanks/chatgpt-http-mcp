@@ -15,7 +15,10 @@
     "e2e:web": "bun run scripts/e2e-web.ts",
     "import:cookies": "bun run scripts/import-cookies.ts",
     "send:big": "bun run scripts/send-big.ts",
-    "install:tunnel": "bun run scripts/install-tunnel.ts"
+    "install:tunnel": "bun run scripts/install-tunnel.ts",
+    "chatgpt:command": "bun run scripts/chatgpt-command.ts",
+    "install:web-models": "bun run scripts/install-web-models.ts",
+    "tunnel:connect": "bun run scripts/connect-tunnel.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
