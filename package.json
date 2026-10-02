@@ -14,7 +14,8 @@
     "replay": "bun run probe/replay-turn.ts",
     "e2e:web": "bun run scripts/e2e-web.ts",
     "import:cookies": "bun run scripts/import-cookies.ts",
-    "send:big": "bun run scripts/send-big.ts"
+    "send:big": "bun run scripts/send-big.ts",
+    "install:tunnel": "bun run scripts/install-tunnel.ts"
   },
   "dependencies": {
     "playwright-core": "1.62.0"
