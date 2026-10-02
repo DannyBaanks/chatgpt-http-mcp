@@ -1,0 +1,13 @@
+{
+  "name": "codex-web-http",
+  "private": true,
+  "type": "module",
+  "description": "MCP/Responses local para Codex: passthrough nativo + (futuro) transporte Web clonado",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "test": "bun test",
+    "install:codex": "bun run scripts/install-codex.ts",
+    "e2e:native": "bun run scripts/e2e-native.ts"
+  }
+}
