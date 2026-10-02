@@ -67,10 +67,24 @@ Sin token sale `SKIPPED`: el script no lee `auth.json`.
   `THIRD_PARTY_NOTICES.md`.
 - M5 streaming/cancelacion/timeout: wrapper SSE tolerante a reset, taxonomia
   de errores y 7 casos de parity (`reports/PARITY.md`).
-- M1 (gate HTTP Web) / M4 (transporte): pendientes; M1 requiere login humano.
+- **M4-B transporte Web: DEMONSTRATED** — 3 turnos consecutivos sobre una sola
+  pestaña con Chrome headless (`reports/M4_WEB.md`); el shell queda
+  NOT_DEMONSTRATED para 3 turnos.
+- M1 (gate HTTP Web): **FAIL** — Cloudflare bloquea `Bun.fetch` aun con
+  Bearer+Cookie válidos (`reports/H1_HTTP_GATE.md`); por eso el tráfico Web va
+  por navegador y el nativo sigue por HTTP.
+
+### Transporte Web (pestaña persistente)
+
+```bash
+cd codex-web-http
+bun run import:cookies          # storageState desde el header Cookie (0600)
+bun run e2e:web -- --turns 3    # 3 turnos, misma pestaña, respuestas exactas
+bun run e2e:web -- --turns 3 --browser shell   # comparacion (pendiente)
+```
 
 `CODEX_WEB_HTTP_TIMEOUT_MS` (default 120000) limita solo la fase de headers
-del upstream; un stream largo no se corta por ese timeout. Ver
+del upstream nativo; un stream largo no se corta por ese timeout. Ver
 `docs/EVIDENCE.md`.
 
 ### Catalogo Web (opt-in)

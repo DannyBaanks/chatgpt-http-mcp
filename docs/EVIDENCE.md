@@ -94,6 +94,19 @@ bun test   -> 22 pass / 0 fail
   navegador con la auth de Codex.
 - `~/Development/cookie.txt` (sesión viva) debe borrarse.
 
+## M4-B — Transporte Web: DEMONSTRATED (2026-10-02)
+
+- `codex-web-http/scripts/e2e-web.ts:1` — 3 turnos consecutivos sobre **una
+  sola pestaña** con Chrome headless, respuestas exactas (`turno N ok`),
+  ~6–10 s por turno, startup 8.2 s.
+- Combo stealth necesario para Cloudflare: UA del Chrome real, sin
+  `--enable-automation`, `AutomationControlled` off, sandbox on.
+- `codex-web-http/scripts/import-cookies.ts:1` — storageState desde el header
+  Cookie (el export de Playwright devolvía 0 por encriptado del keyring).
+- `chrome-headless-shell`: **NOT_DEMONSTRATED** para 3 turnos (turno 1 OK,
+  envíos 2–3 no registraron); su ventaja de RAM se diluye con la SPA cargada.
+- Reporte: `codex-web-http/reports/M4_WEB.md:1`.
+
 ## No demostrado
 
 - **Parity viva contra la referencia** (un turno real comparado evento a
