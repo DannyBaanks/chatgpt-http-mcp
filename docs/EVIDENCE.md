@@ -81,6 +81,19 @@ Salida real:
 bun test   -> 22 pass / 0 fail
 ```
 
+## M1 — Gate HTTP puro: FAIL (2026-10-02)
+
+- Sonda por etapas `codex-web-http/probe/http-probe.ts:1` con Authorization +
+  Cookie reales copiados por el usuario.
+- Resultado: **403 HTML de challenge Cloudflare en las 3 etapas** (session,
+  conversations, f/conversation). No es credencial: es el cliente (fingerprint
+  TLS/HTTP2 de Bun vs Chrome).
+- Veredicto y análisis: `codex-web-http/reports/H1_HTTP_GATE.md:1`.
+- Consecuencia: **M4-B** (browser mínimo con `chrome-headless-shell` +
+  pestaña persistente). El passthrough nativo (M2) sigue siendo HTTP puro sin
+  navegador con la auth de Codex.
+- `~/Development/cookie.txt` (sesión viva) debe borrarse.
+
 ## No demostrado
 
 - **Parity viva contra la referencia** (un turno real comparado evento a
