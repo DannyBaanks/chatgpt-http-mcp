@@ -11,7 +11,7 @@
 // Seguro por defecto: sin --apply solo muestra el cambio. Con --apply backs up
 // config.toml + models_cache.json y escribe un journal para --restore.
 // NUNCA toca auth.json ni las claves nativas del catalogo.
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseCapabilities } from "../src/config";
@@ -43,6 +43,26 @@ export function mergeWebRows(cache: unknown, caps: ReturnType<typeof parseCapabi
     .map((m) => m.slug)
     .filter((s): s is string => typeof s === "string" && s.startsWith(CHATGPT_WEB_MODEL_PREFIX));
   return { models: augmented.models, added, kept: kept.length };
+}
+
+/**
+ * El launcher de referencia deja un journal activo. Si openai_base_url del
+ * journal no coincide con el config, el proximo arranque de Codex restaura
+ * el puerto viejo (medido: 17841 piso a 8791 a los 30s de aplicar).
+ * Retargetea solo esa URL. No toca el resto del journal.
+ */
+function retargetReferenceJournal(url: string): string | null {
+  const journalPath = join(homedir(), ".codex-chatgpt-web", "codex", "integration-journal.json");
+  if (!existsSync(journalPath)) return null;
+  const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+    installed?: { openai_base_url?: string };
+  };
+  if (!journal.installed || journal.installed.openai_base_url === url) return journalPath;
+  const backup = journalPath + ".pre-codex-web-http";
+  if (!existsSync(backup)) copyFileSync(journalPath, backup);
+  journal.installed.openai_base_url = url;
+  writeFileSync(journalPath, JSON.stringify(journal, null, 2) + "\n");
+  return journalPath;
 }
 
 export interface Result {
@@ -123,7 +143,11 @@ export function installWebModels(options: {
   if (options.model) next = setTopLevelTomlString(next, "model", options.model);
   if (options.effort) next = setTopLevelTomlString(next, "model_reasoning_effort", options.effort);
   writeFileSync(configPath, next);
-  writeFileSync(cachePath, JSON.stringify({ models: merged.models }, null, 2) + "\n");
+  // La referencia NO deja el cache escrito: lo borra para que Codex, al
+  // reabrir, pida GET /v1/models al bridge vivo y reciba las filas web.
+  // Un cache pre-escrito lo ignora el app-server si la ruta no es la suya.
+  if (existsSync(cachePath)) rmSync(cachePath);
+  retargetReferenceJournal(url);
   writeFileSync(join(backupDir, "latest.json"), JSON.stringify({ configBackup, cacheBackup, configPath, cachePath }, null, 2));
 
   return {
