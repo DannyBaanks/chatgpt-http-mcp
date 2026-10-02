@@ -1,19 +1,22 @@
 #!/usr/bin/env bun
 // login.ts — login humano unico para el transporte Web (M1/M4).
 //
-// Abre Chrome (con display) sobre un perfil DEDICADO, espera a que la persona
-// inicie sesion en ChatGPT (passkey incluida) y guarda el storageState
-// (cookies de sesion) con permisos 0600. No imprime valores de cookies, no
-// toca ~/.codex ni el perfil personal de Chrome, y no transmite nada.
+// POR QUE EN DOS FASES: Google rechaza el OAuth si el navegador viene con
+// flags de automatizacion (Playwright agrega --no-sandbox/--enable-automation
+// por default y accounts.google.com responde "browser or app may not be
+// secure"). Entonces:
+//   Fase 1 — se abre Chrome NORMAL con el perfil dedicado (sin CDP, sin flags
+//            de automatizacion): ahi la persona inicia sesion con passkey.
+//   Fase 2 — recien despues, Playwright abre ese mismo perfil en headless
+//            solo para exportar el storageState (cookies) con permisos 0600.
 //
-//   bun run login                 # abre la ventana y espera Enter
-//   bun run login -- --check      # solo resuelve rutas, no abre nada
-//   bun run login -- --chrome /ruta/a/chrome --out /ruta/state.json
+//   bun run login              # fase 1 + fase 2 cuando cierres Chrome
+//   bun run login -- --export  # solo fase 2 (perfil ya logueado)
+//   bun run login -- --check   # rutas, no abre nada
 import { chromium, type BrowserContext } from "playwright-core";
 import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
 
 function argValue(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -21,6 +24,7 @@ function argValue(name: string): string | undefined {
 }
 
 const check = process.argv.includes("--check");
+const exportOnly = process.argv.includes("--export");
 const chrome = argValue("--chrome") ?? process.env.CHROME_PATH ?? "/usr/bin/google-chrome";
 const home = join(homedir(), ".codex-web-http");
 const profileDir = argValue("--profile") ?? join(home, "chrome-profile");
@@ -38,37 +42,58 @@ if (check) {
   console.log(`  profile: ${profileDir}`);
   console.log(`  salida:  ${out}${existsSync(out) ? " (ya existe)" : " (se creara)"}`);
   console.log(`  url:     ${url}`);
+  console.log(`  fase:    ${exportOnly ? "solo export" : "login + export"}`);
   process.exit(0);
 }
 
 mkdirSync(profileDir, { recursive: true, mode: 0o700 });
-console.log(`abriendo Chrome con perfil dedicado: ${profileDir}`);
 
+if (!exportOnly) {
+  console.log("");
+  console.log("FASE 1 — Chrome NORMAL (sin automatizacion, sin --no-sandbox).");
+  console.log(`Perfil dedicado: ${profileDir}`);
+  console.log("");
+  console.log("Inicia sesion en ChatGPT (passkey/2FA). Cuando termines,");
+  console.log("CIERRA LA VENTANA DE CHROME POR COMPLETO para continuar.");
+  console.log("");
+
+  const proc = Bun.spawn(
+    [
+      chrome,
+      `--user-data-dir=${profileDir}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      url,
+    ],
+    { stdout: "ignore", stderr: "ignore", stdin: "ignore" },
+  );
+  const code = await proc.exited;
+  if (code !== 0) {
+    console.error(`Chrome salio con codigo ${code}; si quedaron ventanas abiertas, cerralas y reintenta.`);
+    process.exit(1);
+  }
+  console.log("Chrome cerrado. Exportando cookies...");
+}
+
+// FASE 2 — solo lectura de cookies del perfil recien logueado.
 let context: BrowserContext | undefined;
+const launchOptions = {
+  executablePath: chrome,
+  headless: true,
+  args: ["--no-first-run", "--no-default-browser-check"],
+} as const;
+
 try {
-  context = await chromium.launchPersistentContext(profileDir, {
-    executablePath: chrome,
-    headless: false,
-    args: ["--no-first-run", "--no-default-browser-check"],
-  });
-  const page = context.pages()[0] ?? (await context.newPage());
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {
-    console.log("(la navegacion inicial no completo; la ventana queda abierta igual)");
-  });
-
-  console.log("");
-  console.log("Inicia sesion en la ventana de Chrome (incluye passkey/2FA).");
-  console.log("Cuando veas el composer de ChatGPT listo, volve aca y presiona Enter.");
-  console.log("");
-
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  await rl.question("Enter cuando la sesion este lista... ");
-  rl.close();
-
+  try {
+    context = await chromium.launchPersistentContext(profileDir, { ...launchOptions, chromiumSandbox: true });
+  } catch {
+    // En hosts sin user namespaces el sandbox falla; el export no navega nada.
+    context = await chromium.launchPersistentContext(profileDir, { ...launchOptions, chromiumSandbox: false });
+  }
   await context.storageState({ path: out });
   chmodSync(out, 0o600);
   const state = JSON.parse(await Bun.file(out).text()) as {
-    cookies: Array<{ name: string; domain: string }>;
+    cookies: Array<{ name: string }>;
   };
   const interesting = state.cookies
     .filter((cookie) => /session|__Secure|cf_clearance/i.test(cookie.name))
@@ -80,14 +105,20 @@ try {
     `cookies de sesion detectadas: ${interesting.length > 0 ? interesting.join(", ") : "NINGUNA (revisa el login)"}`,
   );
   if (interesting.length === 0) {
-    console.error("No se detectaron cookies de sesion; repeti el login antes de continuar.");
+    console.error("No se detectaron cookies de sesion; repeti el login (fase 1) antes de continuar.");
     await context.close();
     process.exit(1);
   }
+  console.log("");
+  console.log("listo. Avisa al agente para continuar con el gate M1.");
 } catch (error) {
-  console.error(`login fallo: ${error instanceof Error ? error.message : String(error)}`);
+  const message = error instanceof Error ? error.message : String(error);
+  if (/ProcessSingleton|profile.*in use|SingletonLock/i.test(message)) {
+    console.error("El perfil esta en uso: cerra TODAS las ventanas de Chrome de este perfil y reintenta con --export.");
+  } else {
+    console.error(`export fallo: ${message}`);
+  }
   if (context) await context.close();
   process.exit(1);
 }
 await context.close();
-console.log("listo. Avisa al agente para continuar con el gate M1.");

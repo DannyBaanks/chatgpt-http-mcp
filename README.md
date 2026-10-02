@@ -19,11 +19,18 @@ agente no lo puede hacer por vos.
 
 ```bash
 cd codex-web-http
-bun run login                 # abre Chrome en tu display
+bun run login                 # fase 1: Chrome NORMAL; fase 2: export de cookies
 # 1) inicia sesion en la ventana (passkey/2FA incluidos)
-# 2) cuando el composer de ChatGPT este listo, volve a la terminal y Enter
+# 2) CIERRA la ventana de Chrome por completo -> el script exporta solo
+bun run login -- --export     # si ya cerraste Chrome antes: solo exporta
 bun run login -- --check      # opcional: solo muestra rutas, no abre nada
 ```
+
+**Por que Chrome normal y no Playwright para el login:** Google rechaza el
+OAuth cuando el navegador trae flags de automatizacion (`--no-sandbox`,
+`--enable-automation`), con el error "browser or app may not be secure". Por
+eso la fase 1 no usa CDP; Playwright solo abre el perfil despues, en headless,
+para leer las cookies.
 
 - Perfil dedicado: `~/.codex-web-http/chrome-profile` (no toca tu Chrome personal).
 - Salida: `~/.codex-web-http/storage-state.json` con permisos **0600**, cookies
