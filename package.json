@@ -9,7 +9,9 @@
     "test": "bun test",
     "install:codex": "bun run scripts/install-codex.ts",
     "e2e:native": "bun run scripts/e2e-native.ts",
-    "login": "bun run scripts/login.ts"
+    "login": "bun run scripts/login.ts",
+    "capture:curl": "bun run probe/curl-capture.ts",
+    "replay": "bun run probe/replay-turn.ts"
   },
   "dependencies": {
     "playwright-core": "1.62.0"
