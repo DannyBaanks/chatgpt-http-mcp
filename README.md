@@ -8,9 +8,28 @@ transporte Web clonado en los siguientes milestones. Plan completo:
 
 ```bash
 cd codex-web-http
-bun test          # M2 sin credenciales: mock upstream + TOML con backup
+bun test          # 22 tests: passthrough, catalogo, streaming/parity (sin credenciales)
 bun run start     # server en http://127.0.0.1:8791
 ```
+
+## Login humano (una sola vez)
+
+Necesario para M1/M4 (transporte Web). Es un login **tuyo** con passkey: el
+agente no lo puede hacer por vos.
+
+```bash
+cd codex-web-http
+bun run login                 # abre Chrome en tu display
+# 1) inicia sesion en la ventana (passkey/2FA incluidos)
+# 2) cuando el composer de ChatGPT este listo, volve a la terminal y Enter
+bun run login -- --check      # opcional: solo muestra rutas, no abre nada
+```
+
+- Perfil dedicado: `~/.codex-web-http/chrome-profile` (no toca tu Chrome personal).
+- Salida: `~/.codex-web-http/storage-state.json` con permisos **0600**, cookies
+  de sesion. **Nunca** se versiona, no se imprime su contenido y es borrable.
+- Si no detecta cookies de sesion, sale con error para que no sigas a ciegas.
+- Cuando termines, avisa al agente: sigue el gate M1 (captura + replay HTTP).
 
 ## Regla de oro
 

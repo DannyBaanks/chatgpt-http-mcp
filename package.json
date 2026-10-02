@@ -8,6 +8,10 @@
     "start": "bun run src/cli.ts",
     "test": "bun test",
     "install:codex": "bun run scripts/install-codex.ts",
-    "e2e:native": "bun run scripts/e2e-native.ts"
+    "e2e:native": "bun run scripts/e2e-native.ts",
+    "login": "bun run scripts/login.ts"
+  },
+  "dependencies": {
+    "playwright-core": "1.62.0"
   }
 }

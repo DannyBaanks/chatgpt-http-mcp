@@ -1,0 +1,6 @@
+# secretos y salidas locales del bridge: nunca versionar
+storage-state.json
+chrome-profile/
+capture/
+backups/
+diagnostics/
