@@ -107,6 +107,17 @@ bun test   -> 22 pass / 0 fail
   envíos 2–3 no registraron); su ventaja de RAM se diluye con la SPA cargada.
 - Reporte: `codex-web-http/reports/M4_WEB.md:1`.
 
+## Contexto en un solo mensaje: DEMONSTRATED (2026-10-02)
+
+- `codex-web-http/scripts/send-big.ts:1` — 54 KB / 100 KB / 115 KB / 150 KB
+  como **un** mensaje por el transporte de pestaña persistente, nonce al final
+  verificado en las 4 corridas (15–30 s de respuesta).
+- El presupuesto de 110 KB del staging no aplica al texto crudo del composer;
+  el techo duro de la ruta es 211 256 chars (Instant). Por encima o fuera de
+  budget: adjunto `.txt`; full harness: contexto-por-referencia.
+- Reporte: `codex-web-http/reports/CONTEXT_SINGLE_MSG.md:1`.
+- Límite honesto: nonce al final prueba el tail, no la integridad del medio.
+
 ## No demostrado
 
 - **Parity viva contra la referencia** (un turno real comparado evento a
