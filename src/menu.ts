@@ -11,7 +11,7 @@ export interface MenuItem {
 }
 
 export const MENU: MenuItem[] = [
-  { id: "up", group: "PUENTE", label: "▶ Levantar todo", hint: "server + tunel, detached" },
+  { id: "up", group: "PUENTE", label: "▶ Levantar todo", hint: "server + tunel + instalar en Codex" },
   { id: "down", group: "PUENTE", label: "■ Detener todo", hint: "cierre del server y del tunel" },
   { id: "restart", group: "PUENTE", label: "↻ Reiniciar", hint: "down + up" },
   { id: "status", group: "PUENTE", label: "○ Estado", hint: "server, tunel, mcp" },

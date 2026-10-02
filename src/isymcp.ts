@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { runHook } from "./hooks";
+import { installWebModels } from "../scripts/install-web-models";
 import { defaultExportPath, exportLines, formatLine, parseBound, readAll, selectLines } from "./logs";
 import { MENU, brandHeader, select, visible, visibleLabels } from "./menu";
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
@@ -111,7 +112,8 @@ function tunnel(action: string): void {
       stdout: "inherit",
       stderr: "inherit",
     });
-    process.exit(proc.exitCode ?? 1);
+    if (proc.exitCode !== 0) console.error(`tunel connect exit ${proc.exitCode}`);
+    return;
   }
   if (action === "stop") {
     const proc = sh([bin, "runtimes", "stop", "codex-web-http"]);
@@ -131,12 +133,26 @@ function tunnel(action: string): void {
   }
 }
 
-function models(action: string | undefined): void {
-  const args = ["bun", "run", join(ROOT, "scripts", "install-web-models.ts"), "--caps", "sol,pro,extrahigh,bigger"];
-  if (action === "apply") args.push("--apply", "--model", "chatgpt-web/gpt-5.6-sol", "--effort", "high");
-  else if (action === "restore") args.push("--restore");
-  const proc = Bun.spawnSync(args, { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
-  process.exit(proc.exitCode ?? 1);
+function modelsRestore(): void {
+  const result = installWebModels({ restore: true });
+  console.log(JSON.stringify(result, null, 2));
+}
+
+function installIntoCodex(apply: boolean): void {
+  const result = installWebModels({
+    apply,
+    restore: false,
+    caps: "sol,pro,extrahigh,bigger",
+    model: apply ? "chatgpt-web/gpt-5.6-sol" : undefined,
+    effort: apply ? "high" : undefined,
+  });
+  console.log(JSON.stringify(result, null, 2));
+  if (!apply) {
+    console.log("(dry-run: no escribio. Levantar todo, o Modelos → Aplicar, si lo instala)");
+    return;
+  }
+  console.log("instalado en Codex: ruta 8791, models_cache borrado para que Codex lo vuelva a pedir");
+  console.log("cierra la app de Codex por completo y volvela a abrir");
 }
 
 function command(text: string, effort?: string): void {
@@ -228,6 +244,7 @@ async function runAction(id: string): Promise<void> {
     await new Promise((r) => setTimeout(r, 800));
     console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
     tunnel("connect");
+    installIntoCodex(true);
   } else if (id === "down") {
     tunnel("stop");
     stopServer();
@@ -236,6 +253,7 @@ async function runAction(id: string): Promise<void> {
     stopServer();
     startServer();
     tunnel("connect");
+    installIntoCodex(true);
   } else if (id === "status") {
     await status();
   } else if (id === "server-start") startServer();
@@ -250,9 +268,9 @@ async function runAction(id: string): Promise<void> {
     const since = await ask("desde (2026-10-02T16:00): ");
     const until = await ask("hasta (2026-10-02T17:00): ");
     logs(["export", "--since", since, "--until", until]);
-  } else if (id === "models-dry") models(undefined);
-  else if (id === "models-apply") models("apply");
-  else if (id === "models-restore") models("restore");
+  }   else if (id === "models-dry") installIntoCodex(false);
+  else if (id === "models-apply") installIntoCodex(true);
+  else if (id === "models-restore") modelsRestore();
   else if (id === "command") {
     const text = await ask("texto de la tarea: ");
     const effort = await ask("effort [high]: ") || "high";
@@ -304,6 +322,7 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await new Promise((r) => setTimeout(r, 800));
   console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
   tunnel("connect");
+  installIntoCodex(true);
 } else if (cmd === "down") {
   tunnel("stop");
   stopServer();
@@ -314,7 +333,9 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
 } else if (cmd === "tunnel" && sub) {
   tunnel(sub);
 } else if (cmd === "models") {
-  models(sub);
+  if (sub === "restore") modelsRestore();
+  else if (sub === "apply") installIntoCodex(true);
+  else installIntoCodex(false);
 } else if (cmd === "command" && sub) {
   command([sub, ...rest.filter((a) => a !== "--effort" && a !== effortFlag)].join(" "), effortFlag);
 } else if (cmd === "logs") {
