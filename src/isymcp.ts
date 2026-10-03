@@ -15,6 +15,8 @@ import readline from "node:readline";
 import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { bindCookies } from "./sessions";
+import { bindCookies } from "./sessions";
 import { runHook } from "./hooks";
 import { installWebModels } from "../scripts/install-web-models";
 import { defaultExportPath, exportLines, formatLine, parseBound, readAll, selectLines } from "./logs";
@@ -133,6 +135,13 @@ function tunnel(action: string): void {
   }
 }
 
+function guardarSesion(name: string): void {
+  const source = join(homedir(), ".codex-web-http", "storage-state.json");
+  const record = bindCookies(name, source);
+  console.log(`sesion ${record.name}: cookies en ${record.statePath}`);
+  console.log(`conversacion: ${record.conversationUrl ?? "(aun no hay /c/, el primer turno la guarda)"}`);
+}
+
 function modelsRestore(): void {
   const result = installWebModels({ restore: true });
   console.log(JSON.stringify(result, null, 2));
@@ -244,6 +253,7 @@ async function runAction(id: string): Promise<void> {
     await new Promise((r) => setTimeout(r, 800));
     console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
     tunnel("connect");
+    guardarSesion("default");
     try { installIntoCodex(true); } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
     }
@@ -275,6 +285,7 @@ async function runAction(id: string): Promise<void> {
   }   else if (id === "models-dry") installIntoCodex(false);
   else if (id === "models-apply") installIntoCodex(true);
   else if (id === "models-restore") modelsRestore();
+  else if (id === "session") guardarSesion("default");
   else if (id === "command") {
     const text = await ask("texto de la tarea: ");
     const effort = await ask("effort [high]: ") || "high";
@@ -342,6 +353,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   else installIntoCodex(false);
 } else if (cmd === "command" && sub) {
   command([sub, ...rest.filter((a) => a !== "--effort" && a !== effortFlag)].join(" "), effortFlag);
+} else if (cmd === "session") {
+  guardarSesion(sub || "default");
 } else if (cmd === "logs") {
   logs([sub, ...rest].filter((part): part is string => Boolean(part)));
 } else {

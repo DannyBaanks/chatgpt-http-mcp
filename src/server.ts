@@ -9,6 +9,9 @@ import { loadConfig, type AppConfig } from "./config";
 import { filterHeaders, forwardNative, type NativeEndpoint, upstreamUrl } from "./passthrough";
 import { augmentCatalog } from "./web-models";
 import { handleWebResponses, peekWebRequest } from "./web-responses";
+import { parseWsTurn, wsFrames } from "./ws-responses";
+import { sendWebTurn } from "./web-turn";
+import { loadSession, rememberConversation } from "./sessions";
 
 type Route = { method: "GET" | "POST"; endpoint: NativeEndpoint };
 
@@ -60,6 +63,9 @@ async function modelsWithWeb(req: Request, config: AppConfig): Promise<Response>
 export function createHandler(config: AppConfig): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
+    if (url.pathname === "/v1/responses" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      return new Response("websocket upgrade lo resuelve Bun.serve", { status: 426 });
+    }
     if (url.pathname === "/health") {
       return Response.json({
         status: "ok",
@@ -88,10 +94,49 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
 }
 
 export function startServer(config: AppConfig = loadConfig()) {
+  const handler = createHandler(config);
   const server = Bun.serve({
     hostname: config.hostname,
     port: config.port,
-    fetch: createHandler(config),
+    fetch(req, bun) {
+      const url = new URL(req.url);
+      if (url.pathname === "/v1/responses" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+        if (bun.upgrade(req)) return undefined;
+        return new Response("no se pudo abrir el websocket", { status: 426 });
+      }
+      return handler(req);
+    },
+    websocket: {
+      async message(ws, message) {
+        const raw = typeof message === "string" ? message : new TextDecoder().decode(message);
+        const turn = parseWsTurn(raw);
+        if (!turn?.web) {
+          ws.send(JSON.stringify({ type: "error", error: { message: "solo modelos chatgpt-web/* por este websocket" } }));
+          return;
+        }
+        const session = loadSession("default");
+        try {
+          const result = await sendWebTurn(turn.prompt, {
+            statePath: session?.statePath ?? config.browserStatePath,
+            conversationUrl: session?.conversationUrl ?? undefined,
+            browser: config.browser,
+            headed: config.browserHeaded,
+            deadlineMs: config.webTurnDeadlineMs,
+          });
+          if (session) rememberConversation(session.name, result.url);
+          if (!result.text) {
+            ws.send(JSON.stringify({ type: "error", error: { message: "el browser no devolvio texto" } }));
+            return;
+          }
+          for (const frame of wsFrames(turn.model, result.text)) ws.send(frame);
+        } catch (error) {
+          ws.send(JSON.stringify({
+            type: "error",
+            error: { message: error instanceof Error ? error.message : String(error) },
+          }));
+        }
+      },
+    },
   });
   return server;
 }

@@ -25,6 +25,8 @@ export interface WebTurnOptions {
   headed?: boolean;
   settleMs?: number;
   deadlineMs?: number;
+  /** Si ya hay un chat /c/, no abre otro. */
+  conversationUrl?: string;
 }
 
 function shellBinary(): string {
@@ -99,7 +101,8 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
     viewport: { width: 1280, height: 800 },
   });
   const page = await context.newPage();
-  await page.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded", timeout: 60_000 });
+  const startUrl = options.conversationUrl?.includes("/c/") ? options.conversationUrl : "https://chatgpt.com/";
+  await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
   const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
   await composer.waitFor({ state: "visible", timeout: 60_000 });
   const loggedIn = (await page.locator('[data-testid="login-button"], a[href="/auth/login"]').count()) === 0;

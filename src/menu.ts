@@ -63,6 +63,7 @@ export const MENU: MenuItem[] = [
       { id: "hook.models", hidden: true, label: "hook.models" },
     ],
   },
+  { id: "session", group: "SESION", label: "Guardar cookies en sesion", hint: "una conversacion, no muchas" },
   { id: "command", group: "CHATGPT", label: "Armar comando @…", hint: "texto para pegar" },
   { id: "quit", group: "SALIR", label: "Salir" },
   { id: "hook.root", hidden: true, label: "hook.root" },
