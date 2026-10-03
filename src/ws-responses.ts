@@ -24,6 +24,11 @@ export function parseWsTurn(raw: string): WsTurn | null {
   return { model, prompt: extractPrompt(body), web: isWebModel(model) };
 }
 
+/** Una linea JSON por evento. Eso es lo unico que Codex tiene que leer. */
+export function toJsonl(events: unknown[]): string {
+  return events.map((event) => JSON.stringify(event)).join("\n") + "\n";
+}
+
 export function wsFrames(model: string, text: string): string[] {
   const response = {
     id: `resp_cwh_${crypto.randomUUID().replace(/-/g, "")}`,

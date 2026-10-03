@@ -9,7 +9,7 @@ import { loadConfig, type AppConfig } from "./config";
 import { filterHeaders, forwardNative, type NativeEndpoint, upstreamUrl } from "./passthrough";
 import { augmentCatalog } from "./web-models";
 import { handleWebResponses, peekWebRequest } from "./web-responses";
-import { parseWsTurn, wsFrames } from "./ws-responses";
+import { parseWsTurn, toJsonl, wsFrames } from "./ws-responses";
 import { sendWebTurn } from "./web-turn";
 import { loadSession, rememberConversation } from "./sessions";
 
@@ -100,9 +100,11 @@ export function startServer(config: AppConfig = loadConfig()) {
     port: config.port,
     fetch(req, bun) {
       const url = new URL(req.url);
-      if (url.pathname === "/v1/responses" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      // Codex abre ws://…/v1/responses con GET. Si eso cae al chequeo de POST,
+      // devolvemos 405 y Codex reintenta contra la cuenta, que rechaza el slug.
+      if (url.pathname === "/v1/responses" && (req.method === "GET" || req.headers.get("upgrade"))) {
         if (bun.upgrade(req)) return undefined;
-        return new Response("no se pudo abrir el websocket", { status: 426 });
+        return new Response("websocket requerido", { status: 426 });
       }
       return handler(req);
     },
@@ -125,10 +127,10 @@ export function startServer(config: AppConfig = loadConfig()) {
           });
           if (session) rememberConversation(session.name, result.url);
           if (!result.text) {
-            ws.send(JSON.stringify({ type: "error", error: { message: "el browser no devolvio texto" } }));
+            ws.send(toJsonl([{ type: "error", error: { message: "la conexion web no devolvio texto" } }]));
             return;
           }
-          for (const frame of wsFrames(turn.model, result.text)) ws.send(frame);
+          ws.send(toJsonl(wsFrames(turn.model, result.text).map((line) => JSON.parse(line))));
         } catch (error) {
           ws.send(JSON.stringify({
             type: "error",
