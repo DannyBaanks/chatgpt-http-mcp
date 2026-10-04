@@ -9,6 +9,7 @@ import { loadConfig, type AppConfig } from "./config";
 import { filterHeaders, forwardNative, type NativeEndpoint, upstreamUrl } from "./passthrough";
 import { augmentCatalog } from "./web-models";
 import { handleWebResponses, peekWebRequest } from "./web-responses";
+import { handleChatCompletions } from "./chat-completions";
 import { parseWsTurn, toJsonl, wsFrames } from "./ws-responses";
 import { sendWebTurn } from "./web-turn";
 import { loadSession, rememberConversation } from "./sessions";
@@ -72,6 +73,14 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
         upstream: config.upstreamBase,
         web_models: config.webModels,
       });
+    }
+    // Chat para TUIs tipo opencode (@ai-sdk/openai-compatible habla
+    // /chat/completions, no Responses). Solo modelos Web; lo demas 400.
+    if (url.pathname === "/v1/chat/completions") {
+      if (req.method !== "POST") {
+        return errorJson(405, "method_not_allowed", "POST esperado para /v1/chat/completions");
+      }
+      return handleChatCompletions(req, config);
     }
     const route = ROUTES[url.pathname];
     if (!route) {

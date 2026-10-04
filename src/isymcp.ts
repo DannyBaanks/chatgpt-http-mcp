@@ -22,6 +22,7 @@ import { installWebModels } from "../scripts/install-web-models";
 import { defaultExportPath, exportLines, formatLine, parseBound, readAll, selectLines } from "./logs";
 import { MENU, brandHeader, select, visible, visibleLabels } from "./menu";
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
+import { detectTuis, installIntoOpencode } from "./tui";
 
 const ROOT = join(import.meta.dir, "..");
 const RUN = join(homedir(), ".codex-web-http", "run");
@@ -196,6 +197,10 @@ function help(): void {
   isymcp models apply        escribe la ruta (backup). Cierra Codex antes.
   isymcp models restore      vuelve al backup
   isymcp command "texto"     texto para pegar en chatgpt.com
+  isymcp tui list            TUIs detectadas (config dir y/o binario)
+  isymcp tui install         dry-run del parche opencode (provider+MCP)
+  isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
+  isymcp tui install --restore vuelve al backup
   isymcp logs                ultimos 50
   isymcp logs --last 20
   isymcp logs export         guarda TODOS en ~/.codex-web-http/logs/
@@ -353,6 +358,34 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   else installIntoCodex(false);
 } else if (cmd === "command" && sub) {
   command([sub, ...rest.filter((a) => a !== "--effort" && a !== effortFlag)].join(" "), effortFlag);
+} else if (cmd === "tui") {
+  const baseUrl = process.env.ISYMCP_TUI_BASE_URL?.trim() || "http://127.0.0.1:8791";
+  const mcpMain = join(ROOT, "src", "mcp", "main.ts");
+  const configPath = flag("--config", rest) ?? join(homedir(), ".config", "opencode", "opencode.json");
+  if (!sub || sub === "list") {
+    for (const tui of detectTuis(homedir())) {
+      console.log(`${tui.present ? "presente " : "ausente  "}${tui.installable ? "[instalable]" : "            "} ${tui.id} (${tui.label}) ${tui.bin ?? tui.configDir}`);
+    }
+  } else if (sub === "install") {
+    const which = flag("--tui", rest) ?? "opencode";
+    if (which !== "opencode") {
+      console.error(`tui ${which}: solo inventario por ahora (NOT_DEMONSTRATED su formato de config)`);
+      process.exit(2);
+    }
+    const result = installIntoOpencode({
+      configPath,
+      backupsDir: join(ROOT, "backups", "tui"),
+      baseUrl,
+      mcpMain,
+      dryRun: !rest.includes("--apply"),
+      restore: rest.includes("--restore"),
+    });
+    console.log(`${result.action} ${result.configPath} modelos=${result.models}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
+    if (result.action === "dry-run") console.log("nada escrito (usa --apply para escribir con backup)");
+  } else {
+    help();
+    process.exit(2);
+  }
 } else if (cmd === "session") {
   guardarSesion(sub || "default");
 } else if (cmd === "logs") {

@@ -12,6 +12,7 @@ incognitas que resuelven M1/M3/M4.
 | GET | `/v1/models` | `chatgpt.com/backend-api/codex/models` |
 | POST | `/v1/responses` | `chatgpt.com/backend-api/codex/responses` |
 | POST | `/v1/responses/compact` | `chatgpt.com/backend-api/codex/responses/compact` |
+| POST | `/v1/chat/completions` | ninguno (turno web local, solo `chatgpt-web/*`) |
 | GET | `/health` | — (local) |
 
 Implementacion: `codex-web-http/src/server.ts:1` y
@@ -29,7 +30,6 @@ Implementacion: `codex-web-http/src/server.ts:1` y
   permite el camino sin navegador (plan, `.opencode/plans/codex-web-http.md:117`).
 
 ## Integracion con Codex
-
 - `scripts/install-codex.ts` escribe `openai_base_url` top-level en
   `~/.codex/config.toml` (o `CODEX_HOME`), con:
   - default dry-run (no escribe);
@@ -37,6 +37,27 @@ Implementacion: `codex-web-http/src/server.ts:1` y
     `latest.json`;
   - `--restore` restaura el backup mas reciente.
 - Nunca toca `~/.codex/auth.json`.
+
+## Integracion con TUIs (opencode/OpenISy)
+
+opencode consume providers OpenAI-compatibles (`@ai-sdk/openai-compatible`,
+que habla `/chat/completions`), asi que el bridge expone
+`POST /v1/chat/completions` solo para modelos `chatgpt-web/*` (implementacion
+en `src/chat-completions.ts`). Otro modelo falla cerrado con `not_web_model`;
+no se reenvia al upstream Codex porque la forma chat no es la suya.
+
+- `isymcp tui list` inventaria TUIs por config dir y/o binario (solo opencode
+  es instalable; el resto es inventario).
+- `isymcp tui install [--apply|--restore]` escribe `provider.isyco-web`
+  (baseURL al loopback, modelos `chatgpt-web/*` con su context window) y
+  `mcp.isyco-web-http` (comando local `bun …/src/mcp/main.ts`) en
+  `~/.config/opencode/opencode.json`, con backup en `backups/tui/`.
+- Verificado 2026-10-04: `opencode models isyco-web` lista 3 filas;
+  `opencode run -m isyco-web/chatgpt-web/gpt-5.6-sol-instant` responde;
+  `opencode mcp list` muestra `isyco-web-http connected`.
+- `limit.output` es techo (= context), no medido por fila: opencode lo exige.
+- Empaquetar el MCP para `npx` requiere publicar el paquete: NOT_DEMONSTRATED;
+  se usa comando local `bun`.
 
 ## Incognitas para los siguientes milestones
 
