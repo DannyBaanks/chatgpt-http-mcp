@@ -70,7 +70,8 @@ export function renderToolContract(tools: readonly ChatTool[]): string {
     "[PROTOCOLO DE FUNCIONES EXTERNAS — IMPORTANTE]",
     "Este chat no tiene herramientas nativas, pero esta conectado a un CLIENTE EXTERNO (la TUI) que si puede ejecutar funciones en la computadora del usuario.",
     "El cliente parsea tu respuesta: cuando necesites una funcion, responde UNICAMENTE con este JSON, sin texto adicional y sin cercas de codigo:",
-    '{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"<nombre>","arguments":"<objeto JSON serializado como string>"}}]}',
+    '{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"<nombre>","arguments":{"<clave>":"<valor>"}}}]}',
+    "IMPORTANTE: `arguments` es un OBJETO JSON anidado directo, NO un string con comillas escapadas. Si no lleva parametros, usa {} .",
     "El cliente la ejecutara y en el SIGUIENTE mensaje te devolvera el resultado con el formato:",
     "tool (call_1): <resultado>",
     "Nunca digas que no tienes acceso; el cliente externo ejecuta la funcion por ti. Puedes pedir varias a la vez.",
@@ -81,6 +82,17 @@ export function renderToolContract(tools: readonly ChatTool[]): string {
   ].join("\n");
 }
 
+/** El modelo a veces emite `"arguments":"{"a":1}"` (comillas internas sin
+ *  escapar), que es JSON invalido. Se re-escapa el valor interno. */
+function repairUnescapedArguments(text: string): string {
+  // Una sola pasada global: el replace escanea el texto ORIGINAL, asi no se
+  // re-matchea su propia salida (aquel loop doble-escapaba 6 veces).
+  return text.replace(
+    /"arguments"\s*:\s*"(\{[^{}]*\})"/g,
+    (_match, inner: string) => `"arguments":${JSON.stringify(inner)}`,
+  );
+}
+
 /** Parsea el sobre tool_calls de la respuesta del modelo (directo o en cerca). */
 export function parseToolCalls(text: string, allowed: ReadonlySet<string>): ChatToolCall[] {
   const candidates: string[] = [text.trim()];
@@ -89,7 +101,9 @@ export function parseToolCalls(text: string, allowed: ReadonlySet<string>): Chat
   for (const candidate of candidates) {
     if (!candidate.startsWith("{")) continue;
     let parsed: unknown;
-    try { parsed = JSON.parse(candidate); } catch { continue; }
+    try { parsed = JSON.parse(candidate); } catch {
+      try { parsed = JSON.parse(repairUnescapedArguments(candidate)); } catch { continue; }
+    }
     if (!parsed || typeof parsed !== "object") continue;
     const calls = (parsed as { tool_calls?: unknown }).tool_calls;
     if (!Array.isArray(calls) || calls.length === 0) continue;

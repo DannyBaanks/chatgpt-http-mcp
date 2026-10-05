@@ -40,3 +40,10 @@ test("readAssistantToolCalls serializa solo lo valido", () => {
   expect(calls[0]!.id).toBe("call_9");
   expect(readAssistantToolCalls(undefined)).toEqual([]);
 });
+
+test("parseToolCalls repara arguments con comillas sin escapar", () => {
+  const broken = '{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"isyco_read_context","arguments":"{"offset":0,"limit":83}"}}]}';
+  const got = parseToolCalls(broken, new Set(["isyco_read_context"]));
+  expect(got).toHaveLength(1);
+  expect(JSON.parse(got[0]!.function.arguments)).toEqual({ offset: 0, limit: 83 });
+});
