@@ -32,6 +32,9 @@ export interface ChatWebRequest {
   stream: boolean;
   /** Clave estable por conversacion para el archivo de contexto local. */
   key: string;
+  /** Ultimo mensaje del usuario: se repite en el prompt de trabajo para que el
+   *  modelo no confunda la fase de ingesta (ACK) con la respuesta. */
+  lastUser: string;
 }
 
 function textOf(content: unknown): string {
@@ -62,6 +65,7 @@ export function chatBodyToWebRequest(body: unknown): ChatWebRequest | null {
   const system: string[] = [];
   const turns: string[] = [];
   let firstUser = "";
+  let lastUser = "";
   for (const item of messages) {
     if (!item || typeof item !== "object") continue;
     const message = item as Record<string, unknown>;
@@ -70,7 +74,10 @@ export function chatBodyToWebRequest(body: unknown): ChatWebRequest | null {
     if (!text) continue;
     if (role === "system") system.push(text);
     else if (role === "user" || role === "assistant") {
-      if (role === "user" && !firstUser) firstUser = text;
+      if (role === "user") {
+        if (!firstUser) firstUser = text;
+        lastUser = text;
+      }
       turns.push(`${role}: ${text}`);
     } else turns.push(text);
   }
@@ -80,6 +87,7 @@ export function chatBodyToWebRequest(body: unknown): ChatWebRequest | null {
   return {
     model, prompt, stream: record.stream === true,
     key: makeContextKey(model, system.join("\n"), firstUser),
+    lastUser,
   };
 }
 
@@ -182,16 +190,33 @@ async function runContextFileFlow(web: ChatWebRequest, config: AppConfig): Promi
   contextReadState.set(web.key, written.total);
   console.error(`[codex-web-http] context pushed parts=${part} lines=${written.total} from=${readFrom}`);
 
+  // El prompt de trabajo NO debe empezar con "ACK" ni pedir confirmaciones:
+  // la conversacion ya tiene ACKs de la ingesta y el modelo hacia eco.
+  const ask = web.lastUser.trim();
+  const askTail = ask.length > 1500 ? ask.slice(-1500) : ask;
   let prompt =
-    "ACK. El contexto esta ingestado. Ahora produce la respuesta final al ultimo pedido del contexto. " +
-    "Si aun te falta leer algo, usa read otra vez con el mismo sobre JSON; si no, responde solo la respuesta final en texto plano (sin sobre JSON).";
+    "El archivo de contexto ya fue ingestado en esta conversacion (las partes anteriores). " +
+    "Responde AHORA, en texto plano, al mensaje del usuario. No respondas ACK ni repitas estas instrucciones: da la respuesta final.\n" +
+    `Mensaje del usuario: ${askTail}`;
+  let ackRetries = 0;
   for (let round = 0; round < CONTEXT_MAX_ROUNDS; round++) {
     const reply = await sendSingleTurn({ ...web, prompt }, config);
     const call = parseReadCall(reply);
-    if (!call) return reply;
-    const slice = readContextSlice(call.path, call.offset, call.limit);
-    contextReadState.set(web.key, Math.max(contextReadState.get(web.key) ?? 0, slice.next));
-    prompt = renderReadResult(slice);
+    if (call) {
+      const slice = readContextSlice(call.path, call.offset, call.limit);
+      contextReadState.set(web.key, Math.max(contextReadState.get(web.key) ?? 0, slice.next));
+      prompt = renderReadResult(slice);
+      continue;
+    }
+    const trimmed = reply.trim();
+    if (/^ack[.!]?$/i.test(trimmed) && ackRetries < 2) {
+      ackRetries++;
+      prompt =
+        "Tu respuesta anterior fue solo 'ACK', que no es una respuesta. Necesito la RESPUESTA FINAL al mensaje del usuario: " +
+        `${askTail || "el ultimo mensaje del contexto"}. No respondas ACK.`;
+      continue;
+    }
+    return reply;
   }
   throw new Error("web_context_answer_loop: demasiadas rondas de read");
 }

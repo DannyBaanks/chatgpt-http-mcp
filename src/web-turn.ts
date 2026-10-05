@@ -118,22 +118,39 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
  * Envia UN prompt y espera la respuesta completa del asistente. Reutiliza la
  * pestana existente (no la cierra entre turnos).
  */
+const ASSISTANT_TURN_SELECTOR = [
+  '[data-testid^="conversation-turn-"][data-turn="assistant"]:not([data-turn-key] *)',
+  '[data-testid^="conversation-turn-"][data-message-author-role="assistant"]:not([data-turn-key] *)',
+  '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"]):not([data-turn-key] *)',
+  '[data-turn-key]:has([data-conversation-role="assistant"], [data-chatgpt-agent-turn-start])',
+].join(",");
+
+/** Identidad del ultimo turno assistant: robusta a la virtualizacion del DOM
+ * (el conteo puede no crecer; la identidad cambia). */
+async function lastAssistantIdentity(page: Page): Promise<string> {
+  return page
+    .evaluate((sel) => {
+      const turns = Array.from(document.querySelectorAll(sel));
+      const last = turns[turns.length - 1] as HTMLElement | undefined;
+      if (!last) return "";
+      return last.getAttribute("data-turn-id")
+        ?? last.getAttribute("data-testid")
+        ?? last.getAttribute("data-message-id")
+        ?? (last.innerText ?? "").slice(0, 80);
+    }, ASSISTANT_TURN_SELECTOR)
+    .catch(() => "");
+}
+
 async function readLastAssistant(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const selector = [
-      '[data-testid^="conversation-turn-"][data-turn="assistant"]:not([data-turn-key] *)',
-      '[data-testid^="conversation-turn-"][data-message-author-role="assistant"]:not([data-turn-key] *)',
-      '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"]):not([data-turn-key] *)',
-      '[data-turn-key]:has([data-conversation-role="assistant"], [data-chatgpt-agent-turn-start])',
-    ].join(",");
-    const turns = Array.from(document.querySelectorAll(selector));
+  return page.evaluate((sel) => {
+    const turns = Array.from(document.querySelectorAll(sel));
     const last = turns[turns.length - 1] as HTMLElement | undefined;
     if (!last) return "";
     const root = last.querySelector(
       '.markdown, [data-markdown-text-style="assistant-message"], [data-message-author-role="assistant"] .puik-root.not-markdown > [class*="_DilResponseRoot"]',
     ) as HTMLElement | null;
     return ((root ?? last).innerText ?? "").trim();
-  });
+  }, ASSISTANT_TURN_SELECTOR);
 }
 
 async function assistantTurnCount(page: Page): Promise<number> {
@@ -161,7 +178,7 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
   const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
   const t0 = performance.now();
   const composerText = () => composer.innerText().catch(() => "");
-  const before = await assistantTurnCount(page);
+  const beforeId = await lastAssistantIdentity(page);
 
   await composer.click();
   await page.keyboard.press("Control+a").catch(() => {});
@@ -230,7 +247,10 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
   let stableSince = 0;
   let appeared = false;
   while (Date.now() < deadline) {
-    if (!appeared && (await assistantTurnCount(page)) > before) appeared = true;
+    if (!appeared) {
+      const id = await lastAssistantIdentity(page);
+      if (id && id !== beforeId) appeared = true;
+    }
     if (appeared) {
       const current = await readLastAssistant(page);
       if (current && current === text) {
