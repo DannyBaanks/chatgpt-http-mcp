@@ -19,8 +19,9 @@ export interface AppConfig {
   browserHeaded: boolean;
   /** Espera maxima por turno web antes de dar la respuesta por truncada. */
   webTurnDeadlineMs: number;
-  /** v1: el contexto viaja como archivo local y el modelo lo lee con la tool read. */
-  contextFile: boolean;
+  /** off | pull (el modelo LEE el .txt local con una tool del puente) | push
+   *  (el bridge empuja el .txt por partes). */
+  contextMode: "off" | "pull" | "push";
 }
 
 export const DEFAULT_PORT = 8791;
@@ -68,9 +69,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (browserHeaded !== "" && browserHeaded !== "1" && browserHeaded !== "0") {
     throw new Error(`CODEX_WEB_HTTP_HEADED invalido: ${browserHeaded} (1|0)`);
   }
-  const contextFileRaw = (env.CODEX_WEB_HTTP_CONTEXT_FILE?.trim() || "").toLowerCase();
-  if (contextFileRaw !== "" && contextFileRaw !== "1" && contextFileRaw !== "0") {
-    throw new Error(`CODEX_WEB_HTTP_CONTEXT_FILE invalido: ${contextFileRaw} (1|0)`);
+  const contextRaw = (env.CODEX_WEB_HTTP_CONTEXT_FILE?.trim() || "").toLowerCase();
+  let contextMode: "off" | "pull" | "push" = "off";
+  if (contextRaw === "1" || contextRaw === "on" || contextRaw === "pull") contextMode = "pull";
+  else if (contextRaw === "push") contextMode = "push";
+  else if (contextRaw !== "" && contextRaw !== "0" && contextRaw !== "off") {
+    throw new Error(`CODEX_WEB_HTTP_CONTEXT_FILE invalido: ${contextRaw} (1|pull|push|0)`);
   }
   const deadlineRaw = env.CODEX_WEB_HTTP_WEB_TURN_DEADLINE_MS;
   const webTurnDeadlineMs = deadlineRaw ? Number(deadlineRaw) : DEFAULT_WEB_TURN_DEADLINE_MS;
@@ -88,6 +92,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     browser: browserRaw,
     browserHeaded: browserHeaded === "1",
     webTurnDeadlineMs,
-    contextFile: contextFileRaw === "1",
+    contextMode,
   };
 }

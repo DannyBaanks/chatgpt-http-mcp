@@ -21,6 +21,7 @@
 // JSON y el bridge lo traduce a `tool_calls`. Las ejecuta la TUI con SUS
 // permisos y devuelve los resultados como role:"tool" en el proximo request.
 import { sendWebTurn } from "./web-turn";
+import { loadSession, rememberConversation } from "./sessions";
 import { isWebModel } from "./web-responses";
 import type { AppConfig } from "./config";
 import {
@@ -188,12 +189,17 @@ function errorJson(status: number, type: string, message: string): Response {
 
 /** Un turno web simple (transporte clasico: todo el texto en la caja). */
 async function sendSingleTurn(web: ChatWebRequest, config: AppConfig): Promise<string> {
+  // "Casarse con un link": se reutiliza la conversacion guardada en la sesion
+  // (sobrevive reinicios) y se guarda la nueva URL tras cada turno.
+  const conversation = loadSession("default");
   const result = await sendWebTurn(web.prompt, {
     statePath: config.browserStatePath,
+    conversationUrl: conversation?.conversationUrl ?? undefined,
     browser: config.browser,
     headed: config.browserHeaded,
     deadlineMs: config.webTurnDeadlineMs,
   });
+  if (result.url.includes("/c/")) rememberConversation("default", result.url);
   if (!result.submitted || !result.text) {
     throw new Error(`web_no_response: submitted=${result.submitted} ms=${result.ms} url=${result.url}`);
   }
@@ -211,6 +217,70 @@ async function runSingleTurn(web: ChatWebRequest, config: AppConfig): Promise<Ch
   const reply = await sendSingleTurn({ ...web, prompt }, config);
   const calls = web.tools.length ? parseToolCalls(reply, toolNames(web.tools)) : [];
   return { text: calls.length ? "" : reply, toolCalls: calls };
+}
+
+/** Tool que ejecuta el PUENTE: el modelo lee el contexto local a pedido. */
+const BRIDGE_READ_TOOL = "isyco_read_context";
+
+/** Flujo "pull": mensaje CORTO; el modelo LEE el .txt local con la tool del
+ *  puente (solo lectura, enjaulada) y recien despues responde o usa las tools
+ *  de la TUI. Nada de empujar el texto completo a la caja. */
+async function runContextPullFlow(web: ChatWebRequest, config: AppConfig): Promise<ChatTurnResult> {
+  const written = writeContextFile(web.key, web.prompt);
+  let readFrom = contextReadState.get(web.key) ?? 0;
+  if (readFrom > written.total) readFrom = 0;
+  const bridgeTool: ChatTool = {
+    name: BRIDGE_READ_TOOL,
+    description: "Lee el archivo de contexto local de esta conversacion (solo lectura; lo ejecuta el puente, no la TUI). Devuelve lineas con offset/next/total.",
+    parameters: { type: "object", properties: { offset: { type: "integer" }, limit: { type: "integer" } } },
+  };
+  const allTools = [bridgeTool, ...web.tools];
+  const allowed = toolNames(allTools);
+  const ask = web.lastUser.trim();
+  const askTail = ask.length > 1200 ? ask.slice(-1200) : ask;
+  const newLines = written.total - readFrom;
+  let prompt =
+    "[contexto local]\n" +
+    `El contexto de esta conversacion vive en el archivo local ${written.path} (${written.total} lineas; ${newLines} nuevas desde la linea ${readFrom}).\n` +
+    `Usa la herramienta ${BRIDGE_READ_TOOL} para leerlo por partes (offset/limit; hasta 400 lineas por llamada) ANTES de responder.\n` +
+    "Cuando termines de leer, responde al mensaje del usuario en texto plano, o usa las demas herramientas si necesitas.\n" +
+    `Mensaje del usuario: ${askTail}\n\n` +
+    renderToolContract(allTools);
+  let pulled = readFrom;
+  let ackRetries = 0;
+  for (let round = 0; round < CONTEXT_MAX_ROUNDS; round++) {
+    const reply = await sendSingleTurn({ ...web, prompt }, config);
+    const calls = parseToolCalls(reply, allowed);
+    if (calls.length) {
+      const tui = calls.filter((call) => call.function.name !== BRIDGE_READ_TOOL);
+      if (tui.length) {
+        contextReadState.set(web.key, Math.max(contextReadState.get(web.key) ?? 0, pulled));
+        return { text: "", toolCalls: tui };
+      }
+      const slices: string[] = [];
+      for (const call of calls) {
+        let args: Record<string, unknown> = {};
+        try { args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>; } catch { /* argumentos invalidos: se usa el offset actual */ }
+        const offset = Number.isFinite(Number(args.offset)) ? Number(args.offset) : pulled;
+        const limit = Number.isFinite(Number(args.limit)) ? Number(args.limit) : 200;
+        const slice = readContextSlice(written.path, offset, limit);
+        pulled = Math.max(pulled, slice.next);
+        slices.push(renderReadResult(slice));
+      }
+      console.error(`[codex-web-http] context pull read next=${pulled} total=${written.total} round=${round + 1}`);
+      prompt = `${slices.join("\n\n")}\n\n(Segui leyendo si te falta contexto; si ya lo tenes, responde al mensaje del usuario o usa una herramienta.)`;
+      continue;
+    }
+    const trimmed = reply.trim();
+    if (/^ack[.!]?$/i.test(trimmed) && ackRetries < 2) {
+      ackRetries++;
+      prompt = `Necesito tu respuesta. Si te falta contexto, usa ${BRIDGE_READ_TOOL} desde la linea ${pulled} de ${written.total}; si ya lo tenes, responde al mensaje del usuario: ${askTail}`;
+      continue;
+    }
+    contextReadState.set(web.key, Math.max(contextReadState.get(web.key) ?? 0, pulled));
+    return { text: reply, toolCalls: [] };
+  }
+  throw new Error("web_context_pull_loop: demasiadas rondas de read");
 }
 
 /** Lineas ya ingestadas por chat (en memoria; al reiniciar se relee todo). */
@@ -295,18 +365,20 @@ export async function handleChatCompletions(req: Request, config: AppConfig): Pr
   }
   let turn: ChatTurnResult;
   try {
-    turn = config.contextFile ? await runContextFileFlow(web, config) : await runSingleTurn(web, config);
+    turn = config.contextMode === "pull" ? await runContextPullFlow(web, config)
+      : config.contextMode === "push" ? await runContextFileFlow(web, config)
+        : await runSingleTurn(web, config);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const named = /^(web_[a-z_]+)/.exec(message)?.[1];
     const status = named === "web_session_missing" || named === "web_session_expired" ? 503 : 502;
     console.error(
-      `[codex-web-http] chat turn FAILED: ${named ?? "web_turn_failed"} context_file=${config.contextFile} tools=${web.tools.length} deadline_ms=${config.webTurnDeadlineMs} :: ${message}`,
+      `[codex-web-http] chat turn FAILED: ${named ?? "web_turn_failed"} context=${config.contextMode} tools=${web.tools.length} deadline_ms=${config.webTurnDeadlineMs} :: ${message}`,
     );
     return errorJson(status, named ?? "web_turn_failed", message);
   }
   console.error(
-    `[codex-web-http] web chat turn ok: model=${web.model} context_file=${config.contextFile} tool_calls=${turn.toolCalls.length} chars=${turn.text.length}`,
+    `[codex-web-http] web chat turn ok: model=${web.model} context=${config.contextMode} tool_calls=${turn.toolCalls.length} chars=${turn.text.length}`,
   );
   return web.stream
     ? new Response(buildChatStream(web.model, turn.text, turn.toolCalls), {
