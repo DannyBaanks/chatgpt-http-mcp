@@ -182,10 +182,26 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
   }, prompt);
   await page.waitForTimeout(400);
 
-  const seeded = (await composerText()).trim();
-  const probe = prompt.trim().slice(0, Math.min(24, prompt.trim().length));
+  const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+  const probe = normalize(prompt).slice(0, 24);
+  const seeded = normalize(await composerText());
   if (!seeded || !seeded.includes(probe)) {
-    return { text: "", ms: Math.round(performance.now() - t0), submitted: false, reused, url: page.url() };
+    // Segundo intento: CDP Input.insertText (como un IME real) por si el
+    // execCommand no sembro el texto multi-linea en ProseMirror.
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      await composer.click();
+      await page.keyboard.press("Control+a").catch(() => {});
+      await page.keyboard.press("Backspace").catch(() => {});
+      await cdp.send("Input.insertText", { text: prompt });
+    } finally {
+      await cdp.detach().catch(() => {});
+    }
+    await page.waitForTimeout(300);
+    const retry = normalize(await composerText());
+    if (!retry || !retry.includes(probe)) {
+      return { text: "", ms: Math.round(performance.now() - t0), submitted: false, reused, url: page.url() };
+    }
   }
 
   // Enviar: boton Enviar (ES/EN) o Enter. Se confirma por composer vacio.

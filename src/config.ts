@@ -19,6 +19,8 @@ export interface AppConfig {
   browserHeaded: boolean;
   /** Espera maxima por turno web antes de dar la respuesta por truncada. */
   webTurnDeadlineMs: number;
+  /** v1: el contexto viaja como archivo local y el modelo lo lee con la tool read. */
+  contextFile: boolean;
 }
 
 export const DEFAULT_PORT = 8791;
@@ -66,6 +68,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (browserHeaded !== "" && browserHeaded !== "1" && browserHeaded !== "0") {
     throw new Error(`CODEX_WEB_HTTP_HEADED invalido: ${browserHeaded} (1|0)`);
   }
+  const contextFileRaw = (env.CODEX_WEB_HTTP_CONTEXT_FILE?.trim() || "").toLowerCase();
+  if (contextFileRaw !== "" && contextFileRaw !== "1" && contextFileRaw !== "0") {
+    throw new Error(`CODEX_WEB_HTTP_CONTEXT_FILE invalido: ${contextFileRaw} (1|0)`);
+  }
   const deadlineRaw = env.CODEX_WEB_HTTP_WEB_TURN_DEADLINE_MS;
   const webTurnDeadlineMs = deadlineRaw ? Number(deadlineRaw) : DEFAULT_WEB_TURN_DEADLINE_MS;
   if (!Number.isInteger(webTurnDeadlineMs) || webTurnDeadlineMs <= 0) {
@@ -82,5 +88,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     browser: browserRaw,
     browserHeaded: browserHeaded === "1",
     webTurnDeadlineMs,
+    contextFile: contextFileRaw === "1",
   };
 }
