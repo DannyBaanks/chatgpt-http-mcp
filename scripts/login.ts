@@ -104,25 +104,41 @@ if (!exportOnly) {
 }
 
 // FASE 2 — solo lectura de cookies del perfil recien logueado.
+// En Linux, Chrome normal cifra las cookies con el keyring (gnome-libsecret).
+// Playwright lanza por defecto con --password-store=basic + --use-mock-keychain
+// y no puede descifrarlas: el export saldria en 0 cookies. Se ignoran esos
+// defaults, se prueba primero el keyring (override con CODEX_WEB_HTTP_PASSWORD_STORE)
+// y se cae a "basic" si el perfil quedo cifrado con el fallback.
+const preferredStore = process.env.CODEX_WEB_HTTP_PASSWORD_STORE?.trim() || "gnome-libsecret";
+const stores = preferredStore === "basic" ? ["basic"] : [preferredStore, "basic"];
 let context: BrowserContext | undefined;
-const launchOptions = {
-  executablePath: chrome,
-  headless: true,
-  args: ["--no-first-run", "--no-default-browser-check"],
-} as const;
+let state: { cookies: Array<{ name: string }> } = { cookies: [] };
 
-try {
+const launchWithStore = async (store: string): Promise<BrowserContext> => {
+  const options = {
+    executablePath: chrome,
+    headless: true,
+    args: ["--no-first-run", "--no-default-browser-check", `--password-store=${store}`],
+    ignoreDefaultArgs: ["--use-mock-keychain", "--password-store=basic"],
+  };
   try {
-    context = await chromium.launchPersistentContext(profileDir, { ...launchOptions, chromiumSandbox: true });
+    return await chromium.launchPersistentContext(profileDir, { ...options, chromiumSandbox: true });
   } catch {
     // En hosts sin user namespaces el sandbox falla; el export no navega nada.
-    context = await chromium.launchPersistentContext(profileDir, { ...launchOptions, chromiumSandbox: false });
+    return await chromium.launchPersistentContext(profileDir, { ...options, chromiumSandbox: false });
   }
-  await context.storageState({ path: out });
-  chmodSync(out, 0o600);
-  const state = JSON.parse(await Bun.file(out).text()) as {
-    cookies: Array<{ name: string }>;
-  };
+};
+
+try {
+  for (const store of stores) {
+    context = await launchWithStore(store);
+    await context.storageState({ path: out });
+    chmodSync(out, 0o600);
+    state = JSON.parse(await Bun.file(out).text()) as { cookies: Array<{ name: string }> };
+    if (state.cookies.length > 0) break;
+    await context.close();
+    context = undefined;
+  }
   const interesting = state.cookies
     .filter((cookie) => /session|__Secure|cf_clearance/i.test(cookie.name))
     .map((cookie) => cookie.name);
@@ -138,7 +154,7 @@ try {
     console.error("Revisa con:  bun run login -- --status");
     console.error("Si dice SIN cookies: corre 'bun run login' otra vez, inicia sesion");
     console.error("en la ventana y recien despues cerrala por completo.");
-    await context.close();
+    if (context) await context.close();
     process.exit(1);
   }
   console.log("");
@@ -153,4 +169,4 @@ try {
   if (context) await context.close();
   process.exit(1);
 }
-await context.close();
+if (context) await context.close();
