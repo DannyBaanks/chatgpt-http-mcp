@@ -300,6 +300,9 @@ export async function handleChatCompletions(req: Request, config: AppConfig): Pr
     const message = error instanceof Error ? error.message : String(error);
     const named = /^(web_[a-z_]+)/.exec(message)?.[1];
     const status = named === "web_session_missing" || named === "web_session_expired" ? 503 : 502;
+    console.error(
+      `[codex-web-http] chat turn FAILED: ${named ?? "web_turn_failed"} context_file=${config.contextFile} tools=${web.tools.length} deadline_ms=${config.webTurnDeadlineMs} :: ${message}`,
+    );
     return errorJson(status, named ?? "web_turn_failed", message);
   }
   console.error(
