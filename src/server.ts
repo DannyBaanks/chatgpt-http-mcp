@@ -7,7 +7,7 @@
 // el punto donde Codex deja de hablar con Electron y habla con este CLI.
 import { loadConfig, type AppConfig } from "./config";
 import { filterHeaders, forwardNative, type NativeEndpoint, upstreamUrl } from "./passthrough";
-import { augmentCatalog } from "./web-models";
+import { augmentCatalog, openAiWebModelList } from "./web-models";
 import { handleWebResponses, peekWebRequest } from "./web-responses";
 import { handleChatCompletions } from "./chat-completions";
 import { parseWsTurn, toJsonl, wsFrames } from "./ws-responses";
@@ -33,6 +33,12 @@ function errorJson(status: number, type: string, message: string): Response {
  */
 async function modelsWithWeb(req: Request, config: AppConfig): Promise<Response> {
   const url = new URL(req.url);
+  // Las filas Web no necesitan el upstream: se sirven siempre en forma OpenAI
+  // (data:[{id}]) para clientes como ISyCode/opencode, y ademas se aumentan las
+  // nativas cuando el upstream responde. Sin upstream no se inventan nativas:
+  // se devuelven solo las filas Web, que son las unicas que este server ejecuta.
+  const localList = openAiWebModelList(config.capabilities);
+  const localOnly = () => Response.json(localList, { headers: { "x-isyco-web-models": "local" } });
   let upstream: Response;
   try {
     upstream = await fetch(upstreamUrl(config, "models", url.search), {
@@ -40,24 +46,17 @@ async function modelsWithWeb(req: Request, config: AppConfig): Promise<Response>
       headers: filterHeaders(req.headers),
       redirect: "manual",
     });
-  } catch (error) {
-    return errorJson(502, "upstream_unreachable", error instanceof Error ? error.message : String(error));
+  } catch {
+    return localOnly();
   }
   if (!upstream.ok) {
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: filterHeaders(upstream.headers),
-    });
+    return localOnly();
   }
   try {
     const native = await upstream.json();
-    return Response.json(augmentCatalog(native, config.capabilities));
-  } catch (error) {
-    return errorJson(
-      502,
-      "catalog_augment_failed",
-      error instanceof Error ? error.message : String(error),
-    );
+    return Response.json({ ...augmentCatalog(native, config.capabilities), data: localList.data });
+  } catch {
+    return localOnly();
   }
 }
 

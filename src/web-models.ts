@@ -267,6 +267,18 @@ export function augmentCatalog(value: unknown, caps: AccountCapabilities): JsonO
   return { ...structuredClone(value), models: [...nativeModels, ...webModels] };
 }
 
+/** Filas Web en forma OpenAI (`{object:"list", data:[{id}]}`), para clientes
+ * compatibles tipo ISyCode/opencode que listan modelos por HTTP. */
+export function openAiWebModelList(caps: AccountCapabilities): JsonObject {
+  const data = availableRoutes(caps).map((route) => ({
+    id: route.slug,
+    object: "model",
+    created: 0,
+    owned_by: "isyco-web",
+  }));
+  return { object: "list", data };
+}
+
 /** Diff de filas Web contra un catalogo de referencia. */
 export interface CatalogDiff {
   missing: string[];
