@@ -118,68 +118,117 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
  * Envia UN prompt y espera la respuesta completa del asistente. Reutiliza la
  * pestana existente (no la cierra entre turnos).
  */
+async function readLastAssistant(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const selector = [
+      '[data-testid^="conversation-turn-"][data-turn="assistant"]:not([data-turn-key] *)',
+      '[data-testid^="conversation-turn-"][data-message-author-role="assistant"]:not([data-turn-key] *)',
+      '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"]):not([data-turn-key] *)',
+      '[data-turn-key]:has([data-conversation-role="assistant"], [data-chatgpt-agent-turn-start])',
+    ].join(",");
+    const turns = Array.from(document.querySelectorAll(selector));
+    const last = turns[turns.length - 1] as HTMLElement | undefined;
+    if (!last) return "";
+    const root = last.querySelector(
+      '.markdown, [data-markdown-text-style="assistant-message"], [data-message-author-role="assistant"] .puik-root.not-markdown > [class*="_DilResponseRoot"]',
+    ) as HTMLElement | null;
+    return ((root ?? last).innerText ?? "").trim();
+  });
+}
+
+async function assistantTurnCount(page: Page): Promise<number> {
+  return page
+    .locator('[data-testid^="conversation-turn-"][data-message-author-role="assistant"], [data-turn-key]:has([data-conversation-role="assistant"])')
+    .count()
+    .catch(() => 0);
+}
+
+/**
+ * Envia UN prompt y espera la respuesta completa del asistente. Reutiliza la
+ * pestana existente (no la cierra entre turnos).
+ *
+ * Interaccion con la UI actual (ProseMirror): el draft se siembra con
+ * document.execCommand("insertText") — locator.fill() deja el composer vacio —
+ * y la respuesta se lee del turno del asistente por DOM, no por el texto
+ * localizado "ChatGPT dijo:".
+ */
 export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}): Promise<WebTurnResult> {
   if (!prompt.trim()) throw new Error("web_empty_prompt: prompt vacio");
   const reused = Boolean(session);
   const { page } = await openSession(options);
   const settleMs = options.settleMs ?? 1_000;
-  const deadlineMs = options.deadlineMs ?? 90_000;
+  const deadlineMs = options.deadlineMs ?? 120_000;
   const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
   const t0 = performance.now();
+  const composerText = () => composer.innerText().catch(() => "");
+  const before = await assistantTurnCount(page);
 
-  // Submit robusto: el primer envio puede no registrar. Verifica que el
-  // composer se vacie; si no, usa el boton de enviar; hasta 3 intentos.
+  await composer.click();
+  await page.keyboard.press("Control+a").catch(() => {});
+  await page.keyboard.press("Backspace").catch(() => {});
+  await page.waitForTimeout(150);
+  await composer.evaluate((el, text) => {
+    const element = el as HTMLElement;
+    element.focus();
+    const selection = window.getSelection();
+    if (selection) {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    document.execCommand("insertText", false, text);
+  }, prompt);
+  await page.waitForTimeout(400);
+
+  const seeded = (await composerText()).trim();
+  const probe = prompt.trim().slice(0, Math.min(24, prompt.trim().length));
+  if (!seeded || !seeded.includes(probe)) {
+    return { text: "", ms: Math.round(performance.now() - t0), submitted: false, reused, url: page.url() };
+  }
+
+  // Enviar: boton Enviar (ES/EN) o Enter. Se confirma por composer vacio.
   let submitted = false;
   for (let attempt = 1; attempt <= 3 && !submitted; attempt++) {
-    await composer.click();
-    await composer.fill(prompt);
-    await page.waitForTimeout(400);
-    await page.keyboard.press("Enter");
-    for (let i = 0; i < 12; i++) {
-      await page.waitForTimeout(500);
-      const now = await composer.innerText().catch(() => "");
-      if (!now.trim()) { submitted = true; break; }
+    const send = page
+      .locator('button[data-testid="send-button"], #composer-submit-button, button[aria-label*="Enviar"], button[aria-label*="Send"]')
+      .first();
+    if ((await send.count()) > 0 && (await send.isEnabled().catch(() => false))) {
+      await send.click().catch(() => {});
+    } else {
+      await composer.press("Enter").catch(() => {});
     }
-    if (!submitted) {
-      const send = page
-        .locator('button[data-testid="send-button"], button[aria-label*="Enviar"], button[aria-label*="Send"]')
-        .first();
-      if ((await send.count()) > 0 && (await send.isEnabled().catch(() => false))) {
-        await send.click().catch(() => {});
-      }
-      for (let i = 0; i < 12; i++) {
-        await page.waitForTimeout(500);
-        const now = await composer.innerText().catch(() => "");
-        if (!now.trim()) { submitted = true; break; }
-      }
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(250);
+      if (!(await composerText()).trim()) { submitted = true; break; }
     }
   }
   if (!submitted) {
     return { text: "", ms: Math.round(performance.now() - t0), submitted: false, reused, url: page.url() };
   }
 
-  // La UI actual no expone data-message-author-role: se espera la marca
-  // textual del asistente y se exige texto estable (fin de streaming).
-  const textOf = () => page.evaluate(() => document.querySelector("main")?.innerText ?? "");
-  const markerCount = (t: string) => (t.match(/ChatGPT dijo:|ChatGPT said:/gi) ?? []).length;
-  const beforeMarkers = markerCount(await textOf());
-  let text = "";
-  let stable = 0;
+  // Esperar el turno del asistente y su texto estable (fin del streaming).
   const deadline = Date.now() + deadlineMs;
+  let text = "";
+  let stableSince = 0;
+  let appeared = false;
   while (Date.now() < deadline) {
-    const current = await textOf();
-    const responded = markerCount(current) > beforeMarkers;
-    if (responded && current === text) {
-      stable++;
-      if (stable * settleMs >= 3_000) break;
-    } else {
-      stable = 0;
+    if (!appeared && (await assistantTurnCount(page)) > before) appeared = true;
+    if (appeared) {
+      const current = await readLastAssistant(page);
+      if (current && current === text) {
+        if (stableSince === 0) stableSince = Date.now();
+        if (Date.now() - stableSince >= Math.max(1_500, settleMs)) break;
+      } else {
+        stableSince = 0;
+        text = current;
+      }
     }
-    text = current;
-    await new Promise((resolve) => setTimeout(resolve, settleMs));
+    await page.waitForTimeout(settleMs);
   }
   return {
-    text: extractResponse(text),
+    text: text.trim(),
     ms: Math.round(performance.now() - t0),
     submitted: true,
     reused,
