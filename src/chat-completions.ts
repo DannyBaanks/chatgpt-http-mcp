@@ -15,6 +15,11 @@
 // partes chicas (la caja nunca lleva el texto completo) y recien despues pide
 // la respuesta final. El .txt crece en disco; lo nuevo se empuja en el proximo
 // request. La tool read queda disponible para pedidos de mas contexto.
+//
+// Fase 2 — function calling: si el request trae `tools` (formato OpenAI), el
+// bridge agrega el contrato al prompt; el modelo pide funciones con un sobre
+// JSON y el bridge lo traduce a `tool_calls`. Las ejecuta la TUI con SUS
+// permisos y devuelve los resultados como role:"tool" en el proximo request.
 import { sendWebTurn } from "./web-turn";
 import { isWebModel } from "./web-responses";
 import type { AppConfig } from "./config";
@@ -22,6 +27,10 @@ import {
   makeContextKey, parseReadCall, readContextSlice, renderReadResult,
   writeContextFile,
 } from "./context-file";
+import {
+  parseToolCalls, readAssistantToolCalls, readTools, renderToolContract, toolNames,
+  type ChatTool, type ChatToolCall,
+} from "./chat-tools";
 
 const encoder = new TextEncoder();
 const SSE_DONE = "data: [DONE]";
@@ -35,6 +44,8 @@ export interface ChatWebRequest {
   /** Ultimo mensaje del usuario: se repite en el prompt de trabajo para que el
    *  modelo no confunda la fase de ingesta (ACK) con la respuesta. */
   lastUser: string;
+  /** Funciones que la TUI puede ejecutar (formato OpenAI). */
+  tools: ChatTool[];
 }
 
 function textOf(content: unknown): string {
@@ -52,7 +63,7 @@ function textOf(content: unknown): string {
 }
 
 /**
- * Mapea un body chat.completions a {model, prompt, stream, key}.
+ * Mapea un body chat.completions a {model, prompt, stream, key, lastUser, tools}.
  * system -> instrucciones al frente; el resto como transcript "role: texto".
  * Devuelve null si no es un turno web valido (modelo ajeno o sin texto).
  */
@@ -62,6 +73,7 @@ export function chatBodyToWebRequest(body: unknown): ChatWebRequest | null {
   if (!isWebModel(record.model)) return null;
   const messages = record.messages;
   if (!Array.isArray(messages)) return null;
+  const tools = readTools(record.tools);
   const system: string[] = [];
   const turns: string[] = [];
   let firstUser = "";
@@ -71,15 +83,27 @@ export function chatBodyToWebRequest(body: unknown): ChatWebRequest | null {
     const message = item as Record<string, unknown>;
     const role = typeof message.role === "string" ? message.role : "";
     const text = textOf(message.content).trim();
+    if (role === "assistant") {
+      const calls = readAssistantToolCalls(message.tool_calls);
+      if (calls.length) {
+        turns.push(`assistant: [tool_calls] ${calls.map((c) => `${c.function.name}(${c.function.arguments})`).join(" | ")}${text ? `\n${text}` : ""}`);
+        continue;
+      }
+    }
     if (!text) continue;
     if (role === "system") system.push(text);
-    else if (role === "user" || role === "assistant") {
-      if (role === "user") {
-        if (!firstUser) firstUser = text;
-        lastUser = text;
-      }
-      turns.push(`${role}: ${text}`);
-    } else turns.push(text);
+    else if (role === "user") {
+      if (!firstUser) firstUser = text;
+      lastUser = text;
+      turns.push(`user: ${text}`);
+    } else if (role === "assistant") {
+      turns.push(`assistant: ${text}`);
+    } else if (role === "tool") {
+      const id = typeof message.tool_call_id === "string" ? message.tool_call_id : "";
+      turns.push(`tool${id ? ` (${id})` : ""}: ${text}`);
+    } else {
+      turns.push(text);
+    }
   }
   const prompt = [...system, ...turns].join("\n\n").trim();
   if (!prompt) return null;
@@ -88,6 +112,7 @@ export function chatBodyToWebRequest(body: unknown): ChatWebRequest | null {
     model, prompt, stream: record.stream === true,
     key: makeContextKey(model, system.join("\n"), firstUser),
     lastUser,
+    tools,
   };
 }
 
@@ -97,9 +122,17 @@ function estimateTokens(text: string): number {
 }
 
 /** Objeto `chat.completion` (contrato OpenAI). */
-export function buildChatCompletion(model: string, text: string, prompt: string): Record<string, unknown> {
+export function buildChatCompletion(
+  model: string,
+  text: string,
+  prompt: string,
+  toolCalls: ChatToolCall[] = [],
+): Record<string, unknown> {
   const promptTokens = estimateTokens(prompt);
   const completionTokens = estimateTokens(text);
+  const message = toolCalls.length
+    ? { role: "assistant", content: null, tool_calls: toolCalls }
+    : { role: "assistant", content: text };
   return {
     id: `chatcmpl-cwh_${crypto.randomUUID().replace(/-/g, "")}`,
     object: "chat.completion",
@@ -108,8 +141,8 @@ export function buildChatCompletion(model: string, text: string, prompt: string)
     choices: [
       {
         index: 0,
-        message: { role: "assistant", content: text },
-        finish_reason: "stop",
+        message,
+        finish_reason: toolCalls.length ? "tool_calls" : "stop",
         logprobs: null,
       },
     ],
@@ -121,8 +154,12 @@ export function buildChatCompletion(model: string, text: string, prompt: string)
   };
 }
 
-/** SSE con UN delta de texto + done. Misma honestidad que web-responses. */
-export function buildChatStream(model: string, text: string): ReadableStream<Uint8Array> {
+/** SSE con UN delta + done. Si hay tool calls, el delta las lleva completas. */
+export function buildChatStream(
+  model: string,
+  text: string,
+  toolCalls: ChatToolCall[] = [],
+): ReadableStream<Uint8Array> {
   const id = `chatcmpl-cwh_${crypto.randomUUID().replace(/-/g, "")}`;
   const created = Math.floor(Date.now() / 1000);
   const chunk = (delta: unknown, finish: string | null): Uint8Array =>
@@ -131,8 +168,14 @@ export function buildChatStream(model: string, text: string): ReadableStream<Uin
     );
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(chunk({ role: "assistant", content: text }, null));
-      controller.enqueue(chunk({}, "stop"));
+      if (toolCalls.length) {
+        const deltas = toolCalls.map((call, index) => ({ index, ...call }));
+        controller.enqueue(chunk({ role: "assistant", tool_calls: deltas }, null));
+        controller.enqueue(chunk({}, "tool_calls"));
+      } else {
+        controller.enqueue(chunk({ role: "assistant", content: text }, null));
+        controller.enqueue(chunk({}, "stop"));
+      }
       controller.enqueue(encoder.encode(`${SSE_DONE}\n\n`));
       controller.close();
     },
@@ -157,6 +200,19 @@ async function sendSingleTurn(web: ChatWebRequest, config: AppConfig): Promise<s
   return result.text;
 }
 
+interface ChatTurnResult {
+  text: string;
+  toolCalls: ChatToolCall[];
+}
+
+/** Transporte clasico + tools: una sola pasada, contrato al final del prompt. */
+async function runSingleTurn(web: ChatWebRequest, config: AppConfig): Promise<ChatTurnResult> {
+  const prompt = web.tools.length ? `${web.prompt}\n\n${renderToolContract(web.tools)}` : web.prompt;
+  const reply = await sendSingleTurn({ ...web, prompt }, config);
+  const calls = web.tools.length ? parseToolCalls(reply, toolNames(web.tools)) : [];
+  return { text: calls.length ? "" : reply, toolCalls: calls };
+}
+
 /** Lineas ya ingestadas por chat (en memoria; al reiniciar se relee todo). */
 const contextReadState = new Map<string, number>();
 const CONTEXT_MAX_ROUNDS = 60;
@@ -167,7 +223,7 @@ const CONTEXT_MAX_ROUNDS = 60;
  * (<= 200 lineas / 10 KB cada una): la caja nunca lleva el texto completo y el
  * archivo sigue creciendo en disco. Lo nuevo se empuja en el proximo request.
  */
-async function runContextFileFlow(web: ChatWebRequest, config: AppConfig): Promise<string> {
+async function runContextFileFlow(web: ChatWebRequest, config: AppConfig): Promise<ChatTurnResult> {
   const written = writeContextFile(web.key, web.prompt);
   let readFrom = contextReadState.get(web.key) ?? 0;
   if (readFrom > written.total) readFrom = 0;
@@ -194,20 +250,24 @@ async function runContextFileFlow(web: ChatWebRequest, config: AppConfig): Promi
   // la conversacion ya tiene ACKs de la ingesta y el modelo hacia eco.
   const ask = web.lastUser.trim();
   const askTail = ask.length > 1500 ? ask.slice(-1500) : ask;
+  const contract = web.tools.length ? `\n\n${renderToolContract(web.tools)}` : "";
   let prompt =
     "El archivo de contexto ya fue ingestado en esta conversacion (las partes anteriores). " +
     "Responde AHORA, en texto plano, al mensaje del usuario. No respondas ACK ni repitas estas instrucciones: da la respuesta final.\n" +
-    `Mensaje del usuario: ${askTail}`;
+    `Mensaje del usuario: ${askTail}${contract}`;
+  const allowed = toolNames(web.tools);
   let ackRetries = 0;
   for (let round = 0; round < CONTEXT_MAX_ROUNDS; round++) {
     const reply = await sendSingleTurn({ ...web, prompt }, config);
-    const call = parseReadCall(reply);
-    if (call) {
-      const slice = readContextSlice(call.path, call.offset, call.limit);
+    const read = parseReadCall(reply);
+    if (read) {
+      const slice = readContextSlice(read.path, read.offset, read.limit);
       contextReadState.set(web.key, Math.max(contextReadState.get(web.key) ?? 0, slice.next));
       prompt = renderReadResult(slice);
       continue;
     }
+    const calls = web.tools.length ? parseToolCalls(reply, allowed) : [];
+    if (calls.length) return { text: "", toolCalls: calls };
     const trimmed = reply.trim();
     if (/^ack[.!]?$/i.test(trimmed) && ackRetries < 2) {
       ackRetries++;
@@ -216,7 +276,7 @@ async function runContextFileFlow(web: ChatWebRequest, config: AppConfig): Promi
         `${askTail || "el ultimo mensaje del contexto"}. No respondas ACK.`;
       continue;
     }
-    return reply;
+    return { text: reply, toolCalls: [] };
   }
   throw new Error("web_context_answer_loop: demasiadas rondas de read");
 }
@@ -233,9 +293,9 @@ export async function handleChatCompletions(req: Request, config: AppConfig): Pr
   if (!web) {
     return errorJson(400, "not_web_model", "solo modelos chatgpt-web/* con messages no vacios");
   }
-  let text: string;
+  let turn: ChatTurnResult;
   try {
-    text = config.contextFile ? await runContextFileFlow(web, config) : await sendSingleTurn(web, config);
+    turn = config.contextFile ? await runContextFileFlow(web, config) : await runSingleTurn(web, config);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const named = /^(web_[a-z_]+)/.exec(message)?.[1];
@@ -243,11 +303,11 @@ export async function handleChatCompletions(req: Request, config: AppConfig): Pr
     return errorJson(status, named ?? "web_turn_failed", message);
   }
   console.error(
-    `[codex-web-http] web chat turn ok: model=${web.model} context_file=${config.contextFile} chars=${text.length}`,
+    `[codex-web-http] web chat turn ok: model=${web.model} context_file=${config.contextFile} tool_calls=${turn.toolCalls.length} chars=${turn.text.length}`,
   );
   return web.stream
-    ? new Response(buildChatStream(web.model, text), {
+    ? new Response(buildChatStream(web.model, turn.text, turn.toolCalls), {
         headers: { "content-type": "text/event-stream", "cache-control": "no-store" },
       })
-    : Response.json(buildChatCompletion(web.model, text, web.prompt));
+    : Response.json(buildChatCompletion(web.model, turn.text, web.prompt, turn.toolCalls));
 }
