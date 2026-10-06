@@ -15,14 +15,16 @@
 // (~/.codex-web-http/codex-sessions.json), las tools ejecutan de verdad con la
 // politica de esa sesion (read-only | writable) y sandbox bwrap. Un token
 // desconocido conserva el comportamiento stub (compat OpenISy).
-import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { extname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import {
+  bridgeHome,
   findSessionByToken,
+  fingerprint,
   patchPaths,
   resolveWithin,
   sandboxArgv,
@@ -67,9 +69,34 @@ function fail(reason: string, extra: Record<string, unknown> = {}) {
   };
 }
 
-function sessionFrom(input: Record<string, unknown>): CodexSession | null {
+// Traza local (JSONL, 0600) de cada llamada al MCP: herramienta, fingerprint
+// del token y sesion resuelta. Es la prueba independiente del modelo para
+// verificar revocaciones (nunca escribe el token completo).
+function trace(event: string, detail: Record<string, unknown>): void {
+  try {
+    mkdirSync(bridgeHome(), { recursive: true });
+    appendFileSync(join(bridgeHome(), "mcp-trace.log"), `${new Date().toISOString()} ${event} ${JSON.stringify(detail)}\n`, { mode: 0o600 });
+  } catch {
+    /* la traza nunca debe romper el server */
+  }
+}
+
+process.on("uncaughtException", (err) => {
+  trace("uncaughtException", { message: String((err as Error)?.message ?? err) });
+});
+process.on("unhandledRejection", (err) => {
+  trace("unhandledRejection", { message: String((err as Error)?.message ?? err) });
+});
+
+function sessionFrom(input: Record<string, unknown>, tool = "-"): CodexSession | null {
   const token = String(input[turnKey] ?? "");
-  return token ? findSessionByToken(token) : null;
+  const session = token ? findSessionByToken(token) : null;
+  trace("call", {
+    tool,
+    token_fp: token ? fingerprint(token) : null,
+    session: session ? `${session.label}[${session.fp}]` : null,
+  });
+  return session;
 }
 
 function sessionMeta(session: CodexSession) {
@@ -197,7 +224,7 @@ server.registerTool(
   async (input: Record<string, unknown>) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
-    const session = findSessionByToken(token);
+    const session = sessionFrom(input, "codex_turn_start");
     if (session) return jsonText({ started: true, session: sessionMeta(session) });
     return jsonText({ started: true, turn_token: token });
   },
@@ -216,7 +243,7 @@ server.registerTool(
   async (input: Record<string, unknown>) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
-    const session = findSessionByToken(token);
+    const session = sessionFrom(input, "codex_exec");
     if (session) return runExec(session, input.command, input.cwd);
     const command = input.command as string[];
     return jsonText({
@@ -246,7 +273,7 @@ server.registerTool(
     if (!token || !response) {
       return fail(`${turnKey} y response requeridos`);
     }
-    const session = findSessionByToken(token);
+    const session = sessionFrom(input, "codex_turn_complete");
     if (session) return jsonText({ completed: true, session: sessionMeta(session) });
     return jsonText({ completed: true, turn_token: token });
   },
@@ -259,7 +286,7 @@ server.registerTool(
     inputSchema: { [turnKey]: turnTokenSchema },
   },
   async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input);
+    const session = sessionFrom(input, "codex_tool_inventory");
     if (session) {
       return jsonText({
         session: sessionMeta(session),
@@ -286,7 +313,7 @@ server.registerTool(
     },
   },
   async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input);
+    const session = sessionFrom(input, "codex_write_stdin");
     if (session) {
       return jsonText({
         session: sessionMeta(session),
@@ -311,7 +338,7 @@ server.registerTool(
     },
   },
   async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input);
+    const session = sessionFrom(input, "codex_apply_patch");
     if (session) return runApplyPatch(session, input.patch);
     return jsonText({
       turn_token: input[turnKey],
@@ -330,7 +357,7 @@ server.registerTool(
     },
   },
   async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input);
+    const session = sessionFrom(input, "codex_view_image");
     if (session) return runViewImage(session, input.path);
     return jsonText({
       turn_token: input[turnKey],
@@ -356,7 +383,7 @@ server.registerTool(
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
   async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input);
+    const session = sessionFrom(input, "codex_tool_call");
     if (session) {
       return jsonText({
         session: sessionMeta(session),
@@ -377,3 +404,4 @@ server.registerTool(
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error(`[codex-web-http MCP] contract=${contract} broker=${brokerSocketPath} sessions=${sandboxAvailable() ? "bwrap" : "no-bwrap"}`);
+trace("startup", { pid: process.pid, contract, sandbox: sandboxAvailable() });
