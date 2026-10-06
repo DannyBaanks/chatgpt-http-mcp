@@ -81,8 +81,40 @@ ${card("CONVERSACION", `<div style="font-size:12px;word-break:break-all">${state
 ${card("SESIONES MCP", `<div style="font-size:12px">${sessions}</div>`)}
 ${card("ULTIMOS ERRORES", errors)}
 </div>
-<div style="margin-top:16px;color:#666;font-size:12px">read-only · M13a · ${state.ts}</div>
+<div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+<button onclick="act('server-start')">Server ▶</button>
+<button onclick="act('server-stop')">Server ■</button>
+<button onclick="act('tunnel-connect')">Tunel ▶</button>
+<button onclick="act('tunnel-stop')">Tunel ■</button>
+<button onclick="act('session-list')">Sessions</button>
+</div>
+<script>async function act(a){const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:a})});const j=await r.json();alert((j.ok?'OK\n':'FALLO\n')+(j.out||a));location.reload();}</script>
+<div style="margin-top:16px;color:#666;font-size:12px">M13b · acciones via isymcp · ${state.ts}</div>
 </body></html>`;
+}
+
+const ROOT = join(import.meta.dir, "..");
+
+const ACTIONS: Record<string, string[]> = {
+  "server-start": ["server", "start"],
+  "server-stop": ["server", "stop"],
+  "tunnel-connect": ["tunnel", "connect"],
+  "tunnel-stop": ["tunnel", "stop"],
+  "session-list": ["session", "list"],
+};
+
+export function runPanelAction(action: string): { ok: boolean; out: string } {
+  const args = ACTIONS[action];
+  if (!args) return { ok: false, out: `accion desconocida: ${action}` };
+  const proc = Bun.spawnSync(["bun", "run", join(ROOT, "src", "isymcp.ts"), ...args], {
+    cwd: ROOT,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 120_000,
+    env: process.env,
+  });
+  const out = `${proc.stdout.toString()}${proc.stderr.toString()}`.trim().slice(-1500);
+  return { ok: (proc.exitCode ?? 1) === 0, out: out || `exit ${proc.exitCode}` };
 }
 
 export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_PORT ?? "8791") {
@@ -91,6 +123,10 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
     port,
     async fetch(req) {
       const url = new URL(req.url);
+      if (url.pathname === "/api/action" && req.method === "POST") {
+        const body = (await req.json().catch(() => ({}))) as { action?: string };
+        return Response.json(runPanelAction(String(body.action ?? "")));
+      }
       const state = await buildPanelState(bridgePort);
       if (url.pathname === "/api/state") return Response.json(state);
       return new Response(renderPanel(state), { headers: { "content-type": "text/html; charset=utf-8" } });
