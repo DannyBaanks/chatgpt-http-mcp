@@ -28,10 +28,14 @@ afterAll(() => {
   rmSync(workspace, { recursive: true, force: true });
 });
 
-async function callTool(tool: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function callTool(
+  tool: string,
+  args: Record<string, unknown>,
+  extraEnv: Record<string, string> = {},
+): Promise<Record<string, unknown>> {
   const proc = Bun.spawn(["bun", "src/mcp/main.ts", "--contract", "native"], {
     cwd: ROOT,
-    env: { ...process.env, CODEX_WEB_HTTP_HOME: home },
+    env: { ...process.env, CODEX_WEB_HTTP_HOME: home, ...extraEnv },
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -53,19 +57,20 @@ async function callTool(tool: string, args: Record<string, unknown>): Promise<Re
   send({ jsonrpc: "2.0", method: "notifications/initialized" });
   send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: tool, arguments: args } });
 
+  // Sin Promise.race por iteracion: filtraria un read() pendiente y con
+  // respuestas lentas el dato resuelve el read filtrado (visto 2026-10-06).
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buf = "";
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline && !buf.includes('"id":2')) {
-    const chunk = await Promise.race([
-      reader.read(),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
-    ]);
-    if (chunk === null) continue;
-    if (chunk.done) break;
-    buf += decoder.decode(chunk.value, { stream: true });
-  }
+  const readUntil = (async () => {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      buf += decoder.decode(value, { stream: true });
+      if (buf.includes('"id":2')) return;
+    }
+  })();
+  await Promise.race([readUntil, new Promise((resolve) => setTimeout(resolve, 30_000))]);
   proc.kill();
   await proc.exited;
 
@@ -143,6 +148,37 @@ describe("MCP con session tokens (vivo)", () => {
       rmSync(repo, { recursive: true, force: true });
     }
   });
+
+  test("sandbox off: read-only falla cerrado, writable ejecuta sin sandbox", async () => {
+    const ro = mintSession(workspace, { label: "nosandbox-ro", writable: false });
+    const denied = await callTool(
+      "codex_exec",
+      { turn_token: ro.token, command: ["echo", "x"] },
+      { CODEX_WEB_HTTP_SANDBOX: "off" },
+    );
+    expect(String(denied.error)).toContain("fail-closed");
+
+    const rw = mintSession(workspace, { label: "nosandbox-rw", writable: true });
+    const ok = await callTool(
+      "codex_exec",
+      { turn_token: rw.token, command: ["echo", "sin-sandbox"] },
+      { CODEX_WEB_HTTP_SANDBOX: "off" },
+    );
+    expect(ok.executed).toBe(true);
+    expect(ok.sandbox).toBe("none");
+    expect(String(ok.stdout)).toContain("sin-sandbox");
+  });
+
+  test("timeout de exec: kill + timed_out", async () => {
+    const rw = mintSession(workspace, { label: "timeout-rw", writable: true });
+    const res = await callTool(
+      "codex_exec",
+      { turn_token: rw.token, command: ["sh", "-c", "sleep 5"] },
+      { CODEX_WEB_HTTP_EXEC_TIMEOUT_MS: "800" },
+    );
+    expect(res.executed).toBe(true);
+    expect(res.timed_out).toBe(true);
+  }, 20_000);
 
   test("writable escribe solo dentro del workspace", async () => {
     const session = mintSession(workspace, { label: "rw", writable: true });

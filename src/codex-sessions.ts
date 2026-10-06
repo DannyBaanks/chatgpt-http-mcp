@@ -132,6 +132,9 @@ export function resolveWithin(root: string, candidate: string): string | null {
 export const BWRAP = "/usr/bin/bwrap";
 
 export function sandboxAvailable(): boolean {
+  // Escape hatch operativa/test: CODEX_WEB_HTTP_SANDBOX=off desactiva bwrap.
+  // Las sesiones read-only siguen fallando cerrado sin sandbox (ver sandboxArgv).
+  if (process.env.CODEX_WEB_HTTP_SANDBOX?.trim() === "off") return false;
   return existsSync(BWRAP);
 }
 

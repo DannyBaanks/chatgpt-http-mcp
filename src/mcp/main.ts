@@ -107,7 +107,7 @@ function clip(text: string, max = 64 * 1024): string {
   return text.length <= max ? text : `${text.slice(0, max)}\n…[truncado ${text.length - max} bytes]`;
 }
 
-function runExec(session: CodexSession, command: unknown, cwdArg: unknown) {
+async function runExec(session: CodexSession, command: unknown, cwdArg: unknown) {
   if (!Array.isArray(command) || command.length === 0 || command.some((c) => typeof c !== "string" || !c.trim())) {
     return fail("command debe ser un argv no vacio de strings");
   }
@@ -120,23 +120,40 @@ function runExec(session: CodexSession, command: unknown, cwdArg: unknown) {
     return fail("fail-closed: bwrap no disponible para una sesion read-only", { session: sessionMeta(session) });
   }
   const started = Date.now();
+  const execTimeoutMs = Number(process.env.CODEX_WEB_HTTP_EXEC_TIMEOUT_MS ?? "") || 60_000;
+  let timedOut = false;
   try {
-    const proc = Bun.spawnSync(argv, {
+    // Async (no spawnSync): el server MCP no puede bloquear su event loop
+    // (visto 2026-10-06: spawnSync con timeout dejaba el turno sin respuesta).
+    const proc = Bun.spawn(argv, {
       cwd: workdir,
       stdout: "pipe",
       stderr: "pipe",
-      timeout: 60_000,
       env: process.env,
     });
+    trace("exec.spawn", { writable: session.writable, workdir });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      trace("exec.kill", {});
+      proc.kill();
+    }, execTimeoutMs);
+    const stdout = await new Response(proc.stdout).text();
+    trace("exec.stdout", { len: stdout.length });
+    const stderr = await new Response(proc.stderr).text();
+    trace("exec.stderr", { len: stderr.length });
+    const exitCode = await proc.exited;
+    trace("exec.exited", { exitCode, timedOut });
+    clearTimeout(timer);
     return jsonText({
       executed: true,
       sandbox: sandboxAvailable() ? (session.writable ? "bwrap-workspace-write" : "bwrap-read-only") : "none",
       session: sessionMeta(session),
       command,
       cwd: workdir,
-      exit_code: proc.exitCode,
-      stdout: clip(proc.stdout.toString()),
-      stderr: clip(proc.stderr.toString()),
+      exit_code: exitCode,
+      timed_out: timedOut,
+      stdout: clip(stdout),
+      stderr: clip(stderr),
       duration_ms: Date.now() - started,
     });
   } catch (err) {
@@ -144,7 +161,7 @@ function runExec(session: CodexSession, command: unknown, cwdArg: unknown) {
   }
 }
 
-function runApplyPatch(session: CodexSession, patch: unknown) {
+async function runApplyPatch(session: CodexSession, patch: unknown) {
   if (typeof patch !== "string" || !patch.trim()) return fail("patch requerido");
   if (!session.writable) return fail("sesion read-only: apply_patch denegado", { session: sessionMeta(session) });
   const { paths, codexFormat } = patchPaths(patch);
@@ -162,20 +179,26 @@ function runApplyPatch(session: CodexSession, patch: unknown) {
     // git apply exige newline final; los modelos suelen omitirlo.
     const normalizedPatch = patch.endsWith("\n") ? patch : `${patch}\n`;
     writeFileSync(tmpFile, normalizedPatch, { mode: 0o600 });
-    const proc = Bun.spawnSync(["git", "apply", "--whitespace=nowarn", tmpFile], {
+    const proc = Bun.spawn(["git", "apply", "--whitespace=nowarn", tmpFile], {
       cwd: session.cwd,
       stdout: "pipe",
       stderr: "pipe",
-      timeout: 60_000,
       env: process.env,
     });
+    const timer = setTimeout(() => proc.kill(), 60_000);
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    clearTimeout(timer);
     return jsonText({
-      executed: proc.exitCode === 0,
+      executed: exitCode === 0,
       session: sessionMeta(session),
       files: [...new Set(paths)],
-      exit_code: proc.exitCode,
-      stdout: clip(proc.stdout.toString()),
-      stderr: clip(proc.stderr.toString()),
+      exit_code: exitCode,
+      stdout: clip(stdout),
+      stderr: clip(stderr),
     });
   } finally {
     try {

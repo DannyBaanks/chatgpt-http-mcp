@@ -228,12 +228,14 @@ async function readLastAssistant(page: Page): Promise<string> {
   return page.evaluate(([primary, fallback]) => {
     const primaryTurns = Array.from(document.querySelectorAll(primary));
     const turns = (primaryTurns.length > 0 ? primaryTurns : Array.from(document.querySelectorAll(fallback))) as HTMLElement[];
-    const last = turns[turns.length - 1];
-    if (!last) return "";
-    const root = last.querySelector(
-      '.markdown, [data-markdown-text-style="assistant-message"], [data-message-author-role="assistant"] .puik-root.not-markdown > [class*="_DilResponseRoot"]',
-    ) as HTMLElement | null;
-    return ((root ?? last).innerText ?? "").trim();
+    if (turns.length === 0) return "";
+    // Preferir el ULTIMO bloque markdown (respuesta del asistente): evita
+    // contenedores que incluyen el turno del usuario (eco visto 2026-10-06).
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const marks = turns[i].querySelectorAll('.markdown');
+      if (marks.length > 0) return ((marks[marks.length - 1] as HTMLElement).innerText ?? "").trim();
+    }
+    return (turns[turns.length - 1].innerText ?? "").trim();
   }, [ASSISTANT_PRIMARY_SELECTOR, ASSISTANT_FALLBACK_SELECTOR] as const);
 }
 
@@ -287,6 +289,7 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
   const composerText = () => composer.innerText().catch(() => "");
   await waitConversationSettle(page);
   const beforeId = await lastAssistantIdentity(page);
+  const beforeText = await readLastAssistant(page);
 
   const connector = options.connector ?? (process.env.CODEX_WEB_HTTP_CONNECTOR?.trim() || undefined);
   if (connector) {
@@ -363,25 +366,34 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
     return { text: "", ms: Math.round(performance.now() - t0), submitted: false, reused, url: page.url() };
   }
 
-  // Esperar el turno del asistente y su texto estable (fin del streaming).
+  // Esperar el turno del asistente. Fase 1: fin real de la generacion via el
+  // indicador "Detener" (evita cortar durante "Ha pensado durante N s", que
+  // deja texto intermedio estable). Fase 2: lectura estable del ultimo markdown.
   const deadline = Date.now() + deadlineMs;
+  const stopButton = page
+    .locator('button[data-testid="stop-button"], button[aria-label*="Detener"], button[aria-label*="Stop"]')
+    .first();
+  let sawBusy = false;
+  const graceUntil = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const busy = (await stopButton.count().catch(() => 0)) > 0;
+    if (busy) sawBusy = true;
+    if (sawBusy && !busy) break;
+    if (!sawBusy && Date.now() > graceUntil) break;
+    await page.waitForTimeout(400);
+  }
   let text = "";
   let stableSince = 0;
-  let appeared = false;
   while (Date.now() < deadline) {
-    if (!appeared) {
-      const id = await lastAssistantIdentity(page);
-      if (id && id !== beforeId && (await readLastAssistant(page)).trim()) appeared = true;
-    }
-    if (appeared) {
-      const current = await readLastAssistant(page);
-      if (current && current === text) {
-        if (stableSince === 0) stableSince = Date.now();
-        if (Date.now() - stableSince >= Math.max(1_500, settleMs)) break;
-      } else {
-        stableSince = 0;
-        text = current;
-      }
+    const current = await readLastAssistant(page);
+    // Con generacion confirmada, el texto previo no es una respuesta valida.
+    const acceptable = Boolean(current) && !(sawBusy && current === beforeText);
+    if (acceptable && current === text) {
+      if (stableSince === 0) stableSince = Date.now();
+      if (Date.now() - stableSince >= Math.max(1_500, settleMs)) break;
+    } else {
+      stableSince = 0;
+      text = current;
     }
     await page.waitForTimeout(settleMs);
   }
