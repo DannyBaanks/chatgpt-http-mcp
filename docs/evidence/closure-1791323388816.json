@@ -1,0 +1,21 @@
+{
+  "ts": "2026-10-06T21:49:48.815Z",
+  "tests": {
+    "pass": 94,
+    "fail": 0,
+    "exit": 0
+  },
+  "e2e": {
+    "ok": true,
+    "reason": "ok",
+    "nonce": "ISYMCP_1791323341281_egi1oz",
+    "http": "ISYMCP_1791323341281_egi1oz"
+  },
+  "hashes": {
+    "src/web-turn.ts": "5af414c9b6b178bc",
+    "src/chat-completions.ts": "39436f4802f5a9c2",
+    "src/server.ts": "2ee7d84d1d524f2f",
+    "src/mcp/main.ts": "9b6d31746c1eed68",
+    "src/codex-sessions.ts": "4a2f1691ed469e51"
+  }
+}
