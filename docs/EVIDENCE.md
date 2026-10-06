@@ -246,3 +246,13 @@ Para costo por turno harian falta ~20+ turnos y esperar refresco del medidor.
   en la ultima llamada (texto limpio del turno correcto). El turno siguiente fue
   frenado por un chequeo de seguridad de OpenAI ("no se ha podido determinar el
   estado de seguridad"), condicion transitoria del lado OpenAI.
+
+**CORRECCION (misma fecha, cierre)**: la "revocacion DEMONSTRATED" y los recibos
+"V1 stub" de mas arriba ocurrieron durante la ventana del daemon viejo roto
+("Session terminated" en toda llamada real). Con el patron descubierto despues
+(el modelo repite recibos viejos del historial), esos "stub" fueron casi
+seguramente RECUERDO del modelo, no llamadas reales: la revocacion en vivo y
+`apply_patch` en vivo por ChatGPT quedan **NOT_DEMONSTRATED**, pendientes de
+repetir con el tunel sano (reiniciado 13:54). Lo que SI queda firme: pwd/nonce/
+read-only del primer daemon (stderr real de bwrap), apply_patch a nivel MCP con
+registro real, y el HTTP-only echo (post-reinicio).
