@@ -186,3 +186,20 @@ No demostrado todavia:
   6% de uso y hubo una "Conexion interrumpida" previa; el mismo MCP con el
   registro real si aplica el patch. Es flakiness del camino tunel/OpenAI, no del
   tool. Reintentar cuando la cuota se restablezca (9 oct) o con cuota disponible.
+
+## Medición de cuota y CLI (2026-10-06, noche)
+
+- **Medición de cuota** (1 turno con connector + tool call, conversación
+  `6ac4556e-...`): sidebar ANTES `Queda un 6 %` / DESPUÉS `Queda un 6 %` — sin
+  delta visible. El turno sí ejecutó una llamada por el connector (recibo
+  `executed=false, exit_code=128`, el modelo reusó el apply_patch del historial).
+  Con resolución de 1 % no descarta deltas <0.5 %; no es concluyente, pero es
+  consistente con la corrección del usuario (chatgpt.com no gasta la
+  suscripción; la conexión del connector sí — y aun así no movió el medidor en
+  1 turno). Lectura: sidebar por CDP (`/tmp/opencode/quota-read.ts`, no versionado).
+- **CLI `isymcp` completado** (commit): `up`/`server start` pasan
+  `CODEX_WEB_HTTP_CONNECTOR=Codex ISyMCP` (nombre de `identity.ts`) al server
+  detached; `--no-connector` lo apaga; `status` muestra connector + sesiones
+  (fp/modo); menú con subrama **Sesiones MCP…** (listar/crear read-only/revocar,
+  + cookies legacy). Smoke en puerto 8899: env del hijo verificada, health ok,
+  stop limpio; `--no-connector` deja la env ausente.
