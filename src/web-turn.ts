@@ -8,6 +8,7 @@
 // Sin sesion/cookies no inventa nada: devuelve error nombrado.
 import { chromium, type Browser, type Page } from "playwright-core";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { sanitizeEvidenceText } from "./sanitize";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -312,7 +313,8 @@ async function dumpCaptureFailure(page: Page): Promise<void> {
         },
       };
     });
-    writeFileSync(join(dir, "dump.json"), JSON.stringify({ ts: new Date().toISOString(), ...info }, null, 2));
+    const dump = sanitizeEvidenceText(JSON.stringify({ ts: new Date().toISOString(), ...info }, null, 2));
+    writeFileSync(join(dir, "dump.json"), dump);
   } catch {
     /* el dump nunca debe romper el turno */
   }
