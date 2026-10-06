@@ -203,3 +203,24 @@ No demostrado todavia:
   (fp/modo); menú con subrama **Sesiones MCP…** (listar/crear read-only/revocar,
   + cookies legacy). Smoke en puerto 8899: env del hijo verificada, health ok,
   stop limpio; `--no-connector` deja la env ausente.
+
+## Medicion de cuota con el medidor correcto (2026-10-06, noche)
+
+Correccion del owner: el medidor que manda es el de **5 h**; el semanal es otro.
+El popover con ambos se lee clickeando el pill "Queda un X % de uso"
+(`/tmp/opencode/quota-diag2.ts`, no versionado; el footer solo muestra el semanal).
+
+Cronologia (~13:17-13:37 locales, popover leido en cada punto):
+- baseline: 5 h `100 % restante` (reset ~18:20) | semanal `6 % restante`.
+- 2 turnos planos (sin connector, `burst.ts plain`): 5 h 100 % | semanal 6 %.
+- 4 turnos con connector (1 fallo al subir, menu throttleado): 5 h 100 % | semanal 6 %.
+- Total ~7 turnos automatizados: NINGUN medidor muestra delta (resolucion 1 %).
+- El reloj de reset del 5 h SI avanza con actividad (18:17 -> 18:37): los turnos
+  cuentan como actividad, pero el costo por turno es <1 % (irresoluble a esta
+  granularidad con ~7 turnos).
+
+Conclusion: a esta resolucion, el uso automatizado (plano o con connector) no
+mueve los medidores visibles; el semanal al 6 % es uso previo del owner, no de
+estas pruebas. No se puede confirmar ni refutar desde los medidores que "la
+conexion OAuth consuma": los turnos con connector tampoco movieron nada.
+Para costo por turno harian falta ~20+ turnos y esperar refresco del medidor.
