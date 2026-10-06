@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { bindCookies } from "./sessions";
 import { mintSession, readSessions, revokeSession } from "./codex-sessions";
+import { startPanel } from "./panel";
 import { runHook } from "./hooks";
 import { installWebModels } from "../scripts/install-web-models";
 import { defaultExportPath, exportLines, formatLine, parseBound, readAll, selectLines } from "./logs";
@@ -269,6 +270,7 @@ function help(): void {
   console.log(`isymcp — consola del bridge Codex ISyMCP
 
   isymcp                     estado
+  isymcp panel [--port 8798] panel visual del bridge (navegador)
   isymcp up [--no-connector] levanta server (detached) y conecta el tunel;
                              el server deja elegido el connector Codex ISyMCP
   isymcp down                para server y tunel
@@ -482,6 +484,11 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
     help();
     process.exit(2);
   }
+} else if (cmd === "panel") {
+  const argsAll = [sub, ...rest].filter((a): a is string => Boolean(a));
+  const port = Number(flag("--port", argsAll) ?? "8798");
+  startPanel(port);
+  console.log(`panel en http://127.0.0.1:${port} (Ctrl+C para cerrar)`);
 } else if (cmd === "session") {
   if (sub === "mint" || sub === "list" || sub === "revoke") {
     try {
