@@ -1,0 +1,20 @@
+# Third-party notices / atribucion
+
+Este proyecto incluye mecanicas y contratos derivados de proyectos MIT:
+
+- codex-chatgpt-web (MIT, Copyright (c) 2026 codex-chatgpt-web contributors)
+  https://github.com/miuuyy/codex-chatgpt-web
+  Mecanica de seleccion del connector en el composer (src/web-turn.ts),
+  comportamiento del tunel/runtime (docs/TUNNEL_AND_MODELS.md). Commit de
+  referencia: 28a7c79.
+
+- codex-web-gpt-http-cli (MIT, segun docs/PROTOCOL.md)
+  Contrato del passthrough nativo (/v1/models, /v1/responses). Commit de
+  referencia: 324c52c75f1d87c65ee4b94ee71efd2dce1b4ebf.
+
+Dependencias:
+
+- playwright-core (Apache-2.0)
+- @modelcontextprotocol/sdk (MIT)
+
+Las licencias completas de esos proyectos se conservan en sus repositorios.
