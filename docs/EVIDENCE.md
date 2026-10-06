@@ -166,3 +166,23 @@ No demostrado todavia:
 - revocacion en vivo (token revocado -> el siguiente turno no ejecuta);
 - `codex_apply_patch` writable en vivo y workspace isolation con sesion writable;
 - prueba HTTP-only (M4.12) y failure matrix (M4.13).
+
+## Revocacion y apply_patch (2026-10-06, tarde)
+
+- **Revocacion EN VIVO: DEMONSTRATED.** Misma conversacion `6ac4556e-...`;
+  el token ro `ead58a0e0a0a` habia ejecutado nonces antes (control). Luego
+  `isymcp session revoke ead58a0e0a0a` -> 1 removida -> el siguiente turno con
+  ese token devuelve el recibo stub ("broker not connected (V1 stub)") y NO
+  ejecuta (nonce ausente en la respuesta).
+- **apply_patch con sesion writable: DEMONSTRATED a nivel MCP con el registro
+  real.** `nota.txt` de `/tmp/opencode/isyco-rw-ws` paso de `"hola\n"` a
+  `"hola\nmundo ISYMCP\n"`; recibo `executed:true, exit_code:0`. Ademas:
+  `git apply` exige newline final -> el MCP ahora normaliza (los modelos lo
+  omiten); tests cubren writable ok, escape `..` negado y read-only negado.
+- **apply_patch EN VIVO por ChatGPT: NOT_DEMONSTRATED en esta ventana.**
+  El turno con patch recibio el recibo stub (probable token mal copiado por el
+  modelo en el argumento) y el control con token valido recibio
+  `McpServerError: Session terminated` intermitente del tunel. La cuenta esta al
+  6% de uso y hubo una "Conexion interrumpida" previa; el mismo MCP con el
+  registro real si aplica el patch. Es flakiness del camino tunel/OpenAI, no del
+  tool. Reintentar cuando la cuota se restablezca (9 oct) o con cuota disponible.
