@@ -132,3 +132,37 @@ bun test   -> 22 pass / 0 fail
 - E2E vivo contra `chatgpt.com` (requiere token del usuario; `e2e-native.ts`
   lo toma por entorno y hoy sale SKIPPED).
 - Transporte Web (M4): depende del gate M1.
+
+## Session bridge nativo (@codex native2) end-to-end: DEMONSTRATED (2026-10-06)
+
+Bridge-only (sin launcher). Session tokens `094571cd` + seleccion de connector
+`0e17f51e` + captura robusta `070d147d`.
+
+- Setup: `bun run tunnel:connect` -> tunnel_6aa79054 ready/readyz OK,
+  mcp_command = `bun run src/mcp/main.ts --contract native`.
+- Sesion real read-only: `isymcp session mint --cwd /home/danny/Development/ISyCo
+  --label codex-web-http-e2e` (fp `ead58a0e0a0a`; el token completo vive solo en
+  el registro 0600 y en el mensaje del composer, por diseno del connector).
+- Evidencia viva (conversacion `6ac4556e-...`, modelo gpt-5.6-sol):
+  - `codex_exec ["pwd"]` -> `/home/danny/Development/ISyCo` (cwd de la sesion).
+  - `codex_exec ["echo","NONCE-eottxwsv"]` -> `NONCE-eottxwsv` (nonce no
+    impronosticable: prueba ejecucion real, no alucinacion).
+  - `codex_exec ["touch",".../isyco_write_test.txt"]` -> stderr
+    `Sistema de archivos de solo lectura`, `exit code: 1`; el archivo NO existe
+    (read-only bwrap demostrado en vivo).
+  - Mismo session token en >=4 turnos; pill "Codex ISyMCP" presente en el composer.
+
+Hallazgos:
+- El filtro de seguridad de OpenAI bloquea tool calls con shell compuesto
+  (`sh -c` + redirects) ANTES de llegar al tunel ("ERROR: Esta llamada a la
+  herramienta se ha bloqueado..."). argv simple (`pwd`, `echo`, `touch`) pasa.
+- La captura de respuesta falla a veces al recargar una conversacion persistida
+  (probe 4: texto vacio a los 240 s con respuestas ya visibles en el DOM).
+  Endurecido en `070d147d` (settle + fallback + no-vacio); pendiente un selector
+  estable para conversaciones recargadas.
+- Probes usados: `/tmp/opencode/e2e-native-probe{1..4}.ts` (no versionados).
+
+No demostrado todavia:
+- revocacion en vivo (token revocado -> el siguiente turno no ejecuta);
+- `codex_apply_patch` writable en vivo y workspace isolation con sesion writable;
+- prueba HTTP-only (M4.12) y failure matrix (M4.13).
