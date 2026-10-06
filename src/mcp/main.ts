@@ -132,7 +132,9 @@ function runApplyPatch(session: CodexSession, patch: unknown) {
   }
   const tmpFile = join(tmpdir(), `isyco-patch-${process.pid}-${Date.now()}.diff`);
   try {
-    writeFileSync(tmpFile, patch, { mode: 0o600 });
+    // git apply exige newline final; los modelos suelen omitirlo.
+    const normalizedPatch = patch.endsWith("\n") ? patch : `${patch}\n`;
+    writeFileSync(tmpFile, normalizedPatch, { mode: 0o600 });
     const proc = Bun.spawnSync(["git", "apply", "--whitespace=nowarn", tmpFile], {
       cwd: session.cwd,
       stdout: "pipe",

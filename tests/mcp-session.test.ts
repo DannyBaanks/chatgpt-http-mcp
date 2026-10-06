@@ -6,7 +6,7 @@
 //   - read-only no puede escribir (bwrap ro),
 //   - writable si puede (bwrap + bind del workspace).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -107,6 +107,41 @@ describe("MCP con session tokens (vivo)", () => {
     expect(denied.executed).toBe(true);
     expect(denied.exit_code).not.toBe(0);
     expect(existsSync(pwn)).toBe(false);
+  });
+
+  test("apply_patch: writable aplica, rechaza escape y read-only", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "isyco-mcp-repo-"));
+    try {
+      Bun.spawnSync(["git", "init", "-q"], { cwd: repo });
+      writeFileSync(join(repo, "nota.txt"), "hola\n");
+      Bun.spawnSync(["git", "add", "nota.txt"], { cwd: repo });
+      const patch = [
+        "--- a/nota.txt",
+        "+++ b/nota.txt",
+        "@@ -1 +1,2 @@",
+        " hola",
+        "+mundo ISYMCP",
+      ].join("\n");
+
+      const rw = mintSession(repo, { label: "patch-rw", writable: true });
+      const ok = await callTool("codex_apply_patch", { turn_token: rw.token, patch });
+      expect(ok.executed).toBe(true);
+      expect(String(ok.stderr)).toBe("");
+      expect(readFileSync(join(repo, "nota.txt"), "utf8")).toContain("mundo ISYMCP");
+
+      const escape = await callTool("codex_apply_patch", {
+        turn_token: rw.token,
+        patch: ["--- a/../fuera.txt", "+++ b/../fuera.txt", "@@ -0,0 +1 @@", "+x"].join("\n"),
+      });
+      expect(String(escape.error)).toContain("fuera del workspace");
+      expect(existsSync(join(repo, "..", "fuera.txt"))).toBe(false);
+
+      const ro = mintSession(repo, { label: "patch-ro", writable: false });
+      const denied = await callTool("codex_apply_patch", { turn_token: ro.token, patch });
+      expect(String(denied.error)).toContain("read-only");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   test("writable escribe solo dentro del workspace", async () => {
