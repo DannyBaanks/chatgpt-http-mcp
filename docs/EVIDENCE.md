@@ -296,3 +296,24 @@ Failure matrix:
 - Pendiente vivo: la captura del texto final a veces devuelve estado
   intermedio/eco (el HTTP puede responder web_no_response aunque el turno SI
   haya ejecutado; la traza y el filesystem son la evidencia firme).
+
+## Recta final: pulido + failure matrix cerrada (2026-10-06)
+
+- **Captura pulida**: `readLastAssistant` prefiere el ultimo `.markdown` (evita
+  contenedores con el turno del usuario); espera de fin real por boton
+  "Detener" (no corta durante "Ha pensado durante N s"); el submit espera a que
+  Enviar se habilite (hasta 20 s). Commit incluido.
+- **Exec async**: `codex_exec`/`codex_apply_patch` ya no usan spawnSync (no
+  bloquean el event loop del MCP); timeout configurable
+  (`CODEX_WEB_HTTP_EXEC_TIMEOUT_MS`) con `timed_out` en el recibo.
+- **bwrap-ausente: DEMONSTRATED** (test vivo): `CODEX_WEB_HTTP_SANDBOX=off` ->
+  read-only falla cerrado ("fail-closed"), writable ejecuta con `sandbox:"none"`.
+- **timeout de exec: DEMONSTRATED** (test vivo): `sleep` + timeout 800 ms ->
+  `timed_out:true`, exit 143.
+- Hallazgo de metodo: una sonda/helper con Promise.race por iteracion FILTRA
+  reads pendientes y "pierde" respuestas lentas (el MCP respondia siempre);
+  helper corregido con un unico `for await`. 91/91 tests.
+
+Failure matrix final: todos los casos DEMONSTRATED salvo "timeout" que ahora
+tambien lo esta; la captura quedo pulida (verificacion viva de la captura
+pendiente en la proxima corrida HTTP).
