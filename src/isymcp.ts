@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { bindCookies } from "./sessions";
-import { bindCookies } from "./sessions";
+import { mintSession, readSessions, revokeSession } from "./codex-sessions";
 import { runHook } from "./hooks";
 import { installWebModels } from "../scripts/install-web-models";
 import { defaultExportPath, exportLines, formatLine, parseBound, readAll, selectLines } from "./logs";
@@ -143,6 +143,47 @@ function guardarSesion(name: string): void {
   console.log(`conversacion: ${record.conversationUrl ?? "(aun no hay /c/, el primer turno la guarda)"}`);
 }
 
+// session mint|list|revoke — capacidades del MCP nativo (Codex ISyMCP).
+// Read-only por defecto; --write habilita apply_patch y escrituras sandbox.
+function codexSession(sub: string, rest: string[]): void {
+  const opt = (name: string): string | undefined => {
+    const i = rest.indexOf(name);
+    return i >= 0 ? rest[i + 1] : undefined;
+  };
+  if (sub === "mint") {
+    const cwd = opt("--cwd") ?? process.cwd();
+    const label = opt("--label");
+    const writable = rest.includes("--write") || rest.includes("--writable") || rest.includes("--rw");
+    const record = mintSession(cwd, { label, writable });
+    console.log("sesion Codex ISyMCP creada (el token se muestra UNA vez; el registro es 0600)");
+    console.log(`  label:    ${record.label}`);
+    console.log(`  cwd:      ${record.cwd}`);
+    console.log(`  writable: ${record.writable}`);
+    console.log(`  fp:       ${record.fp}`);
+    console.log(`  token:    ${record.token}`);
+    console.log("");
+    console.log("Para usarla, elegir el app Codex ISyMCP en el composer y pegar:");
+    console.log("  COMANDO: @CODEX ISYMCP");
+    console.log(`  turn_token: ${record.token}`);
+    return;
+  }
+  if (sub === "list") {
+    const sessions = readSessions();
+    for (const s of sessions) {
+      console.log(`${s.createdAt} ${s.writable ? "rw" : "ro"} ${s.cwd} (${s.label}) [${s.fp}]`);
+    }
+    console.log(`Sessions: ${sessions.length}`);
+    return;
+  }
+  if (sub === "revoke") {
+    const target = rest.find((a) => !a.startsWith("--"));
+    if (!target) throw new Error("uso: isymcp session revoke <token|fp>");
+    console.log(`Revoked sessions: ${revokeSession(target)}`);
+    return;
+  }
+  throw new Error("uso: isymcp session mint --cwd <dir> [--label x] [--write] | list | revoke <token|fp>");
+}
+
 function modelsRestore(): void {
   const result = installWebModels({ restore: true });
   console.log(JSON.stringify(result, null, 2));
@@ -201,6 +242,10 @@ function help(): void {
   isymcp tui install         dry-run del parche opencode (provider+MCP)
   isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
   isymcp tui install --restore vuelve al backup
+  isymcp session mint --cwd <dir> [--label x] [--write]
+                             crea un session token del MCP (read-only por defecto)
+  isymcp session list        sesiones vivas (solo fingerprint)
+  isymcp session revoke <token|fp>
   isymcp logs                ultimos 50
   isymcp logs --last 20
   isymcp logs export         guarda TODOS en ~/.codex-web-http/logs/
@@ -387,7 +432,16 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
     process.exit(2);
   }
 } else if (cmd === "session") {
-  guardarSesion(sub || "default");
+  if (sub === "mint" || sub === "list" || sub === "revoke") {
+    try {
+      codexSession(sub, rest);
+    } catch (err) {
+      console.error(String(err instanceof Error ? err.message : err));
+      process.exit(2);
+    }
+  } else {
+    guardarSesion(sub || "default");
+  }
 } else if (cmd === "logs") {
   logs([sub, ...rest].filter((part): part is string => Boolean(part)));
 } else {
