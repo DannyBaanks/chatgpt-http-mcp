@@ -235,7 +235,11 @@ async function readLastAssistant(page: Page): Promise<string> {
       const marks = turns[i].querySelectorAll('.markdown');
       if (marks.length > 0) return ((marks[marks.length - 1] as HTMLElement).innerText ?? "").trim();
     }
-    return (turns[turns.length - 1].innerText ?? "").trim();
+    const container = (turns[turns.length - 1].innerText ?? "").trim();
+    // Contenedor que incluye el turno del usuario = aun no hay respuesta;
+    // devolver vacio (mejor web_no_response honesto que un eco).
+    if (/^(Tú dijiste|You said):/.test(container)) return "";
+    return container;
   }, [ASSISTANT_PRIMARY_SELECTOR, ASSISTANT_FALLBACK_SELECTOR] as const);
 }
 
