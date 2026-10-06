@@ -199,6 +199,9 @@ const ASSISTANT_TURN_SELECTOR = [
   '[data-testid^="conversation-turn-"][data-message-author-role="assistant"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"]):not([data-turn-key] *)',
   '[data-turn-key]:has([data-conversation-role="assistant"], [data-chatgpt-agent-turn-start])',
+  // Fallback observado en conversaciones persistidas/recargadas (2026-10-06):
+  // los turnos existen por autor aunque no expongan los testids de arriba.
+  '[data-message-author-role="assistant"]',
 ].join(",");
 
 /** Identidad del ultimo turno assistant: robusta a la virtualizacion del DOM
@@ -237,6 +240,24 @@ async function assistantTurnCount(page: Page): Promise<number> {
 }
 
 /**
+ * Espera a que la conversacion deje de renderizar antes de capturar la
+ * identidad "antes" del turno: si se captura mientras la pagina carga, la
+ * virtualizacion cambia identidades y el bridge confunde el ultimo mensaje
+ * viejo con una respuesta nueva (carrera observada en la conversacion
+ * persistente, 2026-10-06).
+ */
+async function waitConversationSettle(page: Page, maxMs = 6_000): Promise<void> {
+  const deadline = Date.now() + maxMs;
+  let last = -1;
+  while (Date.now() < deadline) {
+    const count = await assistantTurnCount(page);
+    if (count === last) return;
+    last = count;
+    await page.waitForTimeout(500);
+  }
+}
+
+/**
  * Envia UN prompt y espera la respuesta completa del asistente. Reutiliza la
  * pestana existente (no la cierra entre turnos).
  *
@@ -254,6 +275,7 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
   const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
   const t0 = performance.now();
   const composerText = () => composer.innerText().catch(() => "");
+  await waitConversationSettle(page);
   const beforeId = await lastAssistantIdentity(page);
 
   const connector = options.connector ?? (process.env.CODEX_WEB_HTTP_CONNECTOR?.trim() || undefined);
@@ -332,7 +354,7 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
   while (Date.now() < deadline) {
     if (!appeared) {
       const id = await lastAssistantIdentity(page);
-      if (id && id !== beforeId) appeared = true;
+      if (id && id !== beforeId && (await readLastAssistant(page)).trim()) appeared = true;
     }
     if (appeared) {
       const current = await readLastAssistant(page);
