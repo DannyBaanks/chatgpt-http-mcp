@@ -27,6 +27,82 @@ export interface WebTurnOptions {
   deadlineMs?: number;
   /** Si ya hay un chat /c/, no abre otro. */
   conversationUrl?: string;
+  /**
+   * Nombre EXACTO del connector a seleccionar en el composer antes de enviar
+   * (p. ej. "Codex ISyMCP"). Si no se pasa, cae a CODEX_WEB_HTTP_CONNECTOR.
+   */
+  connector?: string;
+}
+
+const CONNECTOR_MENTION_QUERY = "@codex";
+const CONNECTOR_MENU_SELECTOR =
+  '.__menu-item[tabindex="0"], [data-mention-list-scroll-area] button[data-list-navigation-item="true"]';
+
+function connectorPill(page: Page, appName: string) {
+  const quoted = JSON.stringify(appName);
+  return page.locator(
+    `[data-id^="plugin:"][data-keyword=${quoted}], `
+    + `[app-mention-path^="app://"][app-mention-display-name=${quoted}][contenteditable="false"]`,
+  );
+}
+
+async function connectorSelected(page: Page, appName: string): Promise<boolean> {
+  const pill = connectorPill(page, appName).filter({ visible: true });
+  return (await pill.count().catch(() => 0)) >= 1;
+}
+
+/**
+ * Selecciona el connector en el composer (mecanica portada del launcher
+ * codex-chatgpt-web: query @codex -> fila exacta del menu (resaltada por
+ * teclado) -> Enter -> pill visible). Limpia el composer antes de escribir la
+ * mention. Lanza error nombrado si no puede demostrar la seleccion.
+ */
+async function selectConnector(page: Page, appName: string): Promise<void> {
+  if (await connectorSelected(page, appName)) return;
+  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
+  const menuRows = page.locator(CONNECTOR_MENU_SELECTOR);
+  const appResult = menuRows.filter({ has: page.getByText(appName, { exact: true }) });
+  let lastError = "sin intentos";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await composer.click();
+    await page.keyboard.press("Control+a").catch(() => {});
+    await page.keyboard.press("Backspace").catch(() => {});
+    await page.waitForTimeout(150);
+    await composer.click();
+    await composer.pressSequentially(CONNECTOR_MENTION_QUERY, { delay: 25 });
+    try {
+      await appResult.waitFor({ state: "visible", timeout: 2_500 });
+    } catch {
+      lastError = `intento ${attempt}: el menu no mostro "${appName}"`;
+      continue;
+    }
+    const exact = await appResult.count().catch(() => 0);
+    if (exact !== 1) {
+      lastError = `intento ${attempt}: filas exactas=${exact}`;
+      continue;
+    }
+    const highlighted = async () =>
+      (await appResult.getAttribute("data-highlighted").catch(() => null)) !== null
+      || (await appResult.getAttribute("aria-current").catch(() => null)) === "true";
+    if (!(await highlighted())) {
+      const visibleRows = await menuRows.filter({ visible: true }).count().catch(() => 0);
+      for (let step = 0; step < visibleRows && !(await highlighted()); step++) {
+        await composer.press("ArrowDown").catch(() => {});
+      }
+    }
+    if (!(await highlighted())) {
+      lastError = `intento ${attempt}: la fila no se pudo resaltar`;
+      continue;
+    }
+    await composer.press("Enter");
+    try {
+      await connectorPill(page, appName).first().waitFor({ state: "visible", timeout: 10_000 });
+      return;
+    } catch {
+      lastError = `intento ${attempt}: sin pill tras Enter`;
+    }
+  }
+  throw new Error(`web_connector_unavailable: ${appName} (${lastError})`);
 }
 
 function shellBinary(): string {
@@ -180,10 +256,17 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
   const composerText = () => composer.innerText().catch(() => "");
   const beforeId = await lastAssistantIdentity(page);
 
-  await composer.click();
-  await page.keyboard.press("Control+a").catch(() => {});
-  await page.keyboard.press("Backspace").catch(() => {});
-  await page.waitForTimeout(150);
+  const connector = options.connector ?? (process.env.CODEX_WEB_HTTP_CONNECTOR?.trim() || undefined);
+  if (connector) {
+    // La seleccion deja el pill en el composer; el texto se siembra despues
+    // (el caret queda al final, el pill se conserva).
+    await selectConnector(page, connector);
+  } else {
+    await composer.click();
+    await page.keyboard.press("Control+a").catch(() => {});
+    await page.keyboard.press("Backspace").catch(() => {});
+    await page.waitForTimeout(150);
+  }
   await composer.evaluate((el, text) => {
     const element = el as HTMLElement;
     element.focus();
