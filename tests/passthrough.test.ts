@@ -127,7 +127,12 @@ test("rutas y metodos invalidos fallan con JSON nombrado", async () => {
   expect(notFound.status).toBe(404);
   expect(((await notFound.json()) as { error: { type: string } }).error.type).toBe("not_found");
 
-  const wrongMethod = await fetch(ourUrl("/v1/responses"));
+  // GET /v1/responses es el camino websocket de Codex (426 deliberado si no
+  // hay upgrade, para que no lo confunda con un 405 y reintente contra la cuenta).
+  const wsProbe = await fetch(ourUrl("/v1/responses"));
+  expect(wsProbe.status).toBe(426);
+
+  const wrongMethod = await fetch(ourUrl("/v1/responses"), { method: "PUT" });
   expect(wrongMethod.status).toBe(405);
   expect(((await wrongMethod.json()) as { error: { type: string } }).error.type).toBe("method_not_allowed");
 });
