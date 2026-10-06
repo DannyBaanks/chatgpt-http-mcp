@@ -59,28 +59,36 @@ async function serverUp(): Promise<boolean> {
   }
 }
 
-function startServer(): void {
+function startServer(options: { connector?: string | null } = {}): void {
   mkdirSync(RUN, { recursive: true });
   const existing = readPid();
   if (existing && alive(existing)) {
     console.log(`server ya corre (pid ${existing})`);
     return;
   }
+  // Connector por defecto: el nombre publico del MCP (identity.ts). `null` lo
+  // apaga; la env CODEX_WEB_HTTP_CONNECTOR lo sobreescribe.
+  const connector = options.connector === null
+    ? ""
+    : (options.connector ?? process.env.CODEX_WEB_HTTP_CONNECTOR ?? CONNECTOR_NAME);
+  const childEnv: Record<string, string | undefined> = {
+    ...process.env,
+    CODEX_WEB_HTTP_WEB_MODELS: process.env.CODEX_WEB_HTTP_WEB_MODELS ?? "on",
+    CODEX_WEB_HTTP_PORT: PORT,
+    CODEX_WEB_HTTP_CAPS: process.env.CODEX_WEB_HTTP_CAPS ?? "sol,pro,extrahigh,bigger",
+  };
+  if (connector) childEnv.CODEX_WEB_HTTP_CONNECTOR = connector;
+  else delete childEnv.CODEX_WEB_HTTP_CONNECTOR;
   const logFd = openSync(LOG, "a");
   const child = spawn("bun", ["run", join(ROOT, "src", "cli.ts")], {
     cwd: ROOT,
     detached: true,
     stdio: ["ignore", logFd, logFd],
-    env: {
-      ...process.env,
-      CODEX_WEB_HTTP_WEB_MODELS: process.env.CODEX_WEB_HTTP_WEB_MODELS ?? "on",
-      CODEX_WEB_HTTP_PORT: PORT,
-      CODEX_WEB_HTTP_CAPS: process.env.CODEX_WEB_HTTP_CAPS ?? "sol,pro,extrahigh,bigger",
-    },
+    env: childEnv,
   });
   child.unref();
   writeFileSync(PID, `${child.pid}\n`);
-  console.log(`server detached pid=${child.pid} log=${LOG}`);
+  console.log(`server detached pid=${child.pid} log=${LOG} connector=${connector || "off"}`);
   console.log("podes cerrar esta terminal: el server no es hijo de ella");
 }
 
@@ -224,13 +232,26 @@ async function status(): Promise<void> {
   const mcp = sh(["pgrep", "-af", "codex-web-http/src/mcp/main.ts"]);
   const line = mcp.out.split("\n").find((l) => l.includes("mcp/main.ts") && !l.includes("pgrep"));
   console.log(`  mcp      ${line ? "up" : "down"}`);
+  console.log(`  connector ${process.env.CODEX_WEB_HTTP_CONNECTOR ?? CONNECTOR_NAME}`);
+  const sessions = readSessions();
+  const detail = sessions.map((s) => `${s.label}[${s.fp}]${s.writable ? "/rw" : "/ro"}`).join(", ");
+  console.log(`  sessions  ${sessions.length}${detail ? ` -> ${detail}` : ""}`);
+}
+
+async function menuSession(sub: string, rest: string[]): Promise<void> {
+  try {
+    codexSession(sub, rest);
+  } catch (err) {
+    console.error(String(err instanceof Error ? err.message : err));
+  }
 }
 
 function help(): void {
   console.log(`isymcp — consola del bridge Codex ISyMCP
 
   isymcp                     estado
-  isymcp up                  levanta server (detached) y conecta el tunel
+  isymcp up [--no-connector] levanta server (detached) y conecta el tunel;
+                             el server deja elegido el connector Codex ISyMCP
   isymcp down                para server y tunel
   isymcp server start|stop
   isymcp tunnel connect|stop|status
@@ -335,7 +356,17 @@ async function runAction(id: string): Promise<void> {
   }   else if (id === "models-dry") installIntoCodex(false);
   else if (id === "models-apply") installIntoCodex(true);
   else if (id === "models-restore") modelsRestore();
-  else if (id === "session") guardarSesion("default");
+  else if (id === "session-list") await menuSession("list", []);
+  else if (id === "session-mint") {
+    const cwd = (await ask(`cwd (${process.cwd()}): `)) || process.cwd();
+    const label = await ask("label (ej: codex-web-http-e2e): ");
+    await menuSession("mint", ["--cwd", cwd, ...(label ? ["--label", label] : [])]);
+  }
+  else if (id === "session-revoke") {
+    const target = await ask("token o fingerprint: ");
+    if (target) await menuSession("revoke", [target]);
+  }
+  else if (id === "session-cookies") guardarSesion("default");
   else if (id === "command") {
     const text = await ask("texto de la tarea: ");
     const effort = await ask("effort [high]: ") || "high";
@@ -383,7 +414,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
 } else if (cmd === "help" || cmd === "--help" || cmd === "-h") {
   help();
 } else if (cmd === "up") {
-  startServer();
+  const noConnector = [sub, ...rest].includes("--no-connector");
+  startServer({ connector: noConnector ? null : undefined });
   await new Promise((r) => setTimeout(r, 800));
   console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
   tunnel("connect");
@@ -392,7 +424,7 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   tunnel("stop");
   stopServer();
 } else if (cmd === "server" && sub === "start") {
-  startServer();
+  startServer({ connector: rest.includes("--no-connector") ? null : undefined });
 } else if (cmd === "server" && sub === "stop") {
   stopServer();
 } else if (cmd === "tunnel" && sub) {

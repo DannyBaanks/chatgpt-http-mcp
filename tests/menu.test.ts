@@ -4,7 +4,7 @@ import { hiddenHookIds, visible, visibleLabels, MENU } from "../src/menu";
 describe("menu", () => {
   test("el arbol tiene ramas hijo", () => {
     const parents = visible(MENU).filter((item) => item.children);
-    expect(parents.map((item) => item.id).sort()).toEqual(["logs", "models", "server", "tunnel"]);
+    expect(parents.map((item) => item.id).sort()).toEqual(["logs", "models", "server", "session", "tunnel"]);
   });
 
   test("los hooks existen y no se ven", () => {
