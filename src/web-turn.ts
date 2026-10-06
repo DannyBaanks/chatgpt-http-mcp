@@ -71,7 +71,9 @@ async function selectConnector(page: Page, appName: string): Promise<void> {
     await composer.click();
     await composer.pressSequentially(CONNECTOR_MENTION_QUERY, { delay: 25 });
     try {
-      await appResult.waitFor({ state: "visible", timeout: 2_500 });
+      // 8s: cuentas con throttling tardan varios segundos en poblar el menu
+      // (medido 2026-10-06: la fila aparecio ~9 s despues de tipear @codex).
+      await appResult.waitFor({ state: "visible", timeout: 8_000 });
     } catch {
       lastError = `intento ${attempt}: el menu no mostro "${appName}"`;
       continue;
@@ -96,7 +98,7 @@ async function selectConnector(page: Page, appName: string): Promise<void> {
     }
     await composer.press("Enter");
     try {
-      await connectorPill(page, appName).first().waitFor({ state: "visible", timeout: 10_000 });
+      await connectorPill(page, appName).first().waitFor({ state: "visible", timeout: 15_000 });
       return;
     } catch {
       lastError = `intento ${attempt}: sin pill tras Enter`;

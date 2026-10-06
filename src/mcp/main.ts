@@ -145,7 +145,7 @@ function runApplyPatch(session: CodexSession, patch: unknown) {
     return jsonText({
       executed: proc.exitCode === 0,
       session: sessionMeta(session),
-      files: paths,
+      files: [...new Set(paths)],
       exit_code: proc.exitCode,
       stdout: clip(proc.stdout.toString()),
       stderr: clip(proc.stderr.toString()),
