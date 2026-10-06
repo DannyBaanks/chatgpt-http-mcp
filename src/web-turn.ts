@@ -151,6 +151,19 @@ export function extractResponse(main: string): string {
 
 let session: { browser: Browser; page: Page; key: string } | undefined;
 
+function isCrashError(err: unknown): boolean {
+  const m = err instanceof Error ? err.message : String(err);
+  return /Target crashed|Page crashed|Target closed|has been closed|browser has been closed/i.test(m);
+}
+
+/** M13c: cierra la sesion rota para que openSession relance el browser. */
+async function reviveSession(): Promise<void> {
+  if (!session) return;
+  const current = session;
+  session = undefined;
+  await current.browser.close().catch(() => {});
+}
+
 async function openSession(options: WebTurnOptions): Promise<{ browser: Browser; page: Page }> {
   const which = options.browser ?? "chrome";
   const statePath = options.statePath ?? join(homedir(), ".codex-web-http", "storage-state.json");
@@ -381,6 +394,7 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
     }
   }
 
+  try {
   // Enviar: boton Enviar (ES/EN) o Enter. Se confirma por composer vacio.
   let submitted = false;
   for (let attempt = 1; attempt <= 3 && !submitted; attempt++) {
@@ -447,6 +461,21 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
     reused,
     url: page.url(),
   };
+  } catch (err) {
+    if (!isCrashError(err)) throw err;
+    // M13c: la pagina crasheo. Reviver: relanzar y RECAPTURAR la respuesta ya
+    // generada (jamas reenviar el turno). Si no se puede probar, error nombrado.
+    await reviveSession();
+    const revived = await openSession(options).catch(() => undefined);
+    if (revived) {
+      await waitConversationSettle(revived.page).catch(() => {});
+      const recaptured = (await readLastAssistant(revived.page).catch(() => "")).trim();
+      if (recaptured && recaptured !== beforeText) {
+        return { text: recaptured, ms: Math.round(performance.now() - t0), submitted: true, reused, url: revived.page.url() };
+      }
+    }
+    throw new Error(`web_page_crashed: la pagina crasheo y no se pudo recapturar (${String(err).slice(0, 120)})`);
+  }
 }
 
 /** Cierra la sesion perezosa (tests, scripts, apagado). */

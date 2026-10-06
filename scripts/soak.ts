@@ -3,7 +3,7 @@
 // Cada turno ademas se REPITE con el mismo x-isymcp-turn-id para verificar el
 // replay de idempotencia (x-isymcp-replayed: 1, sin re-ejecucion).
 //   bun run scripts/soak.ts [N] [PORT]
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { buildChatGPTCommand } from "../src/mcp/identity";
@@ -22,7 +22,8 @@ if (!session) { console.error("soak: sin sesion en el registro"); process.exit(2
 const server = Bun.spawn(["bun", "run", join(ROOT, "src", "cli.ts")], {
   cwd: ROOT,
   env: { ...process.env, CODEX_WEB_HTTP_PORT: PORT, CODEX_WEB_HTTP_CONNECTOR: "Codex ISyMCP" },
-  stdin: "ignore", stdout: "ignore", stderr: "ignore",
+  stdin: "ignore", stdout: "ignore",
+  stderr: (() => { mkdirSync(join(HOME, "run"), { recursive: true }); return openSync(join(HOME, "run", "soak-server.log"), "a"); })(),
 });
 
 interface Result { i: number; nonce: string; ok: boolean; replayed: string | null; ms: number; http: string }
@@ -52,6 +53,9 @@ try {
     } catch (err) { http = String(err).slice(0, 120); }
     results.push({ i, nonce, ok, replayed, ms: Date.now() - started, http: http.slice(0, 160) });
     console.log(`[soak ${i}/${N}] ok=${ok} replay=${replayed} ms=${Date.now() - started}`);
+    // M13c: fail-fast — infra muerta no se martilla 70 veces
+    const fastFail = !ok && Date.now() - started < 2000 && /crashed|closed|ECONNREFUSED|Unable to connect|fetch failed/i.test(http);
+    if (fastFail) { console.error(`[soak] ABORT: infraestructura caida en turno ${i}: ${http.slice(0, 120)}`); break; }
   }
 } finally {
   server.kill();

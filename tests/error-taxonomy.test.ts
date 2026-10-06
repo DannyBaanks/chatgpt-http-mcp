@@ -13,6 +13,7 @@ describe("M6: error taxonomy", () => {
     ["web_turn_submit_failed: submitted=false ms=17326", 502],
     ["web_capture_empty: submitted=true ms=94885", 504],
     ["web_browser_missing: binario no encontrado", 503],
+    ["web_page_crashed: la pagina crasheo", 503],
     ["web_turn_failed: algo raro", 500],
   ];
   for (const [message, status] of cases) {

@@ -13,6 +13,7 @@ export const ERROR_STATUS: Record<string, number> = {
   web_capture_empty: 504,
   web_no_response: 504,
   web_browser_missing: 503,
+  web_page_crashed: 503,
   web_context_answer_loop: 502,
   web_turn_failed: 500,
 };
