@@ -224,3 +224,25 @@ mueve los medidores visibles; el semanal al 6 % es uso previo del owner, no de
 estas pruebas. No se puede confirmar ni refutar desde los medidores que "la
 conexion OAuth consuma": los turnos con connector tampoco movieron nada.
 Para costo por turno harian falta ~20+ turnos y esperar refresco del medidor.
+
+## HTTP-only end-to-end + causa raiz de "Session terminated" (2026-10-06, tarde)
+
+- **HTTP-only DEMONSTRATED**: `isymcp server start` en 8793 (connector default
+  ON) + POST `/v1/chat/completions` (modelo `chatgpt-web/gpt-5.6-sol`, body con
+  el COMANDO + turn_token de la sesion rw) -> ChatGPT Web -> connector ->
+  tunel -> MCP -> `codex_exec ["echo","HTTP-kxat4j"]` -> la conversacion muestra
+  `ChatGPT dijo: HTTP-kxat4j`. El circuito completo funciona por HTTP puro.
+- **Causa raiz de "Session terminated"**: el daemon del tunel era de oct 5
+  21:59 (15.9 h) — `isymcp tunnel stop` informaba "Stopped" pero el daemon en su
+  sesion tmux SOBREVIVIA, y tras la "Conexion interrumpida" toda llamada real
+  devolvia "Session terminated" (los textos "V1 stub" vistos eran el modelo
+  repitiendo recibos viejos del historial, no llamadas reales). Matar el tmux a
+  mano + `tunnel:connect` -> el mismo turno HTTP devolvio el nonce real.
+  Fix: `tunnel stop` ahora cierra tambien las sesiones tmux
+  `tunnel-mcp__codex-web-http__*`.
+- **Captura**: dos carreras corregidas (selectores primary-first para no
+  capturar contenedores con el turno del usuario; settle por conteo+identidad
+  para no capturar el turno anterior en conversaciones recargadas). Verificado
+  en la ultima llamada (texto limpio del turno correcto). El turno siguiente fue
+  frenado por un chequeo de seguridad de OpenAI ("no se ha podido determinar el
+  estado de seguridad"), condicion transitoria del lado OpenAI.
