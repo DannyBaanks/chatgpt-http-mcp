@@ -256,3 +256,43 @@ seguramente RECUERDO del modelo, no llamadas reales: la revocacion en vivo y
 repetir con el tunel sano (reiniciado 13:54). Lo que SI queda firme: pwd/nonce/
 read-only del primer daemon (stderr real de bwrap), apply_patch a nivel MCP con
 registro real, y el HTTP-only echo (post-reinicio).
+
+## RE-VERIFICACION con tunel sano + failure matrix (2026-10-06, tarde-noche)
+
+Setup: tunel reiniciado de verdad (fix `tunnel stop` verificado: mato el tmux);
+MCP con trazas (`~/.codex-web-http/mcp-trace.log`, 0600: tool + fingerprint +
+sesion resuelta); bridge 8793 via `isymcp server start` (connector default).
+Sesiones: rw `e59c5937d099`, ro reverify `b8f9cb0b0bc4`.
+
+- **apply_patch EN VIVO: DEMONSTRATED.** HTTP -> ChatGPT -> connector -> tunel
+  -> MCP -> git apply: `nota.txt` paso de `hola` a `hola\nreverify RV-gm5otm`.
+  Traza: turn_start/apply_patch/turn_complete con session=rw resuelta.
+- **Control read-only: DEMONSTRATED.** touch en workspace con sesion ro:
+  ejecutado y bloqueado por bwrap (archivo NO creado). Traza con session=ro.
+- **Revocacion EN VIVO: DEMONSTRATED (traza decisiva, independiente del modelo).**
+  Antes: token b8f9cb0b0bc4 -> session resuelta; `isymcp session revoke` ->
+  mismo token -> `session: null`, sin ejecucion, archivo ausente. (La version
+  anterior de esta evidencia, basada en "V1 stub" del modelo, quedo corregida:
+  era recuerdo del historial con el tunel roto.)
+- **HTTP-only: DEMONSTRATED** (echo HTTP-kxat4j post-reinicio; apply_patch y
+  touch de esta ronda tambien fueron por HTTP puro).
+
+Failure matrix:
+
+| caso | resultado | estado |
+|---|---|---|
+| token desconocido/revocado | session null -> recibo stub, sin ejecucion | DEMONSTRATED (vivo, traza) |
+| write en sesion ro | bwrap ro: exit!=0, sin archivo | DEMONSTRATED (vivo) |
+| apply_patch fuera del workspace (`../`) | rechazado "fuera del workspace" | DEMONSTRATED (test) |
+| apply_patch en sesion ro | rechazado "sesion read-only" | DEMONSTRATED (test) |
+| modelo no web por HTTP | 400 `not_web_model` | DEMONSTRATED (vivo) |
+| connector no disponible | `web_connector_unavailable: <name>` | OBSERVED (menu throttleado) |
+| submit con generacion en curso | `web_no_response: submitted=false` | OBSERVED (2x) + fix de espera |
+| bwrap ausente en sesion ro | fail-closed (codigo) | NOT_DEMONSTRATED |
+| timeout de exec (60 s) | kill + reporte | NOT_DEMONSTRATED |
+
+- Fix: el submit ahora espera hasta 20 s a que el boton Enviar se habilite
+  (ChatGPT lo deshabilita mientras genera; causaba submitted=false).
+- Pendiente vivo: la captura del texto final a veces devuelve estado
+  intermedio/eco (el HTTP puede responder web_no_response aunque el turno SI
+  haya ejecutado; la traza y el filesystem son la evidencia firme).

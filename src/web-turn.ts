@@ -342,6 +342,13 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
     const send = page
       .locator('button[data-testid="send-button"], #composer-submit-button, button[aria-label*="Enviar"], button[aria-label*="Send"]')
       .first();
+    // ChatGPT deshabilita Enviar mientras genera el turno anterior; esperar
+    // (visto 2026-10-06: submitted=false en requests consecutivos rapidos).
+    for (let wait = 0; wait < 40; wait++) {
+      if ((await send.count()) === 0) break;
+      if (await send.isEnabled().catch(() => false)) break;
+      await page.waitForTimeout(500);
+    }
     if ((await send.count()) > 0 && (await send.isEnabled().catch(() => false))) {
       await send.click().catch(() => {});
     } else {
