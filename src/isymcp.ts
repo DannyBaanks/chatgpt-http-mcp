@@ -241,6 +241,17 @@ async function status(): Promise<void> {
   const line = mcp.out.split("\n").find((l) => l.includes("mcp/main.ts") && !l.includes("pgrep"));
   console.log(`  mcp      ${line ? "up" : "down"}`);
   console.log(`  connector ${process.env.CODEX_WEB_HTTP_CONNECTOR ?? CONNECTOR_NAME}`);
+  try {
+    const sessFile = join(homedir(), ".codex-web-http", "sessions", "default.json");
+    if (existsSync(sessFile)) {
+      const conv = (JSON.parse(readFileSync(sessFile, "utf8")) as { conversationUrl?: string | null }).conversationUrl;
+      console.log(`  conversacion ${conv ?? "(sin /c/ aun; el primer turno la guarda)"}`);
+    } else {
+      console.log("  conversacion (sin sesion de cookies; corre: isymcp session default)");
+    }
+  } catch {
+    console.log("  conversacion (registro de sesion ilegible)");
+  }
   const sessions = readSessions();
   const detail = sessions.map((s) => `${s.label}[${s.fp}]${s.writable ? "/rw" : "/ro"}`).join(", ");
   console.log(`  sessions  ${sessions.length}${detail ? ` -> ${detail}` : ""}`);
