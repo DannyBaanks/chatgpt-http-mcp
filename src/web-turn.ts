@@ -7,7 +7,7 @@
 //
 // Sin sesion/cookies no inventa nada: devuelve error nombrado.
 import { chromium, type Browser, type Page } from "playwright-core";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -225,7 +225,7 @@ async function lastAssistantIdentity(page: Page): Promise<string> {
 }
 
 async function readLastAssistant(page: Page): Promise<string> {
-  return page.evaluate(([primary, fallback]) => {
+  const container = await page.evaluate(([primary, fallback]) => {
     const primaryTurns = Array.from(document.querySelectorAll(primary));
     const turns = (primaryTurns.length > 0 ? primaryTurns : Array.from(document.querySelectorAll(fallback))) as HTMLElement[];
     if (turns.length === 0) return "";
@@ -235,12 +235,14 @@ async function readLastAssistant(page: Page): Promise<string> {
       const marks = turns[i].querySelectorAll('.markdown');
       if (marks.length > 0) return ((marks[marks.length - 1] as HTMLElement).innerText ?? "").trim();
     }
-    const container = (turns[turns.length - 1].innerText ?? "").trim();
-    // Contenedor que incluye el turno del usuario = aun no hay respuesta;
-    // devolver vacio (mejor web_no_response honesto que un eco).
-    if (/^(Tú dijiste|You said):/.test(container)) return "";
-    return container;
+    return (turns[turns.length - 1].innerText ?? "").trim();
   }, [ASSISTANT_PRIMARY_SELECTOR, ASSISTANT_FALLBACK_SELECTOR] as const);
+  // Variante de DOM sin .markdown (dump capture-fail 2026-10-06): el
+  // contenedor trae ambos lados ("Tú dijiste: ... ChatGPT dijo: <respuesta>").
+  const extracted = extractResponse(container);
+  if (extracted) return extracted;
+  if (/^(Tú dijiste|You said):/.test(container)) return "";
+  return container;
 }
 
 async function assistantTurnCount(page: Page): Promise<number> {
@@ -282,6 +284,40 @@ async function waitConversationSettle(page: Page, maxMs = 8_000): Promise<void> 
  * y la respuesta se lee del turno del asistente por DOM, no por el texto
  * localizado "ChatGPT dijo:".
  */
+/** Dump decisivo cuando la captura termina vacia (Fase 1 del COMPOSE). */
+async function dumpCaptureFailure(page: Page): Promise<void> {
+  try {
+    const dir = join(homedir(), ".codex-web-http", "run", `capture-fail-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    await page.screenshot({ path: join(dir, "page.png"), fullPage: false }).catch(() => {});
+    const info = await page.evaluate(() => {
+      const sel = (s: string) => {
+        try {
+          const els = Array.from(document.querySelectorAll(s)) as HTMLElement[];
+          return { count: els.length, lastText: els.length ? (els[els.length - 1].innerText ?? "").slice(0, 400) : "" };
+        } catch {
+          return { count: 0, lastText: "" };
+        }
+      };
+      return {
+        url: location.href,
+        title: document.title,
+        readyState: document.readyState,
+        selectors: {
+          conversationTurn: sel('[data-testid^="conversation-turn-"]'),
+          authorRole: sel('[data-message-author-role]'),
+          markdown: sel(".markdown"),
+          assistantPrimary: sel('[data-testid^="conversation-turn-"][data-message-author-role="assistant"], [data-turn-key]:has([data-conversation-role="assistant"])'),
+          stopButton: sel('button[data-testid="stop-button"], button[aria-label*="Detener"], button[aria-label*="Stop"]'),
+        },
+      };
+    });
+    writeFileSync(join(dir, "dump.json"), JSON.stringify({ ts: new Date().toISOString(), ...info }, null, 2));
+  } catch {
+    /* el dump nunca debe romper el turno */
+  }
+}
+
 export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}): Promise<WebTurnResult> {
   if (!prompt.trim()) throw new Error("web_empty_prompt: prompt vacio");
   const reused = Boolean(session);
@@ -401,6 +437,7 @@ export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}):
     }
     await page.waitForTimeout(settleMs);
   }
+  if (!text.trim()) await dumpCaptureFailure(page);
   return {
     text: text.trim(),
     ms: Math.round(performance.now() - t0),
