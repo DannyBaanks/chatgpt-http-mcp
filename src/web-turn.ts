@@ -196,42 +196,45 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
  * Envia UN prompt y espera la respuesta completa del asistente. Reutiliza la
  * pestana existente (no la cierra entre turnos).
  */
-const ASSISTANT_TURN_SELECTOR = [
+const ASSISTANT_PRIMARY_SELECTOR = [
   '[data-testid^="conversation-turn-"][data-turn="assistant"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"][data-message-author-role="assistant"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"]):not([data-turn-key] *)',
   '[data-turn-key]:has([data-conversation-role="assistant"], [data-chatgpt-agent-turn-start])',
-  // Fallback observado en conversaciones persistidas/recargadas (2026-10-06):
-  // los turnos existen por autor aunque no expongan los testids de arriba.
-  '[data-message-author-role="assistant"]',
 ].join(",");
+// Fallback solo si el primario no matchea NADA: en union con el primario puede
+// capturar contenedores que incluyen el turno del usuario (visto 2026-10-06:
+// la respuesta HTTP devolvio el eco del mensaje del usuario).
+const ASSISTANT_FALLBACK_SELECTOR = '[data-message-author-role="assistant"]';
 
 /** Identidad del ultimo turno assistant: robusta a la virtualizacion del DOM
  * (el conteo puede no crecer; la identidad cambia). */
 async function lastAssistantIdentity(page: Page): Promise<string> {
   return page
-    .evaluate((sel) => {
-      const turns = Array.from(document.querySelectorAll(sel));
-      const last = turns[turns.length - 1] as HTMLElement | undefined;
+    .evaluate(([primary, fallback]) => {
+      const primaryTurns = Array.from(document.querySelectorAll(primary));
+      const turns = (primaryTurns.length > 0 ? primaryTurns : Array.from(document.querySelectorAll(fallback))) as HTMLElement[];
+      const last = turns[turns.length - 1];
       if (!last) return "";
       return last.getAttribute("data-turn-id")
         ?? last.getAttribute("data-testid")
         ?? last.getAttribute("data-message-id")
         ?? (last.innerText ?? "").slice(0, 80);
-    }, ASSISTANT_TURN_SELECTOR)
+    }, [ASSISTANT_PRIMARY_SELECTOR, ASSISTANT_FALLBACK_SELECTOR] as const)
     .catch(() => "");
 }
 
 async function readLastAssistant(page: Page): Promise<string> {
-  return page.evaluate((sel) => {
-    const turns = Array.from(document.querySelectorAll(sel));
-    const last = turns[turns.length - 1] as HTMLElement | undefined;
+  return page.evaluate(([primary, fallback]) => {
+    const primaryTurns = Array.from(document.querySelectorAll(primary));
+    const turns = (primaryTurns.length > 0 ? primaryTurns : Array.from(document.querySelectorAll(fallback))) as HTMLElement[];
+    const last = turns[turns.length - 1];
     if (!last) return "";
     const root = last.querySelector(
       '.markdown, [data-markdown-text-style="assistant-message"], [data-message-author-role="assistant"] .puik-root.not-markdown > [class*="_DilResponseRoot"]',
     ) as HTMLElement | null;
     return ((root ?? last).innerText ?? "").trim();
-  }, ASSISTANT_TURN_SELECTOR);
+  }, [ASSISTANT_PRIMARY_SELECTOR, ASSISTANT_FALLBACK_SELECTOR] as const);
 }
 
 async function assistantTurnCount(page: Page): Promise<number> {
@@ -248,13 +251,18 @@ async function assistantTurnCount(page: Page): Promise<number> {
  * viejo con una respuesta nueva (carrera observada en la conversacion
  * persistente, 2026-10-06).
  */
-async function waitConversationSettle(page: Page, maxMs = 6_000): Promise<void> {
+async function waitConversationSettle(page: Page, maxMs = 8_000): Promise<void> {
   const deadline = Date.now() + maxMs;
-  let last = -1;
+  let last = "";
+  let stable = 0;
   while (Date.now() < deadline) {
-    const count = await assistantTurnCount(page);
-    if (count === last) return;
-    last = count;
+    // Conteo + identidad del ultimo assistant: en una conversacion recargada la
+    // virtualizacion re-keyea turnos y "solo conteo" estabiliza a mitad del
+    // render (carrera vista 2026-10-06: se devolvio el turno anterior).
+    const signature = `${await assistantTurnCount(page)}|${await lastAssistantIdentity(page)}`;
+    stable = signature === last ? stable + 1 : 0;
+    if (stable >= 2) return;
+    last = signature;
     await page.waitForTimeout(500);
   }
 }

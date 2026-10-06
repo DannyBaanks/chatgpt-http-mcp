@@ -129,6 +129,14 @@ function tunnel(action: string): void {
   if (action === "stop") {
     const proc = sh([bin, "runtimes", "stop", "codex-web-http"]);
     console.log(proc.out.trim() || `exit ${proc.code}`);
+    // `runtimes stop` puede decir "Stopped" y dejar vivo el daemon en su sesion
+    // tmux (visto 2026-10-06: un daemon de 15.9 h sobrevivio al stop y luego
+    // toda llamada devolvia "Session terminated"). Cerrar el tmux a mano.
+    const list = sh(["tmux", "list-sessions", "-F", "#{session_name}"]);
+    for (const name of list.out.split("\n").map((s) => s.trim()).filter((s) => s.startsWith("tunnel-mcp__codex-web-http__"))) {
+      const kill = sh(["tmux", "kill-session", "-t", name]);
+      if (kill.code === 0) console.log(`tmux ${name} cerrado`);
+    }
     return;
   }
   const proc = sh([bin, "runtimes", "status", "codex-web-http", "--json"], 30_000);
