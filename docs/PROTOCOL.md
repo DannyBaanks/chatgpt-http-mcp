@@ -86,3 +86,20 @@ confundir al cite-check de ISyCo:
 cd codex-web-http
 bun test
 ```
+
+## Error taxonomy (M6, 2026-10-06)
+
+El tipo viaja como prefijo del mensaje (`<type>: detalle`) y mapea a status:
+
+| tipo | status | significado |
+|---|---|---|
+| `chat_invalid_json` / `not_web_model` / `web_empty_prompt` | 400 | request invalido |
+| `web_session_missing` / `web_session_expired` | 401 | sesion/cookies |
+| `web_connector_unavailable` | 409 | connector no seleccionable (estado) |
+| `web_turn_submit_failed` | 502 | el turno NUNCA se envio |
+| `web_capture_empty` / `web_no_response` | 504 | el turno corrio pero no se capturo |
+| `web_browser_missing` | 503 | browser no disponible |
+| `web_turn_failed` (default) | 500 | interno |
+
+Idempotencia (M5): header `x-isymcp-turn-id` — replay devuelve la misma
+respuesta con `x-isymcp-replayed: 1` sin re-ejecutar; 5xx no se cachea.

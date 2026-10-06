@@ -21,6 +21,7 @@
 // JSON y el bridge lo traduce a `tool_calls`. Las ejecuta la TUI con SUS
 // permisos y devuelve los resultados como role:"tool" en el proximo request.
 import { sendWebTurn } from "./web-turn";
+import { classifyWebError } from "./error-taxonomy";
 import { loadSession, rememberConversation } from "./sessions";
 import { isWebModel } from "./web-responses";
 import type { AppConfig } from "./config";
@@ -200,9 +201,8 @@ async function sendSingleTurn(web: ChatWebRequest, config: AppConfig): Promise<s
     deadlineMs: config.webTurnDeadlineMs,
   });
   if (result.url.includes("/c/")) rememberConversation("default", result.url);
-  if (!result.submitted || !result.text) {
-    throw new Error(`web_no_response: submitted=${result.submitted} ms=${result.ms} url=${result.url}`);
-  }
+  if (!result.submitted) throw new Error(`web_turn_submit_failed: ms=${result.ms} url=${result.url}`);
+  if (!result.text) throw new Error(`web_capture_empty: ms=${result.ms} url=${result.url}`);
   return result.text;
 }
 
@@ -370,12 +370,11 @@ export async function handleChatCompletions(req: Request, config: AppConfig): Pr
         : await runSingleTurn(web, config);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const named = /^(web_[a-z_]+)/.exec(message)?.[1];
-    const status = named === "web_session_missing" || named === "web_session_expired" ? 503 : 502;
+    const { type, status } = classifyWebError(message);
     console.error(
-      `[codex-web-http] chat turn FAILED: ${named ?? "web_turn_failed"} context=${config.contextMode} tools=${web.tools.length} deadline_ms=${config.webTurnDeadlineMs} :: ${message}`,
+      `[codex-web-http] chat turn FAILED: ${type} context=${config.contextMode} tools=${web.tools.length} deadline_ms=${config.webTurnDeadlineMs} :: ${message}`,
     );
-    return errorJson(status, named ?? "web_turn_failed", message);
+    return errorJson(status, type, message);
   }
   console.error(
     `[codex-web-http] web chat turn ok: model=${web.model} context=${config.contextMode} tool_calls=${turn.toolCalls.length} chars=${turn.text.length}`,
