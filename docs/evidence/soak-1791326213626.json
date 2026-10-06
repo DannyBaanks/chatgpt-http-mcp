@@ -1,0 +1,33 @@
+{
+  "ts": "2026-10-06T22:36:53.626Z",
+  "n": 3,
+  "ok": 3,
+  "fail": 0,
+  "totalMs": 112813,
+  "results": [
+    {
+      "i": 1,
+      "nonce": "SOAK_1791326101315_abpimp",
+      "ok": true,
+      "replayed": "1",
+      "ms": 29907,
+      "http": "SOAK_1791326101315_abpimp"
+    },
+    {
+      "i": 2,
+      "nonce": "SOAK_1791326131223_d46um0",
+      "ok": true,
+      "replayed": "1",
+      "ms": 40855,
+      "http": "SOAK_1791326131223_d46um0"
+    },
+    {
+      "i": 3,
+      "nonce": "SOAK_1791326172078_lp3t7o",
+      "ok": true,
+      "replayed": "1",
+      "ms": 41505,
+      "http": "SOAK_1791326172078_lp3t7o"
+    }
+  ]
+}
