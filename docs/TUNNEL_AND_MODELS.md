@@ -50,12 +50,16 @@ commit `28a7c79`; instalador propio: `codex-web-http/scripts/install-tunnel.ts:1
   referencia: `model_catalog_json = "<root>/models.json"`.
 - Nuestro `/v1/models` ya sirve ese catálogo aumentado.
 
-## Gap para conectar (`runtimes connect`)
+## Gap para conectar (`runtimes connect`) — CERRADO (2026-10-06)
 
 `runtimes connect` necesita que `--mcp-command` sea un **servidor MCP stdio**
 que exponga las tools locales (`--contract native --broker-socket`). Hoy
 tenemos transporte browser + passthrough, pero **no ese servidor**. Es el
 bloqueante para conectar el túnel.
+
+**CORRECCION (2026-10-06):** el servidor existe (`src/mcp/main.ts`, con session
+tokens y bwrap) y el túnel está conectado; el gap dejó de existir. Ver
+`docs/ARCHITECTURE.md`.
 
 ## Próximo (orden)
 

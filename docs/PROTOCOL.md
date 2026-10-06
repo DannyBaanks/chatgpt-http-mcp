@@ -59,13 +59,13 @@ no se reenvia al upstream Codex porque la forma chat no es la suya.
 - Empaquetar el MCP para `npx` requiere publicar el paquete: NOT_DEMONSTRATED;
   se usa comando local `bun`.
 
-## Incognitas para los siguientes milestones
+## Incognitas (resueltas, 2026-10-06)
 
-- M1: si un turno Web (`/backend-api/f/conversation`) es reproducible con
-  HTTP puro + cookies (plan, `.opencode/plans/codex-web-http.md:97`).
-- M3: catalogo Web clonado (Luna/Sol/Pro + efforts) y deteccion por cuenta.
-- M4: transporte elegido por evidencia (HTTP o `chrome-headless-shell` con
-  pestana persistente).
+- M1/M4: transporte elegido por evidencia -> Chrome headless + Playwright con
+  pestana persistente; captura HTTP DEMONSTRATED (nonce real). Ver
+  `docs/ARCHITECTURE.md`.
+- M3: catalogo Web clonado -> `src/web-models.ts` + `/v1/models` en forma OpenAI.
+- Error taxonomy e idempotencia: ver la seccion de abajo.
 - Cabeceras derivadas que la referencia sintetiza (p. ej. `client_version`
   para `/models`) quedan **fuera** de M2: el cliente actual ya las envia.
 
