@@ -10,6 +10,7 @@
 // no se inventa. Los conteos de usage son ESTIMADOS (chars/4): no hay
 // tokenizer de Codex aqui, y un numero inventado con precision falsa es peor
 // que uno aproximado y rotulado.
+import { parseResponsesInput } from "./responses/input";
 import { sendWebTurn } from "./web-turn";
 import { CHATGPT_WEB_MODEL_PREFIX, routeEfforts, availableRoutes } from "./web-models";
 import type { AppConfig } from "./config";
@@ -21,54 +22,16 @@ export function isWebModel(model: unknown): boolean {
   return typeof model === "string" && model.startsWith(CHATGPT_WEB_MODEL_PREFIX);
 }
 
-interface WebRequest {
+export interface WebRequest {
   model: string;
   prompt: string;
   stream: boolean;
+  declarations: Record<string, unknown>[];
 }
 
-function textOf(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === "string") return part;
-        if (part && typeof part === "object" && "text" in part && typeof part.text === "string") return part.text;
-        return "";
-      })
-      .join("");
-  }
-  return "";
-}
-
-/**
- * Extrae el prompt del body de Responses. Tolera `input` como string o como
- * lista de items de mensaje (content string o partes input_text/output_text),
- * y antepone `instructions` como el reference hace.
- */
+/** Preserve Responses task input; local Web chat has a separate contract. */
 export function extractPrompt(body: Record<string, unknown>): string {
-  const instructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
-  const input = body.input;
-  let turn = "";
-  if (typeof input === "string") {
-    turn = input;
-  } else if (Array.isArray(input)) {
-    turn = input
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (!item || typeof item !== "object") return "";
-        const record = item as Record<string, unknown>;
-        if (typeof record.text === "string" && record.type !== "message") return record.text;
-        const role = typeof record.role === "string" ? record.role : "";
-        const inner = textOf(record.content);
-        if (!inner) return "";
-        // El eco del usuario no aporta: el browser ya tiene la conversacion.
-        return role === "user" ? "" : inner;
-      })
-      .filter(Boolean)
-      .join("\n\n");
-  }
-  return instructions ? `${instructions}\n\n${turn}` : turn;
+  return parseResponsesInput(body).prompt;
 }
 
 export async function peekWebRequest(req: Request): Promise<WebRequest | null> {
@@ -81,7 +44,7 @@ export async function peekWebRequest(req: Request): Promise<WebRequest | null> {
   if (!isWebModel(body.model)) return null;
   return {
     model: body.model,
-    prompt: extractPrompt(body),
+    ...parseResponsesInput(body),
     stream: body.stream === true,
   };
 }
