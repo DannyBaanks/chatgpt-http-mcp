@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { isExpired, listUserSessions } from "./codex-sessions";
 import { guardLocalRequest } from "./local-guard";
+import { readLatestCanary, type CanaryResult } from "./canary";
 import { chatPath, createChat, listChats, loadChat, publicChat, saveChat } from "./chats";
 import { CHAT_SCRIPT, CHAT_STYLE, renderChatView } from "./panel-chat";
 import { apply as harnessApply, detect as harnessDetect, plan as harnessPlan, type HarnessAction } from "./harness";
@@ -47,6 +48,7 @@ export interface PanelState {
   sessions: PanelSession[];
   lastErrors: string[];
   lastSoak?: PanelSoak | null;
+  canary?: CanaryResult | null;
 }
 
 const ROOT = join(import.meta.dir, "..");
@@ -119,6 +121,7 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
     sessions,
     lastErrors,
     lastSoak: readLastSoak(),
+    canary: readLatestCanary(),
   };
 }
 
@@ -153,6 +156,16 @@ function relativeExpiry(s: PanelSession, now: number): { text: string; tone: Ton
   const hours = (Date.parse(s.expiresAt) - now) / 3_600_000;
   if (hours < 24) return { text: `caduca en ${Math.max(1, Math.round(hours))} h`, tone: "warn" };
   return { text: `caduca en ${Math.round(hours / 24)} d`, tone: "ok" };
+}
+
+/** Linea del canario diario dentro de ULTIMA PRUEBA. */
+function canaryLine(c: CanaryResult | null, now: number): string {
+  if (!c) return `<p class="muted small">Canario: sin correr todavia — <code>isymcp canary</code></p>`;
+  const hours = Math.max(0, (now - Date.parse(c.ts)) / 3_600_000);
+  const age = hours < 1 ? "hace menos de 1 h" : hours < 48 ? `hace ${Math.round(hours)} h` : `hace ${Math.round(hours / 24)} d`;
+  const tone = !c.ok ? "bad" : hours > 36 ? "warn" : "ok";
+  const checks = c.checks.map((k) => `${k.ok ? "✓" : "✗"} ${escapeHtml(k.name)}`).join(" · ") || escapeHtml(c.error ?? "");
+  return `<p class="small" style="margin-top:10px">Canario <span class="pill tone-${tone}">${c.ok ? "OK" : "FALLO"}</span> <span class="muted">${age} · ${checks}</span></p>`;
 }
 
 /** El <main> del panel: lo re-pide el navegador cada pocos segundos. */
@@ -226,6 +239,7 @@ export function renderMain(state: PanelState): string {
   <section class="card">
     <h3>ULTIMA PRUEBA</h3>
     ${soakBody}
+    ${canaryLine(state.canary ?? null, now)}
   </section>
   <section class="card">
     <h3>CONVERSACION</h3>
