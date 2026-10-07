@@ -26,12 +26,26 @@ jobs:
       # Los tests del MCP ejecutan comandos de verdad dentro de bwrap (sandbox
       # read-only, sin red, $HOME tapado): no se simulan. Ubuntu 24.04 bloquea
       # los user namespaces sin privilegios via AppArmor; bwrap los necesita.
-      - name: Sandbox (bubblewrap)
+      - name: Install bubblewrap (bounded)
+        timeout-minutes: 3
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-all --die-with-parent -- true
+          if ! command -v bwrap >/dev/null; then
+            # Runner images already carry apt indexes. Avoid refreshing every
+            # unrelated repository unless installing from those indexes fails.
+            apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15)
+            if ! sudo timeout 45s apt-get "${apt_options[@]}" install -y bubblewrap; then
+              echo "Initial install failed; refreshing apt indexes (60 s maximum)."
+              sudo timeout 60s apt-get "${apt_options[@]}" update
+              sudo timeout 45s apt-get "${apt_options[@]}" install -y bubblewrap
+            fi
+          fi
+          bwrap --version
+
+      - name: Verify sandbox (bubblewrap)
+        timeout-minutes: 1
+        run: |
+          sudo timeout 10s sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          timeout 15s bwrap --ro-bind / / --dev /dev --proc /proc --unshare-all --die-with-parent -- true
           echo "bwrap OK"
 
       - run: bun install --frozen-lockfile
