@@ -2,7 +2,7 @@
 // Si contestamos 405, Codex reintenta contra la cuenta de ChatGPT y esa
 // rechaza el slug chatgpt-web/*. El turno tiene que quedarse aca.
 import { parseResponsesInput } from "./responses/input";
-import { buildResponseBody, isWebModel } from "./web-responses";
+import { buildResponseBody, isWebModel, responseEvents } from "./web-responses";
 
 export interface WsTurn {
   body: Record<string, unknown>;
@@ -35,11 +35,7 @@ export function toJsonl(events: unknown[]): string {
   return events.map((event) => JSON.stringify(event)).join("\n") + "\n";
 }
 
+/** Mismos eventos que el SSE (ver responseEvents): item anunciado antes del delta. */
 export function wsFrames(model: string, text: string, response = buildResponseBody(model, text, "")): string[] {
-  return [
-    JSON.stringify({ type: "response.created", response }),
-    JSON.stringify({ type: "response.output_text.delta", delta: text }),
-    JSON.stringify({ type: "response.output_text.done", text }),
-    JSON.stringify({ type: "response.completed", response }),
-  ];
+  return responseEvents(response, text).map((event) => JSON.stringify(event));
 }

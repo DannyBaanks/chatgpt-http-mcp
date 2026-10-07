@@ -70,10 +70,12 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
       const radios = Array.from(document.querySelectorAll('[role="menuitemradio"], [role="menuitem"], [role="option"]')) as HTMLElement[];
       const checked = radios.find((r) => r.getAttribute("aria-checked") === "true");
       const texts = radios.map((r) => (r.innerText || "").trim().replace(/\s+/g, " "));
-      // Solo dentro del menu abierto: otras barras de la pagina (p. ej. la
-      // alerta de uso) tambien llevan aria-valuenow.
-      const scope = document.querySelector('[data-radix-popper-content-wrapper], [role="menu"]');
-      const slider = (scope?.querySelector('[role="slider"], [aria-valuenow]') ?? null) as HTMLElement | null;
+      // Solo dentro de un menu/popper abierto: otras barras de la pagina (p. ej.
+      // la alerta de uso) tambien llevan aria-valuenow. Y no basta con el
+      // PRIMER popper: el tooltip del boton del modelo tambien es uno (de ahi
+      // un "?/?" intermitente en el gate del Codex CLI).
+      const scopes = Array.from(document.querySelectorAll('[data-radix-popper-content-wrapper], [role="menu"]'));
+      const slider = (scopes.map((s) => s.querySelector('[role="slider"], [aria-valuenow]')).find(Boolean) ?? null) as HTMLElement | null;
       return {
         model: checked ? (checked.innerText || "").trim().split("\n")[0] : null,
         texts,
@@ -81,7 +83,7 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
       };
     });
     let menu = await readMenu();
-    for (let i = 0; i < 10 && !(menu.slider?.now || menu.texts.some((t) => /\d+\s+(?:de|of)\s+\d+/.test(t))); i++) {
+    for (let i = 0; i < 20 && !(menu.slider?.now || menu.texts.some((t) => /\d+\s+(?:de|of)\s+\d+/.test(t))); i++) {
       await page.waitForTimeout(400);
       menu = await readMenu();
     }

@@ -88,15 +88,43 @@ function sseEvent(type: string, payload: Record<string, unknown>): Uint8Array {
   return encoder.encode(`event: ${type}\ndata: ${JSON.stringify({ type, ...payload })}\n\n`);
 }
 
-/** SSE del mismo cuerpo: UN delta con el texto completo, luego completed. */
+/**
+ * Secuencia de eventos Responses completa para UN mensaje de texto:
+ * created -> in_progress -> output_item.added -> content_part.added ->
+ * output_text.delta -> output_text.done -> content_part.done ->
+ * output_item.done -> completed.
+ *
+ * El Codex CLI real descarta un delta que llega sin su item anunciado
+ * ("OutputTextDelta without active item", visto 2026-10-07 en el gate M8):
+ * por eso el item y la parte se anuncian antes y se cierran despues. HTTP (SSE)
+ * y WebSocket usan esta misma funcion para no divergir.
+ */
+export function responseEvents(response: Record<string, unknown>, text: string): Array<Record<string, unknown>> {
+  const message = (response.output as Array<Record<string, unknown>>)[0]!;
+  const itemId = message.id as string;
+  const { output: _output, output_text: _outputText, ...rest } = response;
+  const pending = { ...rest, status: "in_progress", output: [] };
+  const part = { type: "output_text", text, annotations: [] };
+  const at = { item_id: itemId, output_index: 0, content_index: 0 };
+  const events: Array<Record<string, unknown>> = [
+    { type: "response.created", response: pending },
+    { type: "response.in_progress", response: pending },
+    { type: "response.output_item.added", output_index: 0, item: { ...message, status: "in_progress", content: [] } },
+    { type: "response.content_part.added", ...at, part: { ...part, text: "" } },
+    { type: "response.output_text.delta", ...at, delta: text },
+    { type: "response.output_text.done", ...at, text },
+    { type: "response.content_part.done", ...at, part },
+    { type: "response.output_item.done", output_index: 0, item: message },
+    { type: "response.completed", response },
+  ];
+  return events.map((event, sequence_number) => ({ ...event, sequence_number }));
+}
+
+/** SSE del mismo cuerpo: UN delta con el texto completo, dentro de su item. */
 export function buildWebStream(model: string, text: string, prompt: string, response = buildResponseBody(model, text, prompt)): ReadableStream<Uint8Array> {
-  const { output, output_text: _outputText, ...rest } = response;
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(sseEvent("response.created", { response: rest }));
-      controller.enqueue(sseEvent("response.output_text.delta", { delta: text }));
-      controller.enqueue(sseEvent("response.output_text.done", { text }));
-      controller.enqueue(sseEvent("response.completed", { response }));
+      for (const { type, ...payload } of responseEvents(response, text)) controller.enqueue(sseEvent(type as string, payload));
       controller.enqueue(encoder.encode(`${SSE_DONE}\n\n`));
       controller.close();
     },

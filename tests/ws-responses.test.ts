@@ -18,19 +18,38 @@ describe("websocket de Codex", () => {
   test("jsonl es una linea por evento, sin mandar el slug a la cuenta", () => {
     const body = toJsonl(wsFrames("chatgpt-web/gpt-5.6-sol", "ok").map((line) => JSON.parse(line)));
     const lines = body.trim().split("\n");
-    expect(lines).toHaveLength(4);
+    expect(lines).toHaveLength(9);
     expect(JSON.parse(lines[0]).type).toBe("response.created");
     expect(body.endsWith("\n")).toBe(true);
   });
 
-  test("los frames no usan el slug contra la cuenta de ChatGPT", () => {
-    const frames = wsFrames("chatgpt-web/gpt-6.1-sol", "ok").map((f) => JSON.parse(f) as { type: string });
+  test("secuencia Responses completa (la que el Codex CLI acepta)", () => {
+    const frames = wsFrames("chatgpt-web/gpt-6.1-sol", "ok").map((f) => JSON.parse(f) as { type: string; sequence_number: number });
     expect(frames.map((f) => f.type)).toEqual([
       "response.created",
+      "response.in_progress",
+      "response.output_item.added",
+      "response.content_part.added",
       "response.output_text.delta",
       "response.output_text.done",
+      "response.content_part.done",
+      "response.output_item.done",
       "response.completed",
     ]);
+    expect(frames.map((f) => f.sequence_number)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  test("el delta llega DESPUES de anunciar su item y con el mismo item_id (gate M8)", () => {
+    // Bug real: sin output_item.added el Codex CLI logueaba
+    // "OutputTextDelta without active item" y no mostraba la respuesta.
+    const frames = wsFrames("chatgpt-web/gpt-5.6-sol", "PONG").map((f) => JSON.parse(f) as Record<string, any>);
+    const added = frames.findIndex((f) => f.type === "response.output_item.added");
+    const delta = frames.findIndex((f) => f.type === "response.output_text.delta");
+    expect(added).toBeGreaterThanOrEqual(0);
+    expect(added).toBeLessThan(delta);
+    expect(frames[delta]!.item_id).toBe(frames[added]!.item.id);
+    expect(frames[delta]!.delta).toBe("PONG");
+    expect(frames.at(-1)!.response.output_text).toBe("PONG");
   });
 });
 
