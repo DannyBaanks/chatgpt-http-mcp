@@ -34,10 +34,12 @@ const base = `http://127.0.0.1:${server.port}`;
 const browser = await chromium.launch({ executablePath: process.env.CODEX_WEB_HTTP_CHROME || "/usr/bin/google-chrome", headless: true });
 const results: Array<Record<string, unknown>> = [];
 let alerts = 0;
+const pageErrors: string[] = [];
 try {
   for (const [label, width, height] of [["desktop", 1400, 900], ["mobile", 390, 844]] as const) {
     const page = await browser.newPage({ viewport: { width, height } });
     page.on("dialog", async (d) => { alerts++; await d.dismiss(); });
+    page.on("pageerror", (e) => pageErrors.push(e.message));
     await page.goto(`${base}/#chat`);
     // En movil la lista es un drawer: se abre como lo haria el usuario.
     if (width < 980) { await page.click("#btn-side"); await page.waitForTimeout(300); }
@@ -67,6 +69,6 @@ try {
   server.stop(true);
   rmSync(home, { recursive: true, force: true });
 }
-const ok = results.every((r) => !r.overflow && r.scripts === 0) && alerts === 0;
-console.log(JSON.stringify({ ok, alerts, results }, null, 2));
+const ok = results.every((r) => !r.overflow && r.scripts === 0) && alerts === 0 && pageErrors.length === 0;
+console.log(JSON.stringify({ ok, alerts, pageErrors, results }, null, 2));
 process.exit(ok ? 0 : 1);

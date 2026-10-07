@@ -7,9 +7,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isExpired, readSessions } from "./codex-sessions";
+import { isExpired, listUserSessions } from "./codex-sessions";
 import { guardLocalRequest } from "./local-guard";
-import { chatPath, createChat, listChats, loadChat, publicChat } from "./chats";
+import { chatPath, createChat, listChats, loadChat, publicChat, saveChat } from "./chats";
 import { CHAT_SCRIPT, CHAT_STYLE, renderChatView } from "./panel-chat";
 
 function pgrep(pattern: string): boolean {
@@ -100,7 +100,7 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
   const browserCrashed = lastErrors.some((l) => /Page crashed|Target crashed/.test(l));
   let sessions: PanelSession[] = [];
   try {
-    sessions = readSessions().map((s) => ({
+    sessions = listUserSessions().map((s) => ({
       label: s.label, fp: s.fp, writable: s.writable, cwd: s.cwd,
       expiresAt: s.expiresAt ?? null, expired: isExpired(s),
     }));
@@ -391,6 +391,7 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       const url = new URL(req.url);
       if (url.pathname.startsWith("/api/chat")) return handleChatApi(req, url, bridgePort);
       if (url.pathname.startsWith("/api/settings")) return handleSettingsApi(req, url, bridgePort);
+      if (url.pathname === "/api/sessions" && req.method === "GET") return Response.json(publicSessions());
       if (url.pathname === "/api/action" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { action?: string };
         return Response.json(runPanelAction(String(body.action ?? "")));
@@ -428,7 +429,7 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
     if (req.method === "POST") return Response.json(publicChat(createChat(), false), { status: 201 });
     return apiError(405, "method_not_allowed", "GET o POST");
   }
-  const m = /^\/api\/chats\/([^/]+)(\/messages)?$/.exec(url.pathname);
+  const m = /^\/api\/chats\/([^/]+)(\/messages|\/config)?$/.exec(url.pathname);
   if (!m) return apiError(404, "not_found", "ruta desconocida");
   const id = decodeURIComponent(m[1]!);
   if (!chatPath(id)) return apiError(400, "chat_bad_id", "chat_id invalido");
@@ -437,6 +438,23 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
   if (!m[2]) {
     if (req.method !== "GET") return apiError(405, "method_not_allowed", "GET");
     return Response.json(publicChat(chat, true));
+  }
+  if (m[2] === "/config") {
+    if (req.method !== "POST") return apiError(405, "method_not_allowed", "POST");
+    const body = (await req.json().catch(() => null)) as { tools_enabled?: unknown; session_fp?: unknown } | null;
+    if (!body || typeof body.tools_enabled !== "boolean") return apiError(400, "chat_bad_request", "se espera {tools_enabled, session_fp}");
+    const fp = typeof body.session_fp === "string" ? body.session_fp : null;
+    if (body.tools_enabled) {
+      // Solo sesiones reales del usuario, vigentes; el navegador nunca ve el token.
+      const session = fp ? listUserSessions().find((x) => x.fp === fp) : undefined;
+      if (!session) return apiError(400, "tools_session_unknown", "elige una sesion existente");
+      if (isExpired(session)) return apiError(400, "tools_session_expired", "esa sesion caduco; crea otra con isymcp session mint");
+    }
+    chat.tools_enabled = body.tools_enabled;
+    chat.session_fp = body.tools_enabled ? fp : chat.session_fp && listUserSessions().some((x) => x.fp === chat.session_fp) ? chat.session_fp : null;
+    chat.updated_at = new Date().toISOString();
+    saveChat(chat);
+    return Response.json(publicChat(chat, false));
   }
   if (req.method !== "POST") return apiError(405, "method_not_allowed", "POST");
   const body = (await req.json().catch(() => null)) as { message?: unknown } | null;
@@ -479,4 +497,17 @@ export async function handleSettingsApi(req: Request, url: URL, bridgePort: stri
   } catch {
     return apiError(503, "bridge_unavailable", "el bridge local no responde");
   }
+}
+
+/** Sesiones del usuario para el selector del chat: SIN token. */
+export function publicSessions() {
+  let sessions: Array<{ fp: string; label: string; cwd: string; writable: boolean; expiresAt: string | null; expired: boolean }> = [];
+  try {
+    sessions = listUserSessions().map((x) => ({
+      fp: x.fp, label: x.label, cwd: x.cwd, writable: x.writable, expiresAt: x.expiresAt ?? null, expired: isExpired(x),
+    }));
+  } catch {
+    /* registro ilegible: lista vacia, el CLI explica */
+  }
+  return { sessions, tunnel: pgrep("tunnel-client run") ? "ready" : "stopped" };
 }

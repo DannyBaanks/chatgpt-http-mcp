@@ -61,6 +61,22 @@ export const CHAT_STYLE = `
 .config .row{margin:0 0 18px}
 .config .val{font:13px var(--sans)}
 .config .note{font:11px/1.45 var(--sans);color:var(--mute);margin-top:4px}
+.switch{display:inline-flex;align-items:center;gap:8px;background:none;border:0;color:var(--mute);font:600 12px var(--mono);cursor:pointer;padding:0}
+.switch span{width:34px;height:18px;border-radius:10px;background:#26302b;position:relative;transition:background .15s}
+.switch span::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#7a8a81;transition:transform .15s,background .15s}
+.switch[aria-checked="true"] span{background:color-mix(in srgb,var(--ok) 35%,#26302b)}
+.switch[aria-checked="true"] span::after{transform:translateX(16px);background:var(--ok)}
+.switch[aria-checked="true"] b{color:var(--ok)}
+.switch[disabled]{opacity:.5;cursor:not-allowed}
+.select{display:block;width:100%;margin-top:10px;background:#121715;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:12px var(--mono)}
+.select[disabled]{opacity:.5}
+.tools{display:flex;flex-direction:column;gap:6px;margin:0 0 10px}
+.toolcard{border:1px solid var(--line);border-left:3px solid var(--c);border-radius:9px;padding:7px 10px;background:#0c100e}
+.toolcard .th{display:flex;gap:10px;align-items:center;font:600 11px var(--mono)}
+.toolcard .tn{color:var(--c)}.toolcard .ts{color:var(--mute);margin-left:auto}
+.toolcard code{display:block;margin-top:4px;font:12px var(--mono);color:#cfe3d5;white-space:pre-wrap;overflow-wrap:anywhere;background:none;border:0;padding:0}
+.toolcard.running{--c:var(--warn)}.toolcard.ok{--c:var(--ok)}.toolcard.failed{--c:var(--bad)}
+.tools-none{font:11px var(--mono);color:var(--mute);margin:0 0 8px}
 .toggle{display:inline-flex;align-items:center;gap:8px;font:12px var(--mono);color:var(--mute)}
 .toggle span{width:30px;height:16px;border-radius:9px;background:#26302b;position:relative}
 .toggle span::after{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#5b6b62}
@@ -95,8 +111,10 @@ export function renderChatView(): string {
       <div class="val" id="seen">sin verificar</div>
       <div class="note" id="settings-note">Lo que ve ISyMCP en el selector de modelo de ChatGPT. Para cambiarlo, sincroniza: se abre un Chrome con tu sesión, lo configuras a mano y lo cierras.</div>
       <div class="actions"><button class="btn" id="btn-verify" type="button">Verificar</button><button class="btn btn-go" id="btn-sync" type="button">Sincronizar ajustes</button><button class="btn btn-stop" id="btn-finish" type="button" hidden>Listo, guardar</button></div></div>
-    <div class="row"><h4>CODEX ISyMCP</h4><span class="toggle"><span></span> OFF</span>
-      <div class="note">Tools apagadas en cada chat nuevo. Encenderlas llega en la Fase 2.</div></div>
+    <div class="row"><h4>CODEX ISyMCP</h4>
+      <button class="switch" id="tools-switch" role="switch" aria-checked="false" type="button" disabled><span></span><b>OFF</b></button>
+      <select id="tools-session" class="select" disabled></select>
+      <div class="note" id="tools-note">Tools apagadas en cada chat nuevo. Al encenderlas, ChatGPT puede ejecutar comandos en la carpeta de la sesión elegida (sandbox bwrap). El token nunca pasa por esta página.</div></div>
     <div class="row"><h4>CONVERSACIÓN</h4><div class="val" id="convlink"><span class="muted">sin /c/ todavía</span></div>
       <div class="note">Se crea con el primer mensaje.</div></div>
     <div class="row"><h4>BRIDGE</h4><div class="val" id="bridgestate">—</div></div>
@@ -117,6 +135,7 @@ const KIND={
   capture:['warn','No se pudo leer la respuesta','ChatGPT no devolvió una respuesta legible, o la conversación no se pudo asociar.'],
   bridge:['bad','El bridge no completó el turno','Falló el bridge local mientras hablaba con ChatGPT.'],
   unavailable:['bad','ISyMCP no disponible','El bridge local no responde. Enciéndelo para chatear.'],
+  tools_session:['warn','Sesión de tools no válida','La sesión elegida para las tools ya no existe o caducó. Elige otra en el panel derecho (o crea una con isymcp session mint).'],
 };
 async function api(path,opts={}){const r=await fetch(path,{...opts,headers:{'content-type':'application/json',...(opts.headers||{})}});let j=null;try{j=await r.json()}catch{}return {status:r.status,ok:r.ok,json:j};}
 function relTime(iso){const s=(Date.now()-Date.parse(iso))/1000;if(s<60)return 'ahora';if(s<3600)return Math.round(s/60)+' min';if(s<86400)return Math.round(s/3600)+' h';return Math.round(s/86400)+' d';}
@@ -132,9 +151,14 @@ function scrollEnd(){const m=$('msgs');m.scrollTop=m.scrollHeight;}
 function addCopy(root){root.querySelectorAll('pre').forEach(pre=>{const b=el('button','copy','copiar');b.type='button';b.onclick=()=>{navigator.clipboard?.writeText(pre.querySelector('code').textContent);b.textContent='copiado';setTimeout(()=>b.textContent='copiar',1200);};pre.appendChild(b);});}
 function metaLine(m,url){const d=el('div','meta');d.appendChild(el('span','',settingsLabel()||'modelo default'));if(m&&m.ms!=null)d.appendChild(el('span','',(m.ms/1000).toFixed(1)+' s'));
   const u=(m&&m.url)||url;if(u){const a=el('a','', 'Abrir en ChatGPT ↗');a.href=u;a.target='_blank';a.rel='noreferrer';d.appendChild(a);}return d;}
+function toolCardsNode(cards){const box=el('div','tools');for(const c of cards){const card=el('div','toolcard '+c.state);const th=el('div','th');th.appendChild(el('span','tn',c.tool));
+  const st=c.state==='running'?'ejecutando…':[c.exit_code!=null?'exit '+c.exit_code:(c.state==='ok'?'ok':'falló'),c.duration_ms!=null?(c.duration_ms<1000?c.duration_ms+' ms':(c.duration_ms/1000).toFixed(1)+' s'):null].filter(Boolean).join(' · ');
+  th.appendChild(el('span','ts',st));card.appendChild(th);if(c.summary)card.appendChild(el('code','',c.summary));if(c.error)card.appendChild(el('div','tools-none',c.error));box.appendChild(card);}return box;}
+function toolsBlock(meta){if(!meta||!meta.tools_enabled)return null;if(meta.tools&&meta.tools.length)return toolCardsNode(meta.tools);return el('div','tools-none','tools activas · ninguna ejecución registrada en este turno');}
 function renderMessage(m,url){const box=el('div','msg '+(m.role==='user'?'user':'assistant'));
   if(m.role==='user'){box.appendChild(el('div','bubble',m.text));return box;}
-  if(m.role==='assistant'){const body=el('div','body');body.innerHTML=md(m.text);addCopy(body);box.appendChild(body);box.appendChild(metaLine(m.meta,url));return box;}
+  if(m.role==='assistant'){const tb=toolsBlock(m.meta);if(tb)box.appendChild(tb);const body=el('div','body');body.innerHTML=md(m.text);addCopy(body);box.appendChild(body);box.appendChild(metaLine(m.meta,url));return box;}
+  {const tb=toolsBlock(m.meta);if(tb)box.appendChild(tb);}
   const kind=(m.meta&&m.meta.kind)||'bridge';const [tone,title,expl]=KIND[kind]||KIND.bridge;
   const card=el('div','errcard tone-'+tone);const h=el('div','h');h.appendChild(el('span','','⚠'));h.appendChild(el('span','',title));card.appendChild(h);
   card.appendChild(el('div','p',kind==='provider_blocked'?(m.text+' — '+expl):expl));
@@ -147,14 +171,30 @@ function renderConvLink(c){const box=$('convlink');box.replaceChildren();
   if(c&&c.conversation_url){const a=el('a','',c.conversation_url.replace('https://',''));a.href=c.conversation_url;a.target='_blank';a.rel='noreferrer';a.style.cssText='color:var(--ok);font:12px var(--mono);word-break:break-all';box.appendChild(a);}
   else box.appendChild(el('span','muted','sin /c/ todavía'));}
 let currentData=null;
+let sessionsList=[];
+async function loadSessions(){const r=await api('/api/sessions').catch(()=>null);if(r&&r.ok){sessionsList=r.json.sessions;chat.tunnel=r.json.tunnel;}}
+function sessionLabel(x){const exp=x.expired?'caducada':(x.expiresAt?'caduca '+relTime(x.expiresAt).replace('ahora','pronto'):'sin caducidad');return (x.writable?'rw':'ro')+' · '+x.label+' · '+x.cwd+' · '+exp;}
+function renderTools(c){const sw=$('tools-switch'),sel=$('tools-session'),note=$('tools-note');
+  sw.disabled=!c;sel.disabled=!c;const on=!!(c&&c.tools_enabled);sw.setAttribute('aria-checked',String(on));sw.querySelector('b').textContent=on?'ON':'OFF';
+  sel.replaceChildren();const ph=el('option','',sessionsList.length?'elige una sesión…':'no hay sesiones — isymcp session mint --cwd <dir>');ph.value='';sel.appendChild(ph);
+  for(const x of sessionsList){const o=el('option','',sessionLabel(x));o.value=x.fp;o.disabled=x.expired;sel.appendChild(o);}
+  sel.value=(c&&c.session_fp&&sessionsList.some(x=>x.fp===c.session_fp))?c.session_fp:'';
+  const chosen=sessionsList.find(x=>x.fp===sel.value);
+  note.textContent=!c?'Abre o crea un chat para configurar sus tools.':!on?'Tools apagadas en este chat. Al encenderlas, ChatGPT puede ejecutar comandos en la carpeta de la sesión elegida (sandbox bwrap). El token nunca pasa por esta página.'
+    :(chat.tunnel!=='ready'?'⚠ El túnel MCP está detenido: ChatGPT no podrá llamar a las tools (Estado → Túnel ▶). ':'')+(chosen?(chosen.writable?'Lectura y ESCRITURA en ':'Solo lectura en ')+chosen.cwd+'. Cada turno usa un token desechable; ves aquí lo que de verdad se ejecutó.':'Elige una sesión.');}
+async function saveTools(enabled,fp){if(!chat.current)return;const r=await api('/api/chats/'+encodeURIComponent(chat.current)+'/config',{method:'POST',body:JSON.stringify({tools_enabled:enabled,session_fp:fp||null})});
+  if(r.ok){currentData={...currentData,...r.json};}else toast('✗ '+((r.json&&r.json.error&&r.json.error.message)||'no se pudo guardar'),'bad');renderTools(currentData);}
+$('tools-switch').onclick=async()=>{if(!currentData)return;const on=!currentData.tools_enabled;const fp=$('tools-session').value;
+  if(on&&!fp){$('tools-session').focus();$('tools-note').textContent='Elige primero una sesión para las tools.';return;}await saveTools(on,fp);};
+$('tools-session').onchange=async()=>{if(!currentData)return;const fp=$('tools-session').value;if(currentData.tools_enabled){if(fp)await saveTools(true,fp);else await saveTools(false,null);}else renderTools({...currentData,session_fp:fp});};
 async function openChat(id){chat.touched=true;chat.current=id;try{localStorage.setItem('isymcp.chat',id)}catch{}renderList();
   const r=await api('/api/chats/'+encodeURIComponent(id));
-  if(!r.ok){chat.current=null;currentData=null;renderEmpty();renderConvLink(null);return;}
+  if(!r.ok){chat.current=null;currentData=null;renderEmpty();renderConvLink(null);renderTools(null);return;}
   currentData=r.json;const m=$('msgs');m.replaceChildren();
   if(!currentData.messages.length)renderEmpty();
   for(const msg of currentData.messages)m.appendChild(renderMessage(msg,currentData.conversation_url));
   if(chat.pending&&chat.pending.chat===id)m.appendChild(chat.pending.node);
-  renderConvLink(currentData);scrollEnd();}
+  renderConvLink(currentData);await loadSessions();renderTools(currentData);scrollEnd();}
 const PHASE={queued:'En cola',navigating:'Cambiando de conversación',thinking:'Pensando',idle:'Pensando'};
 function setBusy(b){$('send').disabled=b;$('hint').textContent=b?'esperando a ChatGPT… puedes ver otros chats mientras':'cada chat es su propia conversación en chatgpt.com';}
 async function send(text){
@@ -166,11 +206,12 @@ async function send(text){
   m.appendChild(renderMessage({role:'user',text}));
   const node=el('div','msg assistant');const th=el('div','thinking');th.appendChild(el('i'));const label=el('span','','Enviando…');th.appendChild(label);node.appendChild(th);m.appendChild(node);scrollEnd();
   const t0=Date.now();chat.pending={chat:id,node};setBusy(true);renderList();
-  let phase='queued';let shown='';let liveBody=null;
+  let phase='queued';let shown='';let liveBody=null;let liveTools=null;
   const tick=()=>{const secs=Math.round((Date.now()-t0)/1000);label.textContent=(shown?'Escribiendo':PHASE[phase])+'… '+secs+' s';};
   chat.timer=setInterval(async()=>{tick();
     try{const s=await api('/api/chat/status');if(s.ok&&s.json){const mine=s.json.chat_id===id;phase=(mine||s.json.phase==='queued')?s.json.phase:'queued';
       // Texto en vivo: cada sondeo trae la respuesta COMPLETA hasta ahora (se reemplaza, no se concatena).
+      if(mine&&s.json.tools){const nt=toolCardsNode(s.json.tools);if(liveTools)liveTools.replaceWith(nt);else node.insertBefore(nt,node.firstChild);liveTools=nt;}
       if(mine&&s.json.partial&&s.json.partial!==shown){shown=s.json.partial;
         if(!liveBody){liveBody=el('div','body live-body');node.insertBefore(liveBody,th);}
         const nearEnd=$('msgs').scrollHeight-$('msgs').scrollTop-$('msgs').clientHeight<80;
@@ -207,5 +248,5 @@ $('btn-sync').onclick=async()=>{const r=await api('/api/settings/open',{method:'
   if(r&&(r.status===202)){settings=r.json;renderSettings();toast('Chrome abierto: configura ChatGPT y ciérralo','ok');}else toast('✗ '+((r&&r.json&&(r.json.reason||(r.json.error&&r.json.error.message)))||'bridge apagado'),'bad');};
 $('btn-finish').onclick=async()=>{await api('/api/settings/finish',{method:'POST',body:'{}'}).catch(()=>null);pollSettings();};
 setInterval(pollSettings,2000);
-(async()=>{await loadList();if(!chat.touched){if(chat.current&&chat.list.some(c=>c.id===chat.current))await openChat(chat.current);else{chat.current=null;renderEmpty();}}bridgeState();setInterval(bridgeState,5000);pollSettings();})();
+(async()=>{await loadList();if(!chat.touched){if(chat.current&&chat.list.some(c=>c.id===chat.current))await openChat(chat.current);else{chat.current=null;renderEmpty();await loadSessions();renderTools(null);}}bridgeState();setInterval(bridgeState,5000);pollSettings();})();
 `;
