@@ -55,7 +55,10 @@ then confirms the install.
 ### 📟 Status at a glance
 
 Server, tunnel, MCP and browser health, the latest soak test turn by turn,
-sessions and their expiry, and recent errors. All live, with one-click actions.
+the daily canary (with a **Run canary** button), sessions and their expiry,
+**Codex tasks** (one GPT.com conversation per task: turns, last activity, and
+whether a task is blocked after an unconfirmed send), and recent errors. All
+live, with one-click actions.
 
 <p align="center">
   <img src="docs/images/status.png" alt="Status dashboard: everything online, latest soak 9/10" width="640">

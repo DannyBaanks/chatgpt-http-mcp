@@ -78,6 +78,23 @@ Object.assign(blocked, {
 saveChat(blocked);
 saveChat({ ...createChat("Plan de la Fase 3"), updated_at: ts(600) });
 
+// Tareas de Codex (API Responses) de demo: solo metadatos llegan al panel.
+const tasksDir = join(process.env.CODEX_WEB_HTTP_HOME!, "codex-responses");
+mkdirSync(tasksDir, { recursive: true });
+const demoTask = (key: string, n: string, turns: number) => writeFileSync(join(tasksDir, `task-${key}.json`), JSON.stringify({
+  url: `https://chatgpt.com/c/${n}000000-0000-4000-8000-000000000000`, instructions: "demo",
+  input: Array.from({ length: turns }, () => [{ role: "user", text: "demo" }, { role: "assistant", text: "demo" }]).flat(),
+}));
+demoTask("7f3a9c21d4e8b6f0", "d4", 3);
+demoTask("2b8e41f07ca9d531", "e5", 1);
+
+// Canario de demo (resultado OK) para que se vea la linea del panel.
+mkdirSync(join(process.env.CODEX_WEB_HTTP_HOME!, "canary"), { recursive: true });
+writeFileSync(join(process.env.CODEX_WEB_HTTP_HOME!, "canary", "latest.json"), JSON.stringify({
+  ts: ts(180), ok: true, bridge: "existing",
+  checks: [{ name: "eco-a", ok: true, ms: 17400, detail: "exacta" }, { name: "eco-b", ok: true, ms: 8500, detail: "exacta" }, { name: "markdown", ok: true, ms: 10100, detail: "lista + bloque de codigo" }],
+}));
+
 // --- bridge falso -----------------------------------------------------------------
 const LIVE = "Revisando el repo:\n\n1. `src/harness.ts` detecta **14** CLIs de agentes.\n2. Cinco traen su propio `mcp add`, así que";
 let pendingChat: string | null = null;

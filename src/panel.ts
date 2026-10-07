@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { isExpired, listUserSessions } from "./codex-sessions";
 import { guardLocalRequest } from "./local-guard";
 import { readLatestCanary, type CanaryResult } from "./canary";
+import { canaryScheduled, listCodexTasks, type CodexTaskView } from "./codex-tasks";
 import { chatPath, createChat, listChats, loadChat, publicChat, saveChat } from "./chats";
 import { CHAT_SCRIPT, CHAT_STYLE, renderChatView } from "./panel-chat";
 import { apply as harnessApply, detect as harnessDetect, plan as harnessPlan, type HarnessAction } from "./harness";
@@ -49,6 +50,8 @@ export interface PanelState {
   lastErrors: string[];
   lastSoak?: PanelSoak | null;
   canary?: CanaryResult | null;
+  canaryScheduled?: boolean | null;
+  codexTasks?: CodexTaskView[];
 }
 
 const ROOT = join(import.meta.dir, "..");
@@ -122,6 +125,8 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
     lastErrors,
     lastSoak: readLastSoak(),
     canary: readLatestCanary(),
+    canaryScheduled: canaryScheduled(),
+    codexTasks: listCodexTasks(),
   };
 }
 
@@ -156,6 +161,21 @@ function relativeExpiry(s: PanelSession, now: number): { text: string; tone: Ton
   const hours = (Date.parse(s.expiresAt) - now) / 3_600_000;
   if (hours < 24) return { text: `caduca en ${Math.max(1, Math.round(hours))} h`, tone: "warn" };
   return { text: `caduca en ${Math.round(hours / 24)} d`, tone: "ok" };
+}
+
+/** Tarjeta TAREAS DE CODEX: solo metadatos (el transcript es privado). */
+function codexTasksBody(tasks: CodexTaskView[], now: number): string {
+  if (!tasks.length) return `<p class="muted small">Sin tareas todavía. Aparecen cuando Codex usa un modelo <code>chatgpt-web/*</code>.</p>`;
+  const tone = { "lista": "ok", "en curso": "warn", "bloqueada": "bad", "ilegible": "bad" } as const;
+  const rows = tasks.map((t) => {
+    const ago = t.updated ? Math.max(0, Math.round((now - Date.parse(t.updated)) / 60_000)) : null;
+    const when = ago === null ? "" : ago < 1 ? "ahora" : ago < 60 ? `hace ${ago} min` : ago < 2880 ? `hace ${Math.round(ago / 60)} h` : `hace ${Math.round(ago / 1440)} d`;
+    const conv = t.conversation ? `<a href="${escapeHtml(t.conversation)}" target="_blank" rel="noreferrer">abrir ↗</a>` : "—";
+    return `<tr><td><code>${escapeHtml(t.id)}</code></td><td>${t.turns} turno${t.turns === 1 ? "" : "s"}</td><td class="muted small">${escapeHtml(when)}</td><td>${conv}</td><td><span class="pill tone-${tone[t.state]}">${escapeHtml(t.state)}</span></td></tr>`;
+  }).join("");
+  const blocked = tasks.some((t) => t.state === "bloqueada");
+  const note = blocked ? `<p class="small" style="margin-top:8px">⚠ <b>Bloqueada</b> = un envío quedó sin confirmar. Por diseño no se reenvía solo (así no se duplica un turno): revisa esa conversación en ChatGPT antes de seguir con esa tarea.</p>` : "";
+  return `<table class="tasks"><tbody>${rows}</tbody></table>${note}`;
 }
 
 /** Linea del canario diario dentro de ULTIMA PRUEBA. */
@@ -241,15 +261,21 @@ export function renderMain(state: PanelState): string {
     <h3>ULTIMA PRUEBA</h3>
     ${soakBody}
     ${canaryLine(state.canary ?? null, now)}
+    <p class="small muted">${state.canaryScheduled === true ? "Programado: todos los días 09:00 (systemd)." : state.canaryScheduled === false ? "Sin programar · <code>isymcp canary schedule --apply</code>" : ""}</p>
+    <div class="actions">${button("canary-run", "Correr canario", "go")}</div>
   </section>
   <section class="card">
-    <h3>CONVERSACION</h3>
+    <h3>CONVERSACION <span class="muted small">· de la API /v1 (opencode y otros clientes)</span></h3>
     ${conversation}
     <h3 class="gap">SESIONES MCP <span class="muted small">${state.sessions.length}</span></h3>
     <table class="sessions"><tbody>${sessionRows}</tbody></table>
     <div class="actions">${button("session-list", "Listar en el CLI")}</div>
   </section>
 </div>
+<section class="card">
+  <h3>TAREAS DE CODEX <span class="muted small">· API Responses: una conversación de GPT.com por tarea</span></h3>
+  ${codexTasksBody(state.codexTasks ?? [], now)}
+</section>
 <section class="card log">
   <h3>ULTIMOS ERRORES <span class="muted small">· ultimas 5 lineas FAILED de server.log (pueden ser viejas)</span></h3>
   ${errors}
@@ -306,6 +332,10 @@ code{font:12px var(--mono);color:#b9c9bf;background:#0b0f0d;border:1px solid var
 .turns li::before{content:"";flex:none;width:7px;height:7px;border-radius:50%}
 .t-ok::before{background:var(--ok)}.t-bad{border-color:color-mix(in srgb,var(--bad) 50%,transparent)!important;color:#ffb3b3}.t-bad::before{background:var(--bad)}
 .sessions{width:100%;border-collapse:collapse}
+.tasks{width:100%;border-collapse:collapse}
+.tasks td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+.tasks td:last-child{text-align:right;width:1%}
+.tasks a{color:var(--ok);text-decoration:none}.tasks a:hover{text-decoration:underline}
 .sessions{table-layout:fixed}
 .sessions td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
 .sessions td:first-child{width:42px}.sessions td:nth-child(3){width:118px}.sessions td:last-child{width:132px;text-align:right}
@@ -424,6 +454,8 @@ const ACTIONS: Record<string, string[]> = {
   "tunnel-connect": ["tunnel", "connect"],
   "tunnel-stop": ["tunnel", "stop"],
   "session-list": ["session", "list"],
+  // Turnos reales contra chatgpt.com (~40 s); el panel espera el resultado.
+  "canary-run": ["canary", "run"],
 };
 
 export function runPanelAction(action: string): { ok: boolean; out: string } {
