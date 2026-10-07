@@ -63,19 +63,28 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
     await button.waitFor({ state: "visible", timeout: 15_000 });
     const pill = ((await button.innerText()) || "").trim().replace(/\s+/g, " ") || null;
     await button.click();
-    await page.waitForTimeout(900);
-    const menu = await page.evaluate(() => {
+    // Esperar a que el menu termine de montarse (el deslizante de potencia
+    // llega despues que los items): con una espera fija de 900 ms, justo tras
+    // navegar a un chat nuevo, se leia "High (?/?)" (visto 2026-10-07, M8).
+    const readMenu = () => page.evaluate(() => {
       const radios = Array.from(document.querySelectorAll('[role="menuitemradio"], [role="menuitem"], [role="option"]')) as HTMLElement[];
       const checked = radios.find((r) => r.getAttribute("aria-checked") === "true");
       const texts = radios.map((r) => (r.innerText || "").trim().replace(/\s+/g, " "));
-      const sliders = Array.from(document.querySelectorAll('[role="slider"], [aria-valuenow]')) as HTMLElement[];
-      const slider = sliders[0];
+      // Solo dentro del menu abierto: otras barras de la pagina (p. ej. la
+      // alerta de uso) tambien llevan aria-valuenow.
+      const scope = document.querySelector('[data-radix-popper-content-wrapper], [role="menu"]');
+      const slider = (scope?.querySelector('[role="slider"], [aria-valuenow]') ?? null) as HTMLElement | null;
       return {
         model: checked ? (checked.innerText || "").trim().split("\n")[0] : null,
         texts,
         slider: slider ? { now: slider.getAttribute("aria-valuenow"), max: slider.getAttribute("aria-valuemax"), min: slider.getAttribute("aria-valuemin"), text: slider.getAttribute("aria-valuetext") } : null,
       };
     });
+    let menu = await readMenu();
+    for (let i = 0; i < 10 && !(menu.slider?.now || menu.texts.some((t) => /\d+\s+(?:de|of)\s+\d+/.test(t))); i++) {
+      await page.waitForTimeout(400);
+      menu = await readMenu();
+    }
     await page.keyboard.press("Escape").catch(() => {});
     // "Instant, 1 de 3" (o en ingles "Instant, 1 of 3") en algun item del menu.
     const effortText = menu.texts.map((t) => /([\p{L}][\p{L} ]*?),\s*(\d+)\s+(?:de|of)\s+(\d+)/u.exec(t)).find(Boolean);
