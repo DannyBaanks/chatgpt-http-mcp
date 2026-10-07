@@ -11,6 +11,7 @@ import { isExpired, listUserSessions } from "./codex-sessions";
 import { guardLocalRequest } from "./local-guard";
 import { chatPath, createChat, listChats, loadChat, publicChat, saveChat } from "./chats";
 import { CHAT_SCRIPT, CHAT_STYLE, renderChatView } from "./panel-chat";
+import { apply as harnessApply, detect as harnessDetect, plan as harnessPlan, type HarnessAction } from "./harness";
 
 function pgrep(pattern: string): boolean {
   const p = Bun.spawnSync(["pgrep", "-f", pattern], { stdout: "ignore", stderr: "ignore" });
@@ -317,7 +318,44 @@ catch(e){toast('✗ '+a+'\\n'+e,'bad');}finally{b.disabled=false;b.textContent=o
 setInterval(()=>{if(!document.body.classList.contains('tab-chat'))refresh();},4000);
 `;
 
+// Tarjeta HARNESSES (pestana Estado): detectar -> plan (comandos exactos) ->
+// confirmar -> aplicar -> resultado verificado por la propia herramienta.
+const HARNESS_SCRIPT = `
+const H={list:[]};
+const hEl=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;};
+async function hApi(path,body){const r=await fetch(path,body===undefined?{}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});let j=null;try{j=await r.json()}catch{}return {ok:r.ok,json:j};}
+function hSelected(){return Array.from(document.querySelectorAll('.hrow input:checked')).map(i=>i.value);}
+function hRender(){const box=document.getElementById('harness-list');box.replaceChildren();box.classList.remove('muted');
+  for(const h of H.list){const row=hEl('label','hrow');const cb=hEl('input');cb.type='checkbox';cb.value=h.id;cb.disabled=!h.present||!h.supported;row.appendChild(cb);
+    row.appendChild(hEl('span','hid',h.id));row.appendChild(hEl('span','muted small',h.label));
+    const tone=!h.present?'idle':!h.supported?'idle':h.installed===true?'ok':h.installed===false?'warn':'idle';
+    const txt=!h.present?'no instalado':!h.supported?'detectado · aún no soportado':h.installed===true?'isymcp-chatgpt ✓':h.installed===false?'sin isymcp-chatgpt':'estado desconocido';
+    const st=hEl('span','hst');const pill=hEl('span','pill tone-'+tone,txt);if(h.pending)pill.title=h.pending;st.appendChild(pill);row.appendChild(st);box.appendChild(row);}
+  const any=H.list.some(h=>h.present&&h.supported);document.getElementById('harness-plan-install').disabled=!any;document.getElementById('harness-plan-remove').disabled=!any;}
+async function hDetect(){const b=document.getElementById('harness-detect');b.disabled=true;b.textContent='detectando…';const r=await hApi('/api/harness');b.disabled=false;b.textContent='Detectar';
+  if(r.ok){H.list=r.json.harnesses;hRender();}else toast('✗ no se pudo detectar','bad');}
+async function hPlan(action){const ids=hSelected();const box=document.getElementById('harness-plan');if(!ids.length){toast('Marca al menos un harness','warn');return;}
+  const r=await hApi('/api/harness/plan',{action,ids});if(!r.ok){toast('✗ '+((r.json&&r.json.error&&r.json.error.message)||'error'),'bad');return;}
+  box.replaceChildren();box.className='planbox';box.hidden=false;box.appendChild(hEl('div','',(action==='install'?'Se instalará':'Se quitará')+' isymcp-chatgpt con estos comandos exactos (sin shell):'));
+  for(const s of r.json.steps)box.appendChild(hEl('pre','',s.id+': '+(s.argv?s.argv.join(' '):'(nada) '+s.reason)));
+  const runnable=r.json.steps.filter(s=>s.argv).map(s=>s.id);const act=hEl('div','actions');
+  const ok=hEl('button','btn '+(action==='install'?'btn-go':'btn-stop'),runnable.length?'Confirmar y aplicar':'Nada que aplicar');ok.type='button';ok.disabled=!runnable.length;
+  const cancel=hEl('button','btn','Cancelar');cancel.type='button';cancel.onclick=()=>{box.hidden=true;};
+  ok.onclick=async()=>{ok.disabled=true;ok.textContent='aplicando…';const a=await hApi('/api/harness/apply',{action,ids:runnable,confirm:true});
+    box.replaceChildren();if(!a.ok){box.appendChild(hEl('div','',(a.json&&a.json.error&&a.json.error.message)||'error'));return;}
+    for(const x of a.json.results)box.appendChild(hEl('pre','',(x.ran?(x.ok?'✓ ':'✗ '):'– ')+x.id+(x.ran?' · verificado='+x.verified:'')+' · '+x.detail));hDetect();};
+  act.appendChild(ok);act.appendChild(cancel);box.appendChild(act);}
+document.getElementById('harness-detect').onclick=hDetect;
+document.getElementById('harness-plan-install').onclick=()=>hPlan('install');
+document.getElementById('harness-plan-remove').onclick=()=>hPlan('uninstall');
+`;
+
 const SHELL_STYLE = `
+.harness{margin-top:14px}
+.hrow{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font:13px var(--sans)}
+.hrow input{accent-color:#7cff9b}.hrow .hid{font:600 12px var(--mono);min-width:90px}.hrow .hst{margin-left:auto;text-align:right}
+.planbox{margin-top:12px;border:1px dashed var(--line);border-radius:10px;padding:12px}
+.planbox pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px var(--mono);margin:6px 0;color:#cfe3d5}
 .top{position:sticky;top:0;z-index:6;height:57px;display:flex;align-items:center;gap:14px;padding:0 16px;background:rgba(9,11,10,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
 .top .logo{font:700 16px var(--mono);letter-spacing:.12em;color:var(--ok)}
 .tabs{display:flex;gap:4px;margin-left:8px}
@@ -345,6 +383,13 @@ export function renderPanel(state: PanelState): string {
 <div id="view-estado"><div class="wrap">
 <div class="brand"><h1>ISyMCP PANEL</h1><span class="sub">chatgpt-http-mcp · bridge local</span></div>
 ${renderMain(state)}
+<section class="card harness" id="harness-card">
+  <h3>HARNESSES · MCP isymcp-chatgpt</h3>
+  <p class="muted small">Instala en tus otras CLIs/TUIs de agentes (Claude Code, Codex, Qwen, Gemini, Grok…) la herramienta <code>chatgpt_ask</code>: consultan a tu ChatGPT web por el bridge. Nada se escribe sin tu confirmación; después se verifica con la propia herramienta.</p>
+  <div id="harness-list" class="muted small">Pulsa «Detectar».</div>
+  <div class="actions"><button class="btn" id="harness-detect" type="button">Detectar</button><button class="btn btn-go" id="harness-plan-install" type="button" disabled>Instalar seleccionados…</button><button class="btn btn-stop" id="harness-plan-remove" type="button" disabled>Quitar seleccionados…</button></div>
+  <div id="harness-plan" hidden></div>
+</section>
 <footer>127.0.0.1 only · Host/Origin protegidos · <code>isymcp panel</code></footer>
 </div></div>
 <div class="toasts"></div>
@@ -354,7 +399,8 @@ document.querySelectorAll('.tabs a').forEach(a=>a.classList.toggle('on',a.datase
 window.addEventListener('hashchange',showTab);showTab();
 document.getElementById('btn-side').onclick=()=>{document.body.classList.toggle('show-side');document.body.classList.remove('show-config');};
 document.getElementById('btn-config').onclick=()=>{document.body.classList.toggle('show-config');document.body.classList.remove('show-side');};
-${CHAT_SCRIPT}</script></body></html>`;
+${CHAT_SCRIPT}
+${HARNESS_SCRIPT}</script></body></html>`;
 }
 
 const ACTIONS: Record<string, string[]> = {
@@ -392,6 +438,7 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       if (url.pathname.startsWith("/api/chat")) return handleChatApi(req, url, bridgePort);
       if (url.pathname.startsWith("/api/settings")) return handleSettingsApi(req, url, bridgePort);
       if (url.pathname === "/api/sessions" && req.method === "GET") return Response.json(publicSessions());
+      if (url.pathname.startsWith("/api/harness")) return handleHarnessApi(req, url);
       if (url.pathname === "/api/action" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { action?: string };
         return Response.json(runPanelAction(String(body.action ?? "")));
@@ -510,4 +557,27 @@ export function publicSessions() {
     /* registro ilegible: lista vacia, el CLI explica */
   }
   return { sessions, tunnel: pgrep("tunnel-client run") ? "ready" : "stopped" };
+}
+
+/**
+ * API de harnesses. Aplicar exige {confirm: true} ademas de la guarda
+ * Host/Origin/JSON: una pagina ajena no puede instalar nada (CSRF) y el boton
+ * solo existe tras ver el plan con los comandos exactos.
+ */
+export async function handleHarnessApi(req: Request, url: URL): Promise<Response> {
+  if (url.pathname === "/api/harness" && req.method === "GET") {
+    return Response.json({ harnesses: await harnessDetect() });
+  }
+  const body = (await req.json().catch(() => null)) as { action?: unknown; ids?: unknown; confirm?: unknown } | null;
+  const action = body?.action === "install" || body?.action === "uninstall" ? (body.action as HarnessAction) : null;
+  const ids = Array.isArray(body?.ids) ? (body!.ids as unknown[]).filter((x): x is string => typeof x === "string").slice(0, 32) : [];
+  if (!action || ids.length === 0) return apiError(400, "harness_bad_request", "se espera {action: install|uninstall, ids: [...]}");
+  if (url.pathname === "/api/harness/plan" && req.method === "POST") {
+    return Response.json({ steps: await harnessPlan(action, ids) });
+  }
+  if (url.pathname === "/api/harness/apply" && req.method === "POST") {
+    if (body?.confirm !== true) return apiError(400, "harness_not_confirmed", "falta la confirmacion explicita");
+    return Response.json({ results: await harnessApply(action, ids, true) });
+  }
+  return apiError(404, "not_found", "ruta desconocida");
 }

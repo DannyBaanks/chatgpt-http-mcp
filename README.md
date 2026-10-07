@@ -98,6 +98,27 @@ Checks: `bun run scripts/e2e-chat-tools.ts` (real tools: read + write, cards fro
 independent context) · `bun run scripts/panel-layout-check.ts` (no horizontal
 overflow at 1400/390 px, no injected HTML).
 
+## Use ChatGPT from your other agents (harness engine)
+
+`isymcp-chatgpt` is a small MCP server with one tool, `chatgpt_ask(prompt,
+thread_id?)`: any agent CLI can consult **your** ChatGPT web (your plan, no API
+key) through the bridge. Each question opens or continues a panel chat
+(`[client] …` in the sidebar), with tools OFF — ChatGPT cannot execute anything
+on this machine through this path.
+
+```bash
+isymcp harness list                         # 14 known agent CLIs: present? supported? installed?
+isymcp harness install claude codex         # PLAN only: prints the exact commands, writes nothing
+isymcp harness install claude codex --apply # runs them, then re-checks with the tool itself
+isymcp harness uninstall --all --apply
+```
+
+Same flow in the panel (**Estado → Harnesses**: detect → plan → confirm).
+Supported today, via each tool's **own** `mcp add/remove` (so it writes its own
+format): Claude Code, Codex, Qwen Code, Gemini CLI, Grok. Detected but not yet
+supported (no verified config strategy, nothing is guessed): opencode, Crush,
+Cursor, Copilot, Kimi, Hermes, OpenClaw, Pi, fx. Needs `isymcp server start`.
+
 ## Operations
 
 | Command | What |
@@ -111,7 +132,7 @@ overflow at 1400/390 px, no injected HTML).
 
 ## Evidence
 
-- `bun test` → **180/180** (incl. live sandbox-isolation and CSRF/DNS-rebinding
+- `bun test` → **186/186** (incl. live sandbox-isolation and CSRF/DNS-rebinding
   regressions).
 - Soak: **100 sequential real HTTP turns** (unique nonce per turn + idempotent
   replay check): **99 exact, 0 infrastructure failures, 0 empty captures,
