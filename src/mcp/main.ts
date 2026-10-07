@@ -96,8 +96,38 @@ function sessionFrom(input: Record<string, unknown>, tool = "-"): CodexSession |
     tool,
     token_fp: token ? fingerprint(token) : null,
     session: session ? `${session.label}[${session.fp}]` : null,
+    turn_id: session?.turnId ?? null,
   });
   return session;
+}
+
+/**
+ * Evento de resultado por tool call: lo que el chat local muestra como
+ * "tarjeta de tool". Va con token_fp (y turn_id si es un token de turno) para
+ * correlacionar con el turno exacto. Nunca guarda stdout/stderr ni el token.
+ */
+function traceResult(session: CodexSession, tool: string, out: { content: Array<{ type: string; text?: string }>; isError?: boolean }): void {
+  try {
+    const text = out.content.find((c) => c.type === "text")?.text ?? "{}";
+    const r = JSON.parse(text) as Record<string, unknown>;
+    const clipStr = (v: unknown) => (typeof v === "string" ? v.slice(0, 300) : undefined);
+    trace("tool.result", {
+      tool,
+      token_fp: session.fp,
+      turn_id: session.turnId ?? null,
+      ok: !out.isError && r.error === undefined && (r.executed !== false || tool === "codex_tool_inventory"),
+      command: Array.isArray(r.command) ? (r.command as unknown[]).map(String).join(" ").slice(0, 300) : undefined,
+      exit_code: typeof r.exit_code === "number" ? r.exit_code : undefined,
+      timed_out: r.timed_out === true ? true : undefined,
+      duration_ms: typeof r.duration_ms === "number" ? r.duration_ms : undefined,
+      files: Array.isArray(r.files) ? (r.files as unknown[]).map(String).slice(0, 20) : undefined,
+      path: clipStr(r.path),
+      bytes: typeof r.bytes === "number" ? r.bytes : undefined,
+      error: clipStr(r.error),
+    });
+  } catch {
+    /* la traza nunca rompe la tool */
+  }
 }
 
 function sessionMeta(session: CodexSession) {
@@ -269,7 +299,7 @@ server.registerTool(
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
     const session = sessionFrom(input, "codex_exec");
-    if (session) return runExec(session, input.command, input.cwd);
+    if (session) { const out = await runExec(session, input.command, input.cwd); traceResult(session, "codex_exec", out); return out; }
     const command = input.command as string[];
     return jsonText({
       turn_token: token,
@@ -313,6 +343,7 @@ server.registerTool(
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_tool_inventory");
     if (session) {
+      traceResult(session, "codex_tool_inventory", jsonText({ executed: true }));
       return jsonText({
         session: sessionMeta(session),
         tools: ["codex_exec", "codex_apply_patch", "codex_view_image", "codex_tool_inventory", "codex_turn_start", "codex_turn_complete"],
@@ -364,7 +395,7 @@ server.registerTool(
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_apply_patch");
-    if (session) return runApplyPatch(session, input.patch);
+    if (session) { const out = await runApplyPatch(session, input.patch); traceResult(session, "codex_apply_patch", out); return out; }
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
@@ -383,7 +414,7 @@ server.registerTool(
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_view_image");
-    if (session) return runViewImage(session, input.path);
+    if (session) { const out = runViewImage(session, input.path); traceResult(session, "codex_view_image", out); return out; }
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",

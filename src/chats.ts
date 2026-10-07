@@ -14,19 +14,25 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
+import type { ToolCard } from "./tool-trace";
 
 export const CHAT_ID_RE = /^c_[0-9a-f]{16}$/;
 export const MAX_MESSAGES = 200;
 const SCHEMA = "isymcp.chat/1";
 
-export type ChatErrorKind = "provider_blocked" | "session" | "browser" | "bridge" | "unavailable" | "capture";
+export type ChatErrorKind = "provider_blocked" | "session" | "browser" | "bridge" | "unavailable" | "capture" | "tools_session";
 
 export interface ChatMessage {
   role: "user" | "assistant" | "error";
   text: string;
   ts: string;
   /** Solo respuestas/errores. */
-  meta?: { ms?: number; url?: string | null; kind?: ChatErrorKind; detail?: string };
+  meta?: {
+    ms?: number; url?: string | null; kind?: ChatErrorKind; detail?: string;
+    /** Turno con tools: tarjetas sacadas de mcp-trace (evidencia), no del modelo. */
+    tools_enabled?: boolean;
+    tools?: ToolCard[];
+  };
 }
 
 export interface ChatRecord {
@@ -36,8 +42,10 @@ export interface ChatRecord {
   conversation_url: string | null;
   created_at: string;
   updated_at: string;
-  /** Fase 1: siempre false (tools llegan en Fase 2). */
-  tools_enabled: false;
+  /** Siempre false al crear: las tools se encienden a mano, chat por chat. */
+  tools_enabled: boolean;
+  /** fp de la sesion elegida (referencia; el token nunca se guarda aqui). */
+  session_fp: string | null;
   messages: ChatMessage[];
 }
 
@@ -76,6 +84,7 @@ export function createChat(title = "Nuevo chat"): ChatRecord {
     created_at: now,
     updated_at: now,
     tools_enabled: false,
+    session_fp: null,
     messages: [],
   };
   saveChat(chat);
@@ -88,7 +97,12 @@ export function loadChat(id: string): ChatRecord | null {
   try {
     const data = JSON.parse(readFileSync(path, "utf8")) as ChatRecord;
     if (data.id !== id) return null;
-    return { ...data, tools_enabled: false, messages: Array.isArray(data.messages) ? data.messages : [] };
+    return {
+      ...data,
+      tools_enabled: data.tools_enabled === true,
+      session_fp: typeof data.session_fp === "string" ? data.session_fp : null,
+      messages: Array.isArray(data.messages) ? data.messages : [],
+    };
   } catch {
     return null;
   }
@@ -112,7 +126,8 @@ export function publicChat(chat: ChatRecord, withMessages: boolean) {
     conversation_url: chat.conversation_url,
     created_at: chat.created_at,
     updated_at: chat.updated_at,
-    tools_enabled: false,
+    tools_enabled: chat.tools_enabled,
+    session_fp: chat.session_fp,
     message_count: chat.messages.length,
     ...(withMessages ? { messages: chat.messages } : {}),
   };

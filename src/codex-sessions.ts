@@ -23,6 +23,16 @@ export interface CodexSession {
   createdAt: string;
   /** ISO; ausente = sesion anterior a v0.4 (sin caducidad). */
   expiresAt?: string | null;
+  /**
+   * "turn": token efimero de UN turno del chat local (Fase 2). Hereda cwd y
+   * modo de su sesion padre, caduca en minutos y se revoca al terminar el
+   * turno. Su fingerprint correlaciona cada tool call con ese turno exacto.
+   */
+  kind?: "turn";
+  /** fp de la sesion padre (solo kind "turn"). */
+  parent?: string;
+  /** id del turno del chat local que lo acuño (solo kind "turn"). */
+  turnId?: string;
 }
 
 interface Registry {
@@ -108,6 +118,50 @@ export function readSessions(): CodexSession[] {
   return readRegistry().sessions;
 }
 
+/** Sesiones que crea el usuario (sin los tokens efimeros de turno). */
+export function listUserSessions(): CodexSession[] {
+  return readRegistry().sessions.filter((s) => s.kind !== "turn");
+}
+
+export const TURN_TOKEN_TTL_MINUTES = 15;
+
+/**
+ * Acuña un token efimero para UN turno, derivado de una sesion del usuario.
+ * Es lo unico que viaja a chatgpt.com en el chat local (el token de la sesion,
+ * de dias, no sale). Limpia de paso los tokens de turno caducados.
+ */
+export function mintTurnToken(parentFp: string, turnId: string, ttlMinutes = TURN_TOKEN_TTL_MINUTES): CodexSession {
+  const reg = readRegistry();
+  const parent = reg.sessions.find((s) => s.fp === parentFp && s.kind !== "turn");
+  if (!parent) throw new Error("sesion desconocida");
+  if (isExpired(parent)) throw new Error("la sesion caduco");
+  const token = randomBytes(32).toString("base64url");
+  const turn: CodexSession = {
+    token,
+    fp: fingerprint(token),
+    label: `turn:${turnId}`,
+    cwd: parent.cwd,
+    writable: parent.writable,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + ttlMinutes * 60_000).toISOString(),
+    kind: "turn",
+    parent: parent.fp,
+    turnId,
+  };
+  reg.sessions = reg.sessions.filter((s) => !(s.kind === "turn" && isExpired(s)));
+  reg.sessions.push(turn);
+  writeRegistry(reg);
+  return turn;
+}
+
+/** Revoca un token de turno por fp exacto (fin del turno). */
+export function revokeTurnToken(fp: string): void {
+  const reg = readRegistry();
+  const before = reg.sessions.length;
+  reg.sessions = reg.sessions.filter((s) => !(s.kind === "turn" && s.fp === fp));
+  if (reg.sessions.length !== before) writeRegistry(reg);
+}
+
 /** Prefijo minimo para revocar: con menos, un typo se lleva sesiones ajenas. */
 export const MIN_REVOKE_PREFIX = 6;
 
@@ -123,7 +177,9 @@ export function revokeSession(prefixOrFp: string): number {
     throw new Error(`prefijo ambiguo: coincide con ${matches.length} sesiones (${matches.map((s) => s.fp).join(", ")}); usa mas caracteres`);
   }
   if (matches.length === 0) return 0;
-  reg.sessions = reg.sessions.filter((s) => s !== matches[0]);
+  const gone = matches[0]!;
+  // Cascada: los tokens de turno de esa sesion mueren con ella.
+  reg.sessions = reg.sessions.filter((s) => s !== gone && s.parent !== gone.fp);
   writeRegistry(reg);
   return 1;
 }
@@ -136,10 +192,19 @@ export function isExpired(session: Pick<CodexSession, "expiresAt">, now = Date.n
 
 export function findSessionByToken(token: string): CodexSession | null {
   if (!token) return null;
-  for (const session of readRegistry().sessions) {
+  const sessions = readRegistry().sessions;
+  for (const session of sessions) {
     const a = Buffer.from(session.token);
     const b = Buffer.from(token);
-    if (a.length === b.length && timingSafeEqual(a, b)) return isExpired(session) ? null : session;
+    if (a.length === b.length && timingSafeEqual(a, b)) {
+      if (isExpired(session)) return null;
+      if (session.kind === "turn") {
+        // Un token de turno no sobrevive a su sesion padre.
+        const parent = sessions.find((p) => p.fp === session.parent && p.kind !== "turn");
+        if (!parent || isExpired(parent)) return null;
+      }
+      return session;
+    }
   }
   return null;
 }
