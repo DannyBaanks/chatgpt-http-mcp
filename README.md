@@ -118,9 +118,18 @@ close the window, and that becomes the bridge's default.
   untrusted-content marker. Don't let an agent take side-effect actions (write,
   shell, push, delete) based only on it without your approval.
 - **Tools inside ChatGPT.** A page ChatGPT reads could try to make it run
-  commands. The sandbox contains that: no network, only the session folder. But
-  in a `--write` session, damage *inside that folder* is possible. Prefer
-  read-only sessions.
+  commands. With bubblewrap enabled, the host filesystem is mounted read-only;
+  the user's home and the bridge's secrets directory are hidden, then the
+  session folder is re-exposed read-only or writable according to the session.
+  System files outside that folder can still be read; this is not a filesystem
+  restricted to that folder. Network access is disabled **by default**;
+  `CODEX_WEB_HTTP_SANDBOX_NET=1` enables it. In a `--write` session, damage inside
+  the session folder is possible. Prefer read-only sessions. Explicitly setting
+  `CODEX_WEB_HTTP_SANDBOX=off` lets writable sessions run without bubblewrap.
+- **The untrusted-content marker is advisory.** It labels bridge responses,
+  including provider errors and HTTP diagnostics. It does not enforce approval
+  or prevent prompt injection; the receiving agent must respect the user's
+  existing authorization and its own permission controls.
 - **Your ChatGPT cookies are the crown jewel.** They sit in `~/.codex-web-http/`
   with 0600 permissions, which stops other users but not malware or any process
   running as you.
