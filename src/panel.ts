@@ -164,8 +164,9 @@ function canaryLine(c: CanaryResult | null, now: number): string {
   const hours = Math.max(0, (now - Date.parse(c.ts)) / 3_600_000);
   const age = hours < 1 ? "hace menos de 1 h" : hours < 48 ? `hace ${Math.round(hours)} h` : `hace ${Math.round(hours / 24)} d`;
   const tone = !c.ok ? "bad" : hours > 36 ? "warn" : "ok";
-  const checks = c.checks.map((k) => `${k.ok ? "✓" : "✗"} ${escapeHtml(k.name)}`).join(" · ") || escapeHtml(c.error ?? "");
-  return `<p class="small" style="margin-top:10px">Canario <span class="pill tone-${tone}">${c.ok ? "OK" : "FALLO"}</span> <span class="muted">${age} · ${checks}</span></p>`;
+  const checks = c.checks.map((k) => `${k.ok ? "✓" : "✗"} ${escapeHtml(k.name)}`).join(" · ") || escapeHtml(c.notice?.summary ?? c.error ?? "");
+  const notice = c.notice ? `<p class="small">Origen: ${escapeHtml(c.notice.source)} / ${escapeHtml(c.notice.component)} · ${escapeHtml(c.notice.severity)} · ${escapeHtml(c.notice.event)}<br>${escapeHtml(c.notice.summary)}<br>Evidencia: <code>${escapeHtml(c.notice.evidence_ref)}</code><br>Detalle: <code>${escapeHtml(c.notice.action ?? "isymcp canary status")}</code></p>` : "";
+  return `<p class="small" style="margin-top:10px">Canario <span class="pill tone-${tone}">${c.ok ? "OK" : "FALLO"}</span> <span class="muted">${age} · ${checks}</span></p>${notice}`;
 }
 
 /** El <main> del panel: lo re-pide el navegador cada pocos segundos. */
