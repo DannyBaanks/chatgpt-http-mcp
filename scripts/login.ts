@@ -60,7 +60,7 @@ if (process.argv.includes("--status")) {
     console.log(`  ${host}: ${names.length}${session.length ? `  sesion: ${session.join(", ")}` : ""}`);
   }
   const hasSession = rows.some((row) => /session|__Secure|clearance/i.test(row.name));
-  console.log(hasSession ? "ESTADO: sesion detectada (podes exportar)" : "ESTADO: SIN cookies de sesion (falta completar el login)");
+  console.log(hasSession ? "ESTADO: sesion detectada (puedes exportar)" : "ESTADO: SIN cookies de sesion (falta completar el login)");
   process.exit(hasSession ? 0 : 1);
 }
 
@@ -97,7 +97,7 @@ if (!exportOnly) {
   );
   const code = await proc.exited;
   if (code !== 0) {
-    console.error(`Chrome salio con codigo ${code}; si quedaron ventanas abiertas, cerralas y reintenta.`);
+    console.error(`Chrome salio con codigo ${code}; si quedaron ventanas abiertas, ciérralas y reintenta.`);
     process.exit(1);
   }
   console.log("Chrome cerrado. Exportando cookies...");
@@ -153,7 +153,7 @@ try {
     console.error("NO HAY SESION en este perfil: el login no llego a completarse.");
     console.error("Revisa con:  bun run login -- --status");
     console.error("Si dice SIN cookies: corre 'bun run login' otra vez, inicia sesion");
-    console.error("en la ventana y recien despues cerrala por completo.");
+    console.error("en la ventana y después ciérrala por completo.");
     if (context) await context.close();
     process.exit(1);
   }

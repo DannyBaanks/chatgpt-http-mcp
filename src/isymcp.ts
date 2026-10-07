@@ -90,7 +90,7 @@ function startServer(options: { connector?: string | null } = {}): void {
   child.unref();
   writeFileSync(PID, `${child.pid}\n`);
   console.log(`server detached pid=${child.pid} log=${LOG} connector=${connector || "off"}`);
-  console.log("podes cerrar esta terminal: el server no es hijo de ella");
+  console.log("puedes cerrar esta terminal: el server no depende de ella");
 }
 
 function stopServer(): void {
@@ -224,7 +224,7 @@ function installIntoCodex(apply: boolean): void {
     return;
   }
   console.log("instalado en Codex: ruta 8791, models_cache borrado para que Codex lo vuelva a pedir");
-  console.log("cierra la app de Codex por completo y volvela a abrir");
+  console.log("cierra la app de Codex por completo y vuelve a abrirla");
 }
 
 function command(text: string, effort?: string): void {

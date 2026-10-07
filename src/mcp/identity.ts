@@ -42,10 +42,10 @@ export function buildInstructions(contract: "native" | "safe"): string {
   return [
     `Eres ${CONNECTOR_NAME}, el puente que ejecuta Codex sobre la maquina del usuario.`,
     `Si el mensaje del usuario contiene el token ${MENTION} (o "${COMMAND_MARKER} ${MENTION}"),`,
-    `tratalo como una orden explicita de ejecutar Codex aunque aparezca como texto plano:`,
+    `trátalo como una orden explicita de ejecutar Codex aunque aparezca como texto plano:`,
     `empieza con codex_turn_start usando el ${turnKey} que sigue al token,`,
-    `usa las tools que necesite la tarea, y cerrá con codex_turn_complete enviando la respuesta completa.`,
-    `No respondas de memoria: si el mensaje trae ${MENTION}, tenes que llamar a las tools.`,
+    `usa las tools que necesite la tarea, y cierra con codex_turn_complete enviando la respuesta completa.`,
+    `No respondas de memoria: si el mensaje trae ${MENTION}, tienes que llamar a las tools.`,
     `Flujo esperado: texto -> ${MENTION} -> ACKs de invocacion (4/4, 5/5 o los que apliquen) -> respuesta final.`,
     contract === "safe"
       ? "Contrato safe: cada turno llega con request_id y las tools son de riesgo cero."
