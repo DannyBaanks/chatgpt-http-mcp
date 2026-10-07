@@ -11,8 +11,9 @@
 // tokenizer de Codex aqui, y un numero inventado con precision falsa es peor
 // que uno aproximado y rotulado.
 import { parseResponsesInput } from "./responses/input";
-import { sendWebTurn } from "./web-turn";
-import { CHATGPT_WEB_MODEL_PREFIX, routeEfforts, availableRoutes } from "./web-models";
+import { runTaskTurn } from "./responses/task-turn";
+import { WebTaskError } from "./responses/selection";
+import { CHATGPT_WEB_MODEL_PREFIX } from "./web-models";
 import type { AppConfig } from "./config";
 
 const SSE_DONE = "data: [DONE]";
@@ -65,9 +66,11 @@ export function buildResponseBody(model: string, text: string, prompt: string): 
     model,
     output: [
       {
+        id: `msg_${crypto.randomUUID().replace(/-/g, "")}`,
         type: "message",
+        status: "completed",
         role: "assistant",
-        content: [{ type: "output_text", text }],
+        content: [{ type: "output_text", text, annotations: [] }],
       },
     ],
     output_text: text,
@@ -86,8 +89,7 @@ function sseEvent(type: string, payload: Record<string, unknown>): Uint8Array {
 }
 
 /** SSE del mismo cuerpo: UN delta con el texto completo, luego completed. */
-export function buildWebStream(model: string, text: string, prompt: string): ReadableStream<Uint8Array> {
-  const response = buildResponseBody(model, text, prompt);
+export function buildWebStream(model: string, text: string, prompt: string, response = buildResponseBody(model, text, prompt)): ReadableStream<Uint8Array> {
   const { output, output_text: _outputText, ...rest } = response;
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -105,63 +107,17 @@ function errorJson(status: number, type: string, message: string): Response {
   return Response.json({ error: { type, message } }, { status });
 }
 
-/** effort pedido vs disponible para esa fila; no inventa capacidades. */
-function effortNote(config: AppConfig, model: string, requested: unknown): string | undefined {
-  const route = availableRoutes(config.capabilities).find((r) => r.slug === model);
-  if (!route) return undefined;
-  const allowed = routeEfforts(route, config.capabilities);
-  return allowed.includes(requested as never) ? undefined : `effort pedido=${String(requested)} disponible=${allowed.join(",")}`;
-}
-
-/** Atiende un POST /v1/responses con modelo Web. */
-export async function handleWebResponses(
-  req: Request,
-  config: AppConfig,
-  web: WebRequest,
-): Promise<Response> {
-  if (!web.prompt.trim()) {
-    return errorJson(400, "web_empty_input", "no se extrajo texto del input para el turno web");
-  }
-  let note: string | undefined;
-  let body: Record<string, unknown> = {};
+/** HTTP and WebSocket share the same durable task-bound backend. */
+export async function handleWebResponses(req: Request, config: AppConfig, web: WebRequest): Promise<Response> {
   try {
-    body = (await req.clone().json()) as Record<string, unknown>;
-    note = effortNote(config, web.model, body.reasoning?.effort ?? body.reasoning_effort);
-  } catch {
-    /* ya se parseo en peek; si falla, el prompt ya viene en web.prompt */
-  }
-
-  let result;
-  try {
-    result = await sendWebTurn(web.prompt, {
-      statePath: config.browserStatePath,
-      browser: config.browser,
-      headed: config.browserHeaded,
-      deadlineMs: config.webTurnDeadlineMs,
-    });
+    const body = await req.clone().json();
+    const result = await runTaskTurn(req, body, config, buildResponseBody);
+    const headers = { "x-isymcp-replayed": result.replayed ? "1" : "0", "cache-control": "no-store" };
+    return web.stream ? new Response(buildWebStream(web.model, result.body.output_text, web.prompt, result.body), {
+      headers: { ...headers, "content-type": "text/event-stream" },
+    }) : Response.json(result.body, { headers });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const named = /^(web_[a-z_]+)/.exec(message)?.[1];
-    const status = named === "web_session_missing" || named === "web_session_expired" ? 503 : 502;
-    return errorJson(status, named ?? "web_turn_failed", message);
+    if (error instanceof WebTaskError) return errorJson(error.status, error.type, error.message);
+    return errorJson(503, "web_task_state_unavailable", "task state or browser preflight could not be completed");
   }
-  if (!result.submitted || !result.text) {
-    return errorJson(
-      502,
-      "web_no_response",
-      `el browser no devolvio respuesta (submitted=${result.submitted} ms=${result.ms} url=${result.url})`,
-    );
-  }
-  if (note) {
-    console.error(`[codex-web-http] ${web.model}: ${note}`);
-  }
-  console.error(
-    `[codex-web-http] web turn ok: model=${web.model} ms=${result.ms} reused_page=${result.reused} chars=${result.text.length}`,
-  );
-
-  return web.stream
-    ? new Response(buildWebStream(web.model, result.text, web.prompt), {
-        headers: { "content-type": "text/event-stream", "cache-control": "no-store" },
-      })
-    : Response.json(buildResponseBody(web.model, result.text, web.prompt));
 }
