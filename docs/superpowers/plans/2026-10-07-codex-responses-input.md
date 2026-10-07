@@ -73,7 +73,7 @@
 
 - [x] Run `bun test` once, `git diff --check`, and inspect status/diff for unexpected paths.
 - [x] Record M7 parser fidelity as demonstrated by tests; do not upgrade text App E2E, task isolation, tools, model enforcement or streaming.
-- [ ] Publish one focused PR for M7 and attach it to this chat. Record actual CI result; no merge without the requested authorization.
+- [x] Publish one focused PR for M7 and attach it to this chat. Record actual CI result; no merge without the requested authorization.
 
 ## Next delivery dependencies
 

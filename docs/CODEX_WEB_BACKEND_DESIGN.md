@@ -159,5 +159,5 @@ Image input: NOT_DEMONSTRATED; claim actual debe corregirse en implementación.
 Installer propio y convivencia native/Web: NOT_DEMONSTRATED.
 Codex CLI contra fixture: DEMONSTRATED; Codex App real: NOT_DEMONSTRATED.
 Suite M7: 220 pass / 0 fail (31 files), locally verified 2026-10-07.
-CI: pending publication of the M7 PR.
-PR de implementación: pending publication of the M7 delivery.
+CI: see the latest checks on PR #9; the local suite above is a separate result.
+PR de implementación: https://github.com/DannyBaanks/chatgpt-http-mcp/pull/9 (M7 only).
