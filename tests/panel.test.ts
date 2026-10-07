@@ -34,3 +34,22 @@ describe("M13a panel read-only", () => {
     expect(html).toContain("ISyMCP PANEL");
   });
 });
+
+describe("panel visual", () => {
+  test("lee la ultima prueba de soak y la pinta turno por turno", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { readLastSoak, renderMain } = await import("../src/panel");
+    const dir = mkdtempSync(join(tmpdir(), "isyco-panel-ev-"));
+    writeFileSync(join(dir, "soak-tools-1.json"), JSON.stringify({
+      ts: "2026-10-07T05:30:00Z", n: 2, ok: 1,
+      results: [{ i: 1, name: "echo", ok: true, reply: "X" }, { i: 2, name: "cat", ok: false, reply: "bloqueado" }],
+    }));
+    const soak = readLastSoak(dir);
+    expect(soak?.ok).toBe(1);
+    expect(soak?.turns.map((t) => t.name)).toEqual(["echo", "cat"]);
+    const main = renderMain({ ...(await buildPanelState("59999")), lastSoak: soak });
+    expect(main).toContain('id="main"');
+    expect(main).toContain("1 fallo");
+    expect(main).toContain('class="t-bad"');
+  });
+});

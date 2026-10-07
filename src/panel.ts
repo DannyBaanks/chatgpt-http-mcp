@@ -1,10 +1,12 @@
-// panel.ts — M13a: panel visual read-only del bridge (estilo ISyCo Worlds).
+// panel.ts — panel visual del bridge (estilo ISyCo Worlds).
 //   isymcp panel [--port 8798]   ->  http://127.0.0.1:8798
-// GET / -> HTML; GET /api/state -> JSON. Sin acciones todavia (M13b).
-import { existsSync, readFileSync } from "node:fs";
+// GET / -> pagina; GET /fragment -> solo el <main> (auto-refresco);
+// GET /api/state -> JSON; POST /api/action -> acciones via isymcp.
+// Todo es local: sin fuentes, scripts ni imagenes de internet.
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readSessions } from "./codex-sessions";
+import { isExpired, readSessions } from "./codex-sessions";
 import { guardLocalRequest } from "./local-guard";
 
 function pgrep(pattern: string): boolean {
@@ -12,7 +14,24 @@ function pgrep(pattern: string): boolean {
   return (p.exitCode ?? 1) === 0;
 }
 
-export interface PanelSession { label: string; fp: string; writable: boolean }
+export interface PanelSession {
+  label: string;
+  fp: string;
+  writable: boolean;
+  cwd?: string;
+  expiresAt?: string | null;
+  expired?: boolean;
+}
+
+/** Ultima prueba de soak encontrada en docs/evidence (la mas reciente). */
+export interface PanelSoak {
+  file: string;
+  ts: string;
+  ok: number;
+  n: number;
+  turns: Array<{ name: string; ok: boolean; detail: string }>;
+}
+
 export interface PanelState {
   ts: string;
   server: "up" | "down";
@@ -23,6 +42,32 @@ export interface PanelState {
   conversation: string | null;
   sessions: PanelSession[];
   lastErrors: string[];
+  lastSoak?: PanelSoak | null;
+}
+
+const ROOT = join(import.meta.dir, "..");
+
+export function readLastSoak(dir = join(ROOT, "docs", "evidence")): PanelSoak | null {
+  try {
+    const files = readdirSync(dir)
+      .filter((name) => /^soak.*\.json$/.test(name))
+      .map((name) => ({ name, mtime: statSync(join(dir, name)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    const newest = files[0];
+    if (!newest) return null;
+    const data = JSON.parse(readFileSync(join(dir, newest.name), "utf8")) as {
+      ts?: string; ok?: number; n?: number;
+      results?: Array<{ i?: number; name?: string; ok?: boolean; reply?: string; http?: string }>;
+    };
+    const turns = (data.results ?? []).map((r, index) => ({
+      name: r.name ?? `turno ${r.i ?? index + 1}`,
+      ok: r.ok === true,
+      detail: String(r.reply ?? r.http ?? "").slice(0, 140),
+    }));
+    return { file: newest.name, ts: data.ts ?? "", ok: data.ok ?? turns.filter((t) => t.ok).length, n: data.n ?? turns.length, turns };
+  } catch {
+    return null;
+  }
 }
 
 export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> {
@@ -50,6 +95,15 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
     /* sin log */
   }
   const browserCrashed = lastErrors.some((l) => /Page crashed|Target crashed/.test(l));
+  let sessions: PanelSession[] = [];
+  try {
+    sessions = readSessions().map((s) => ({
+      label: s.label, fp: s.fp, writable: s.writable, cwd: s.cwd,
+      expiresAt: s.expiresAt ?? null, expired: isExpired(s),
+    }));
+  } catch {
+    /* registro ilegible: se muestra vacio, el CLI da el error */
+  }
   return {
     ts: new Date().toISOString(),
     server,
@@ -58,8 +112,9 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
     mcp: pgrep("mcp/main.ts --contract native --broker") ? "up" : "down",
     browser: browserCrashed ? "page-crashed" : "ok",
     conversation,
-    sessions: readSessions().map((s) => ({ label: s.label, fp: s.fp, writable: s.writable })),
+    sessions,
     lastErrors,
+    lastSoak: readLastSoak(),
   };
 }
 
@@ -73,38 +128,202 @@ export function escapeHtml(value: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
-export function renderPanel(state: PanelState): string {
-  const dot = (ok: boolean) => `<span style="color:${ok ? "#3d3" : "#e33"}">●</span>`;
-  const card = (title: string, body: string) =>
-    `<div style="border:1px solid #2a2a2a;border-radius:10px;padding:14px 16px;background:#111;min-width:260px">`
-    + `<div style="color:#8f8;letter-spacing:.08em;font-size:12px;margin-bottom:8px">${title}</div>${body}</div>`;
-  const sessions = state.sessions.map((s) => escapeHtml(`${s.writable ? "rw" : "ro"} ${s.label} [${s.fp}]`)).join("<br>") || "(ninguna)";
-  const errors = state.lastErrors.map((e) => `<div style="color:#e99;font-size:12px">${escapeHtml(e.slice(0, 160))}</div>`).join("") || "(sin errores recientes)";
-  return `<!doctype html><html><head><meta charset="utf-8"><title>ISyMCP Panel</title></head>
-<body style="background:#0a0a0a;color:#ddd;font:14px system-ui;padding:24px">
-<h1 style="color:#7f7">ISyMCP PANEL</h1>
-<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:14px">
-${card("SERVER", `${dot(state.server === "up")} ${escapeHtml(state.server)} · :${escapeHtml(state.serverPort)}`)}
-${card("TUNEL", `${dot(state.tunnel === "ready")} ${state.tunnel}`)}
-${card("MCP STDIO", `${dot(state.mcp === "up")} ${state.mcp}`)}
-${card("BROWSER", `${dot(state.browser === "ok")} ${state.browser}`)}
-${card("CONVERSACION", `<div style="font-size:12px;word-break:break-all">${state.conversation ? escapeHtml(state.conversation) : "(sin /c/ aun)"}</div>`)}
-${card("SESIONES MCP", `<div style="font-size:12px">${sessions}</div>`)}
-${card("ULTIMOS ERRORES", errors)}
-</div>
-<div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
-<button onclick="act('server-start')">Server ▶</button>
-<button onclick="act('server-stop')">Server ■</button>
-<button onclick="act('tunnel-connect')">Tunel ▶</button>
-<button onclick="act('tunnel-stop')">Tunel ■</button>
-<button onclick="act('session-list')">Sessions</button>
-</div>
-<script>async function act(a){const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:a})});const j=await r.json();alert((j.ok?'OK\n':'FALLO\n')+(j.out||a));location.reload();}</script>
-<div style="margin-top:16px;color:#666;font-size:12px">M13b · acciones via isymcp · ${escapeHtml(state.ts)}</div>
-</body></html>`;
+type Tone = "ok" | "warn" | "bad" | "idle";
+
+function tile(opts: { title: string; tone: Tone; state: string; detail: string; actions?: string }): string {
+  return `<section class="tile tone-${opts.tone}">
+  <header><span class="lamp"></span><h2>${opts.title}</h2></header>
+  <div class="state">${escapeHtml(opts.state)}</div>
+  <div class="detail">${opts.detail}</div>
+  ${opts.actions ? `<div class="actions">${opts.actions}</div>` : ""}
+</section>`;
 }
 
-const ROOT = join(import.meta.dir, "..");
+function button(action: string, label: string, kind: "go" | "stop" | "plain" = "plain"): string {
+  return `<button class="btn btn-${kind}" data-action="${escapeHtml(action)}">${escapeHtml(label)}</button>`;
+}
+
+function relativeExpiry(s: PanelSession, now: number): { text: string; tone: Tone } {
+  if (s.expired) return { text: "caducada", tone: "bad" };
+  if (!s.expiresAt) return { text: "sin caducidad", tone: "warn" };
+  const hours = (Date.parse(s.expiresAt) - now) / 3_600_000;
+  if (hours < 24) return { text: `caduca en ${Math.max(1, Math.round(hours))} h`, tone: "warn" };
+  return { text: `caduca en ${Math.round(hours / 24)} d`, tone: "ok" };
+}
+
+/** El <main> del panel: lo re-pide el navegador cada pocos segundos. */
+export function renderMain(state: PanelState): string {
+  const now = Date.parse(state.ts) || Date.now();
+  const checks = [state.server === "up", state.tunnel === "ready", state.mcp === "up", state.browser === "ok"];
+  const down = checks.filter((ok) => !ok).length;
+  const health = down === 0
+    ? `<span class="pill tone-ok">todo en linea</span>`
+    : `<span class="pill tone-${down >= 3 ? "bad" : "warn"}">${down} de 4 sin servicio</span>`;
+
+  const tiles = [
+    tile({
+      title: "SERVER", tone: state.server === "up" ? "ok" : "bad",
+      state: state.server === "up" ? "en linea" : "apagado",
+      detail: `http://127.0.0.1:${escapeHtml(state.serverPort)}`,
+      actions: button("server-start", "Encender", "go") + button("server-stop", "Apagar", "stop"),
+    }),
+    tile({
+      title: "TUNEL", tone: state.tunnel === "ready" ? "ok" : "bad",
+      state: state.tunnel === "ready" ? "conectado" : "detenido",
+      detail: "tunnel-client → ChatGPT",
+      actions: button("tunnel-connect", "Conectar", "go") + button("tunnel-stop", "Detener", "stop"),
+    }),
+    tile({
+      title: "MCP STDIO", tone: state.mcp === "up" ? "ok" : "bad",
+      state: state.mcp === "up" ? "escuchando" : "caido",
+      detail: "Codex ISyMCP · sandbox bwrap",
+    }),
+    tile({
+      title: "BROWSER", tone: state.browser === "ok" ? "ok" : "bad",
+      state: state.browser === "ok" ? "sano" : "pagina caida",
+      detail: state.browser === "ok" ? "Chrome headless" : "el reviver relanza en el proximo turno",
+    }),
+  ].join("\n");
+
+  const conversation = state.conversation
+    ? `<a class="conv" href="${escapeHtml(state.conversation)}" target="_blank" rel="noreferrer">${escapeHtml(state.conversation.replace(/^https?:\/\//, ""))}</a>`
+    : `<p class="muted">sin conversacion todavia — el primer turno la guarda</p>`;
+
+  const soak = state.lastSoak;
+  const soakBody = soak
+    ? `<div class="score"><span class="big">${soak.ok}</span><span class="of">/ ${soak.n}</span>
+         <span class="pill tone-${soak.ok === soak.n ? "ok" : soak.ok >= soak.n * 0.9 ? "warn" : "bad"}">${soak.ok === soak.n ? "limpio" : `${soak.n - soak.ok} fallo${soak.n - soak.ok === 1 ? "" : "s"}`}</span></div>
+       <div class="bar"><span style="width:${soak.n ? Math.round((soak.ok / soak.n) * 100) : 0}%"></span></div>
+       <ol class="turns">${soak.turns.slice(0, 100).map((t) =>
+         `<li class="${t.ok ? "t-ok" : "t-bad"}" title="${escapeHtml(`${t.name}${t.ok ? "" : ` — ${t.detail}`}`)}"><span>${escapeHtml(t.name)}</span></li>`).join("")}</ol>
+       <p class="muted small">${escapeHtml(soak.file)}${soak.ts ? ` · ${escapeHtml(soak.ts.replace("T", " ").slice(0, 16))}` : ""}</p>`
+    : `<p class="muted">sin pruebas aun — <code>bun run scripts/soak-tools.ts</code></p>`;
+
+  const sessionRows = state.sessions.length
+    ? state.sessions.map((s) => {
+        const exp = relativeExpiry(s, now);
+        return `<tr>
+          <td><span class="badge ${s.writable ? "rw" : "ro"}">${s.writable ? "rw" : "ro"}</span></td>
+          <td>${escapeHtml(s.label)}<div class="muted small">${escapeHtml(s.cwd ?? "")}</div></td>
+          <td><code>${escapeHtml(s.fp)}</code></td>
+          <td><span class="pill tone-${exp.tone}">${escapeHtml(exp.text)}</span></td>
+        </tr>`;
+      }).join("")
+    : `<tr><td colspan="4" class="muted">(ninguna) — <code>isymcp session mint --cwd &lt;dir&gt;</code></td></tr>`;
+
+  const errors = state.lastErrors.length
+    ? state.lastErrors.map((e) => `<div class="logline">${escapeHtml(e.slice(0, 220))}</div>`).join("")
+    : `<div class="logline muted">sin errores recientes ✓</div>`;
+
+  return `<main id="main" data-ts="${escapeHtml(state.ts)}">
+<div class="topline">${health}<span class="muted small">actualizado ${escapeHtml(state.ts.slice(11, 19))} UTC</span></div>
+<div class="tiles">${tiles}</div>
+<div class="grid">
+  <section class="card">
+    <h3>ULTIMA PRUEBA</h3>
+    ${soakBody}
+  </section>
+  <section class="card">
+    <h3>CONVERSACION</h3>
+    ${conversation}
+    <h3 class="gap">SESIONES MCP <span class="muted small">${state.sessions.length}</span></h3>
+    <table class="sessions"><tbody>${sessionRows}</tbody></table>
+    <div class="actions">${button("session-list", "Listar en el CLI")}</div>
+  </section>
+</div>
+<section class="card log">
+  <h3>ULTIMOS ERRORES <span class="muted small">· ultimas 5 lineas FAILED de server.log (pueden ser viejas)</span></h3>
+  ${errors}
+</section>
+</main>`;
+}
+
+const STYLE = `
+:root{--bg:#090b0a;--panel:#101412;--line:#1d2420;--ink:#d9e4dc;--mute:#6f8076;--ok:#7cff9b;--warn:#ffcc66;--bad:#ff6b6b;--idle:#5b6b62;
+--mono:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,monospace;--sans:Inter,"Segoe UI",system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans);
+background-image:linear-gradient(rgba(124,255,155,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(124,255,155,.035) 1px,transparent 1px);background-size:28px 28px}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 48px}
+.brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.brand h1{margin:0;font:700 26px/1 var(--mono);letter-spacing:.12em;color:var(--ok);text-shadow:0 0 18px rgba(124,255,155,.35)}
+.brand .sub{color:var(--mute);font:12px var(--mono);letter-spacing:.08em}
+.live{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--mute);font:12px var(--mono)}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok);animation:pulse 2s infinite}
+.live.stale i{background:var(--warn);box-shadow:0 0 10px var(--warn);animation:none}
+@keyframes pulse{50%{opacity:.35}}
+.topline{display:flex;align-items:center;gap:12px;margin:22px 0 14px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+.tile{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 16px 14px;overflow:hidden}
+.tile::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--c)}
+.tile header{display:flex;align-items:center;gap:8px}
+.tile h2{margin:0;font:600 11px var(--mono);letter-spacing:.16em;color:var(--mute)}
+.lamp{width:10px;height:10px;border-radius:50%;background:var(--c);box-shadow:0 0 12px var(--c)}
+.tile .state{margin-top:10px;font:600 22px/1.1 var(--mono);color:var(--c)}
+.tile .detail{margin-top:4px;color:var(--mute);font:12px var(--mono);word-break:break-all}
+.tone-ok{--c:var(--ok)}.tone-warn{--c:var(--warn)}.tone-bad{--c:var(--bad)}.tone-idle{--c:var(--idle)}
+.grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;margin-top:14px}
+.grid>*,.tiles>*{min-width:0}
+@media (max-width:820px){.grid{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card h3{margin:0 0 12px;font:600 11px var(--mono);letter-spacing:.16em;color:var(--mute)}
+.card h3.gap{margin-top:20px}
+.log{margin-top:14px}
+.logline{font:12px/1.6 var(--mono);color:#ffb3b3;border-left:2px solid var(--bad);padding:2px 0 2px 10px;margin:4px 0;word-break:break-all}
+.logline.muted{color:var(--mute);border-color:var(--line)}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;font:600 11px var(--mono);letter-spacing:.04em;color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);border:1px solid color-mix(in srgb,var(--c) 35%,transparent)}
+.muted{color:var(--mute)}.small{font-size:11px}
+code{font:12px var(--mono);color:#b9c9bf;background:#0b0f0d;border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+.conv{display:block;font:12px var(--mono);color:var(--ok);word-break:break-all;text-decoration:none;padding:10px 12px;border:1px dashed var(--line);border-radius:10px}
+.conv:hover{border-color:var(--ok)}
+.score{display:flex;align-items:baseline;gap:10px}
+.score .big{font:700 46px/1 var(--mono);color:var(--ok)}
+.score .of{font:600 20px var(--mono);color:var(--mute)}
+.bar{height:6px;border-radius:6px;background:#1a211d;margin:12px 0 14px;overflow:hidden}
+.bar span{display:block;height:100%;background:linear-gradient(90deg,var(--ok),#3ddc84)}
+.turns{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px}
+.turns li{font:11px var(--mono);padding:6px 8px;border-radius:8px;border:1px solid var(--line);display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden}
+.turns li span{overflow:hidden;text-overflow:ellipsis}
+.turns li::before{content:"";flex:none;width:7px;height:7px;border-radius:50%}
+.t-ok::before{background:var(--ok)}.t-bad{border-color:color-mix(in srgb,var(--bad) 50%,transparent)!important;color:#ffb3b3}.t-bad::before{background:var(--bad)}
+.sessions{width:100%;border-collapse:collapse}
+.sessions{table-layout:fixed}
+.sessions td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.sessions td:first-child{width:42px}.sessions td:nth-child(3){width:118px}.sessions td:last-child{width:132px;text-align:right}
+@media (max-width:520px){.sessions td:nth-child(3){display:none}}
+.badge{font:700 10px var(--mono);padding:2px 7px;border-radius:6px;letter-spacing:.08em}
+.badge.rw{color:#1b0f00;background:var(--warn)}.badge.ro{color:#04140a;background:var(--ok)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.btn{font:600 12px var(--mono);letter-spacing:.04em;color:var(--ink);background:#151b18;border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer;transition:border-color .15s,transform .05s}
+.btn:hover{border-color:var(--mute)}.btn:active{transform:translateY(1px)}
+.btn-go:hover{border-color:var(--ok);color:var(--ok)}.btn-stop:hover{border-color:var(--bad);color:var(--bad)}
+.btn[disabled]{opacity:.5;cursor:progress}
+.toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:9;max-width:min(440px,calc(100vw - 36px))}
+.toast{background:#121815;border:1px solid var(--line);border-left:3px solid var(--c);border-radius:10px;padding:10px 12px;font:12px/1.5 var(--mono);white-space:pre-wrap;box-shadow:0 10px 30px rgba(0,0,0,.45);animation:in .18s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(6px)}}
+footer{margin-top:22px;color:var(--mute);font:11px var(--mono);text-align:center}
+`;
+
+const SCRIPT = `
+const toasts=document.querySelector('.toasts');
+function toast(text,tone){const el=document.createElement('div');el.className='toast tone-'+tone;el.textContent=text;toasts.appendChild(el);setTimeout(()=>el.remove(),7000);}
+async function refresh(){const live=document.querySelector('.live');try{const r=await fetch('/fragment',{cache:'no-store'});if(!r.ok)throw 0;const html=await r.text();const tpl=document.createElement('template');tpl.innerHTML=html.trim();document.getElementById('main').replaceWith(tpl.content.firstElementChild);live.classList.remove('stale');live.lastChild.textContent=' en vivo';}catch{live.classList.add('stale');live.lastChild.textContent=' sin conexion';}}
+document.addEventListener('click',async(ev)=>{const b=ev.target.closest('[data-action]');if(!b)return;const a=b.dataset.action;b.disabled=true;const old=b.textContent;b.textContent='…';
+try{const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:a})});const j=await r.json();toast((j.ok?'✓ ':'✗ ')+a+'\\n'+(j.out||'').slice(-600),j.ok?'ok':'bad');}
+catch(e){toast('✗ '+a+'\\n'+e,'bad');}finally{b.disabled=false;b.textContent=old;refresh();}});
+setInterval(refresh,4000);
+`;
+
+export function renderPanel(state: PanelState): string {
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ISyMCP Panel</title><style>${STYLE}</style></head>
+<body><div class="wrap">
+<div class="brand"><h1>ISyMCP PANEL</h1><span class="sub">chatgpt-http-mcp · bridge local</span>
+<span class="live"><i></i> en vivo</span></div>
+${renderMain(state)}
+<footer>127.0.0.1 only · Host/Origin protegidos · <code>isymcp panel</code></footer>
+</div><div class="toasts"></div><script>${SCRIPT}</script></body></html>`;
+}
 
 const ACTIONS: Record<string, string[]> = {
   "server-start": ["server", "start"],
@@ -144,7 +363,8 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       }
       const state = await buildPanelState(bridgePort);
       if (url.pathname === "/api/state") return Response.json(state);
-      return new Response(renderPanel(state), { headers: { "content-type": "text/html; charset=utf-8" } });
+      const html = url.pathname === "/fragment" ? renderMain(state) : renderPanel(state);
+      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     },
   });
   return server;
