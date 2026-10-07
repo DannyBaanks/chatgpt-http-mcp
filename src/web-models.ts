@@ -213,7 +213,7 @@ export function buildWebModel(template: JsonObject, route: WebModelRoute, caps: 
     slug: route.slug,
     display_name: route.displayName,
     description: route.description,
-    input_modalities: ["text", "image"],
+    input_modalities: ["text"],
     visibility: "list",
     supported_in_api: true,
     tool_mode: null,

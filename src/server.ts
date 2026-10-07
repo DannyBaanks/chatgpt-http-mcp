@@ -13,8 +13,6 @@ import { handleWebResponses, peekWebRequest } from "./web-responses";
 import { handleChatCompletions } from "./chat-completions";
 import { runIdempotent } from "./turn-idempotency";
 import { parseWsTurn, toJsonl, wsFrames } from "./ws-responses";
-import { sendWebTurn } from "./web-turn";
-import { defaultNavigation, loadSession, rememberConversation } from "./sessions";
 import { guardLocalRequest } from "./local-guard";
 import { ChatTurnError, chatStatus, runChatTurn } from "./chat-turn";
 import { publicChat } from "./chats";
@@ -147,6 +145,11 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
         throw error;
       }
     }
+    if (route.endpoint === "responses/compact") {
+      const body = await req.clone().json().catch(() => null);
+      if (typeof body?.model === "string" && body.model.startsWith("chatgpt-web/"))
+        return errorJson(400, "web_compaction_unsupported", "Web task history cannot be compacted in this delivery");
+    }
     return forwardNative(req, route.endpoint, config);
   };
 }
@@ -165,7 +168,7 @@ export function startServer(config: AppConfig = loadConfig()) {
         // abierta podria hablar con el bridge (CSWSH).
         const denied = guardLocalRequest(req);
         if (denied) return denied;
-        if (bun.upgrade(req)) return undefined;
+        if (bun.upgrade(req, { data: { headers: Object.fromEntries(req.headers) } })) return undefined;
         return new Response("websocket requerido", { status: 426 });
       }
       return handler(req);
@@ -185,30 +188,18 @@ export function startServer(config: AppConfig = loadConfig()) {
           ws.send(JSON.stringify({ type: "error", error: { message: "solo modelos chatgpt-web/* por este websocket" } }));
           return;
         }
-        const session = loadSession("default");
         try {
-          const result = await sendWebTurn(turn.prompt, {
-            // Mismo statePath que /v1/chat/completions: la clave del browser
-            // incluye el path, y si difieren cada cambio de ruta relanza Chrome
-            // (y mata el turno que este en vuelo).
-            statePath: config.browserStatePath,
-            conversationUrl: session?.conversationUrl ?? undefined,
-            navigate: defaultNavigation(session),
-            browser: config.browser,
-            headed: config.browserHeaded,
-            deadlineMs: config.webTurnDeadlineMs,
-          });
-          if (session) rememberConversation(session.name, result.url);
-          if (!result.text) {
-            ws.send(toJsonl([{ type: "error", error: { message: "la conexion web no devolvio texto" } }]));
-            return;
-          }
-          ws.send(toJsonl(wsFrames(turn.model, result.text).map((line) => JSON.parse(line))));
-        } catch (error) {
-          ws.send(JSON.stringify({
-            type: "error",
-            error: { message: error instanceof Error ? error.message : String(error) },
-          }));
+          const headers = new Headers(ws.data.headers);
+          headers.delete("upgrade"); headers.delete("connection");
+          headers.set("content-type", "application/json");
+          const request = new Request("http://127.0.0.1/v1/responses", { method: "POST", headers,
+            body: JSON.stringify({ ...turn.body, stream: false }) });
+          const response = await handleWebResponses(request, config, { ...turn, stream: false });
+          const body = await response.json();
+          if (!response.ok) { ws.send(JSON.stringify({ type: "error", error: body.error })); return; }
+          ws.send(toJsonl(wsFrames(turn.model, body.output_text, body).map((line) => JSON.parse(line))));
+        } catch {
+          ws.send(JSON.stringify({ type: "error", error: { type: "web_task_state_unavailable", message: "Web task request could not be completed" } }));
         }
       },
     },

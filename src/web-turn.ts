@@ -40,6 +40,11 @@ export interface WebTurnOptions {
    * (p. ej. "Codex ISyMCP"). Si no se pasa, cae a CODEX_WEB_HTTP_CONNECTOR.
    */
   connector?: string;
+  /** Responses preflight inside the lock, after navigation and settle. */
+  beforeSubmit?: (page: Page) => Promise<void>;
+  /** Durable uncertainty marker, before the first click/Enter. */
+  onSubmitAttempt?: () => void;
+  submitOnce?: boolean;
   /**
    * Navegacion explicita ANTES del turno (dentro del candado): "new" abre una
    * conversacion nueva; "conversation" va a un /c/ concreto. Sin esto, el
@@ -463,6 +468,8 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   const beforeId = before.id;
   const beforeText = before.text;
 
+  await options.beforeSubmit?.(page);
+
   const connector = options.connector ?? (process.env.CODEX_WEB_HTTP_CONNECTOR?.trim() || undefined);
   if (connector) {
     // La seleccion deja el pill en el composer; el texto se siembra despues
@@ -514,7 +521,7 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   try {
   // Enviar: boton Enviar (ES/EN) o Enter. Se confirma por composer vacio.
   let submitted = false;
-  for (let attempt = 1; attempt <= 3 && !submitted; attempt++) {
+  for (let attempt = 1; attempt <= (options.submitOnce ? 1 : 3) && !submitted; attempt++) {
     const send = page
       .locator('button[data-testid="send-button"], #composer-submit-button, button[aria-label*="Enviar"], button[aria-label*="Send"]')
       .first();
@@ -525,6 +532,7 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
       if (await send.isEnabled().catch(() => false)) break;
       await page.waitForTimeout(500);
     }
+    options.onSubmitAttempt?.();
     if ((await send.count()) > 0 && (await send.isEnabled().catch(() => false))) {
       await send.click().catch(() => {});
     } else {
@@ -600,7 +608,7 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
     ...(markdown ? { markdown } : {}),
   };
   } catch (err) {
-    if (!isCrashError(err)) throw err;
+    if (options.submitOnce || !isCrashError(err)) throw err;
     // M13c: la pagina crasheo. Reviver: relanzar y RECAPTURAR la respuesta ya
     // generada (jamas reenviar el turno). Si no se puede probar, error nombrado.
     await reviveSession();
