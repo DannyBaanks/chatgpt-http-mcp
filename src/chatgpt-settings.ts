@@ -62,7 +62,8 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
     const button = page.locator(MODEL_BUTTON).first();
     await button.waitFor({ state: "visible", timeout: 15_000 });
     const pill = ((await button.innerText()) || "").trim().replace(/\s+/g, " ") || null;
-    await button.click();
+    // Sin clic incondicional: si el menu ya estaba abierto, un clic lo cerraria.
+    // ensureOpen() (abajo) solo hace clic cuando aria-expanded no es "true".
     // Esperar a que el menu termine de montarse (el deslizante de potencia
     // llega despues que los items): con una espera fija de 900 ms, justo tras
     // navegar a un chat nuevo, se leia "High (?/?)" (visto 2026-10-07, M8).
@@ -82,10 +83,27 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
         slider: slider ? { now: slider.getAttribute("aria-valuenow"), max: slider.getAttribute("aria-valuemax"), min: slider.getAttribute("aria-valuemin"), text: slider.getAttribute("aria-valuetext") } : null,
       };
     });
+    const resolved = (m: Awaited<ReturnType<typeof readMenu>>) => Boolean(m.slider?.now || m.texts.some((t) => /\d+\s+(?:de|of)\s+\d+/.test(t)));
+    // En un Chrome de larga vida el menu puede haber quedado abierto: el clic lo
+    // CERRABA y no habia deslizante que leer ("?/?" desde Codex App, 2026-10-07).
+    // Se confirma que quedo abierto (aria-expanded) y, si no se resuelve, se
+    // cierra, se reabre y se intenta una segunda vez. Sin dato: fail closed.
+    const ensureOpen = async () => {
+      if ((await button.getAttribute("aria-expanded").catch(() => null)) !== "true") await button.click().catch(() => {});
+    };
+    await ensureOpen();
     let menu = await readMenu();
-    for (let i = 0; i < 20 && !(menu.slider?.now || menu.texts.some((t) => /\d+\s+(?:de|of)\s+\d+/.test(t))); i++) {
-      await page.waitForTimeout(400);
-      menu = await readMenu();
+    for (let attempt = 0; attempt < 2 && !resolved(menu); attempt++) {
+      if (attempt === 1) {
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout(500);
+        await button.click().catch(() => {});
+        await ensureOpen();
+      }
+      for (let i = 0; i < 20 && !resolved(menu); i++) {
+        await page.waitForTimeout(400);
+        menu = await readMenu();
+      }
     }
     await page.keyboard.press("Escape").catch(() => {});
     // "Instant, 1 de 3" (o en ingles "Instant, 1 of 3") en algun item del menu.
@@ -98,8 +116,12 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
       effortPosition = Number(menu.slider.now) - min + 1;
       effortSteps = menu.slider.max ? Number(menu.slider.max) - min + 1 : null;
     }
-    if (!effort && pill) effort = pill;
-    return { pill, model: menu.model, effort, effortPosition, effortSteps };
+    // Con el menu abierto el boton dice "Esfuerzo de razonamiento", no el
+    // nivel: la etiqueta se relee con el menu YA cerrado.
+    await page.waitForTimeout(300);
+    const closedPill = ((await button.innerText().catch(() => "")) || "").trim().replace(/\s+/g, " ") || pill;
+    if (!effort && closedPill) effort = closedPill;
+    return { pill: closedPill, model: menu.model, effort, effortPosition, effortSteps };
   } catch {
     return empty;
   }
