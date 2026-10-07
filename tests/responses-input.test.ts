@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { createHandler, startServer } from "../src/server";
+import { loadConfig } from "../src/config";
+import { parseWsTurn } from "../src/ws-responses";
 import { extractPrompt, peekWebRequest } from "../src/web-responses";
 
 const user = (content: unknown) => ({ type: "message", role: "user", content });
@@ -52,4 +55,44 @@ test("observed additional_tools namespace/custom declarations stay separate and 
   expect((parsed as any)?.declarations).toEqual(declarations);
   expect(parsed?.prompt).not.toContain("CODE_ONLY");
   expect(() => extractPrompt({ input: [{ type: "additional_tools", tools: [null] }, user("ok")] })).toThrow("web_invalid_input");
+});
+
+const config = () => loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on", CODEX_WEB_HTTP_STATE_PATH: "/nonexistent/M7-no-browser-state.json" });
+for (const input of [[user([text("partial"), { type: "input_image", image_url: "untransported" }])], [user(7)]]) {
+  test("real HTTP handler rejects unsupported/malformed input before browser submission", async () => {
+    const res = await createHandler(config())(request(input));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.type).toBe(input[0].content === 7 ? "web_invalid_input" : "web_unsupported_input");
+  });
+}
+test("HTTP native input stays untouched even when Web parser cannot handle it", async () => {
+  const body = { model: "native-fixture", input: [{ type: "future_native_item", data: "preserved" }] };
+  const upstream = Bun.serve({ port: 0, fetch: async (req) => Response.json(await req.json()) });
+  try {
+    const res = await createHandler({ ...config(), upstreamBase: `http://127.0.0.1:${upstream.port}` })(new Request("http://127.0.0.1/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+    expect(await res.json()).toEqual(body);
+  } finally { upstream.stop(true); }
+});
+test("WebSocket structured user input preserves text and declarations", () => {
+  const declarations = [{ type: "custom", name: "exec" }];
+  const parsed = parseWsTurn(JSON.stringify({ model: "chatgpt-web/gpt-5.6-sol", input: [{ type: "additional_tools", tools: declarations }, user([text("WS_NONCE")])] }));
+  expect(parsed?.prompt).toBe("[user]\nWS_NONCE");
+  expect((parsed as any)?.declarations).toEqual(declarations);
+  expect(parseWsTurn(JSON.stringify({ model: "native-fixture", input: [{ type: "unknown-native" }] }))?.web).toBe(false);
+});
+test("real WebSocket returns typed validation error without launching a browser", async () => {
+  const server = startServer(config());
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/v1/responses`);
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    const result = await new Promise<any>((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("missing typed validation event")), 1500);
+      ws.onopen = () => ws.send(JSON.stringify({ model: "chatgpt-web/gpt-5.6-sol", input: [user([{ type: "input_image", image_url: "ignored" }])] }));
+      ws.onmessage = (event) => resolve(JSON.parse(String(event.data)));
+      ws.onerror = () => reject(new Error("websocket connection failed"));
+    });
+    expect(result).toMatchObject({ type: "error", error: { type: "web_unsupported_input" } });
+  } finally { clearTimeout(timer!); ws.close(); server.stop(true); }
 });
