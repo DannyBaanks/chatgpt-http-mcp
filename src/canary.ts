@@ -90,25 +90,7 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
   let base = `http://127.0.0.1:${port}`;
   let bridge: "existing" | "temporary" | "unavailable" = "existing";
   let temp: ReturnType<typeof Bun.spawn> | null = null;
-
-  const up = async (url: string) => fetch(`${url}/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
-  if (!opts.turn && !(await up(base))) {
-    if (opts.spawnBridge === false) {
-      const result: CanaryResult = { ts, ok: false, bridge: "unavailable", checks: [], error: `bridge apagado en ${base}` };
-      saveResult(result);
-      return result;
-    }
-    // Bridge temporal en un puerto que el sistema confirma libre (al azar en un
-    // rango podia chocar con otro servicio local, p. ej. un gateway en 8787).
-    const tempPort = String(freePort());
-    temp = Bun.spawn(["bun", "run", join(import.meta.dir, "cli.ts")], {
-      env: { ...process.env, CODEX_WEB_HTTP_PORT: tempPort, CODEX_WEB_HTTP_CONNECTOR: "" },
-      stdin: "ignore", stdout: "ignore", stderr: "ignore",
-    });
-    base = `http://127.0.0.1:${tempPort}`;
-    bridge = "temporary";
-    for (let i = 0; i < 40 && !(await up(base)); i++) await Bun.sleep(500);
-  }
+  let tempStderr: Promise<string> | null = null;
 
   const turn: Turn = opts.turn ?? (async (chatId, message) => {
     const r = await fetch(`${base}/isymcp/chat/turn`, {
@@ -122,6 +104,36 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
   const checks: CanaryCheck[] = [];
   let error: string | undefined;
   try {
+    const up = async (url: string) => fetch(`${url}/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
+    if (!opts.turn && !(await up(base))) {
+      if (opts.spawnBridge === false) {
+        const result: CanaryResult = { ts, ok: false, bridge: "unavailable", checks: [], error: `bridge apagado en ${base}` };
+        saveResult(result);
+        return result;
+      }
+      // Bridge temporal en un puerto que el sistema confirma libre (al azar en un
+      // rango podia chocar con otro servicio local, p. ej. un gateway en 8787).
+      const tempPort = String(freePort());
+      temp = Bun.spawn([process.execPath, "run", join(import.meta.dir, "cli.ts")], {
+        env: { ...process.env, CODEX_WEB_HTTP_PORT: tempPort, CODEX_WEB_HTTP_CONNECTOR: "" },
+        stdin: "ignore", stdout: "ignore", stderr: "pipe",
+      });
+      // Drain stderr while the child runs so a full pipe cannot block startup.
+      tempStderr = new Response(temp.stderr).text();
+      base = `http://127.0.0.1:${tempPort}`;
+      bridge = "temporary";
+      let ready = false;
+      for (let i = 0; i < 40; i++) {
+        if (temp.exitCode !== null) {
+          const detail = (await tempStderr).trim().slice(-1000);
+          throw new Error(`bridge temporal no arranco (exit ${temp.exitCode}): ${detail}`);
+        }
+        if (await up(base)) { ready = true; break; }
+        await Bun.sleep(500);
+      }
+      if (!ready) throw new Error("bridge temporal no respondio a /health a tiempo");
+    }
+
     const chatId = canaryChatId();
     const nonce = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
     const A = `CANARY-A-${nonce()}`;
@@ -140,7 +152,11 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   } finally {
-    if (temp) { temp.kill(); await temp.exited; }
+    if (temp) {
+      if (temp.exitCode === null) temp.kill();
+      await temp.exited;
+      await tempStderr;
+    }
   }
   const result: CanaryResult = { ts, ok: !error && checks.length === 3 && checks.every((c) => c.ok), bridge, checks, ...(error ? { error } : {}) };
   saveResult(result);

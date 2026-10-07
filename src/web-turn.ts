@@ -75,7 +75,7 @@ export function canonicalConversationUrl(raw: string | null | undefined): string
 
 /**
  * Never Guess: ¿la respuesta capturada pertenece a un turno NUEVO?
- *   - no habia turno previo (beforeId vacio)        -> si;
+ *   - no habia turno previo (identidad y texto vacios)        -> si;
  *   - el ultimo turno cambio de identidad            -> si (aunque el texto se
  *     repita, p. ej. "OK" dos veces seguidas);
  *   - misma identidad pero texto distinto            -> si (el turno previo no
@@ -85,8 +85,8 @@ export function canonicalConversationUrl(raw: string | null | undefined): string
  */
 export function isNewAssistantTurn(beforeId: string, beforeText: string, idNow: string, current: string): boolean {
   if (!current) return false;
-  if (!beforeId) return true;
-  return idNow !== beforeId || current !== beforeText;
+  if (!beforeId) return !beforeText || current !== beforeText;
+  return (Boolean(idNow) && idNow !== beforeId) || current !== beforeText;
 }
 
 /** A donde hay que ir (o null si la pestana ya esta donde debe). */
@@ -299,42 +299,33 @@ const ASSISTANT_PRIMARY_SELECTOR = [
 // la respuesta HTTP devolvio el eco del mensaje del usuario).
 const ASSISTANT_FALLBACK_SELECTOR = '[data-message-author-role="assistant"]';
 
-/** Identidad del ultimo turno assistant: robusta a la virtualizacion del DOM
- * (el conteo puede no crecer; la identidad cambia). */
+/** Texto e identidad del MISMO ultimo contenedor en una sola lectura DOM.
+ * Un turno nuevo vacio nunca hereda el markdown del turno anterior. */
+async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text: string }> {
+  const snapshot = await page.evaluate(([primary, fallback]) => {
+    const primaryTurns = Array.from(document.querySelectorAll(primary));
+    const turns = (primaryTurns.length > 0 ? primaryTurns : Array.from(document.querySelectorAll(fallback))) as HTMLElement[];
+    const last = turns[turns.length - 1];
+    if (!last) return { id: "", text: "" };
+    const marks = last.querySelectorAll('[data-markdown-text-style="assistant-message"], .markdown');
+    const text = (marks.length ? (marks[marks.length - 1] as HTMLElement).innerText : last.innerText) ?? "";
+    const id = last.getAttribute("data-turn-id")
+      ?? last.getAttribute("data-message-id")
+      ?? last.getAttribute("data-turn-key")
+      ?? last.getAttribute("data-testid")
+      ?? "";
+    return { id, text: text.trim() };
+  }, [ASSISTANT_PRIMARY_SELECTOR, ASSISTANT_FALLBACK_SELECTOR] as const);
+  const extracted = extractResponse(snapshot.text);
+  return { id: snapshot.id, text: extracted || (/^(Tú dijiste|You said):/.test(snapshot.text) ? "" : snapshot.text) };
+}
+
 async function lastAssistantIdentity(page: Page): Promise<string> {
-  return page
-    .evaluate(([primary, fallback]) => {
-      const primaryTurns = Array.from(document.querySelectorAll(primary));
-      const turns = (primaryTurns.length > 0 ? primaryTurns : Array.from(document.querySelectorAll(fallback))) as HTMLElement[];
-      const last = turns[turns.length - 1];
-      if (!last) return "";
-      return last.getAttribute("data-turn-id")
-        ?? last.getAttribute("data-testid")
-        ?? last.getAttribute("data-message-id")
-        ?? (last.innerText ?? "").slice(0, 80);
-    }, [ASSISTANT_PRIMARY_SELECTOR, ASSISTANT_FALLBACK_SELECTOR] as const)
-    .catch(() => "");
+  return (await readLastAssistantSnapshot(page).catch(() => ({ id: "", text: "" }))).id;
 }
 
 async function readLastAssistant(page: Page): Promise<string> {
-  const container = await page.evaluate(([primary, fallback]) => {
-    const primaryTurns = Array.from(document.querySelectorAll(primary));
-    const turns = (primaryTurns.length > 0 ? primaryTurns : Array.from(document.querySelectorAll(fallback))) as HTMLElement[];
-    if (turns.length === 0) return "";
-    // Preferir el ULTIMO bloque markdown (respuesta del asistente): evita
-    // contenedores que incluyen el turno del usuario (eco visto 2026-10-06).
-    for (let i = turns.length - 1; i >= 0; i--) {
-      const marks = turns[i].querySelectorAll('.markdown');
-      if (marks.length > 0) return ((marks[marks.length - 1] as HTMLElement).innerText ?? "").trim();
-    }
-    return (turns[turns.length - 1].innerText ?? "").trim();
-  }, [ASSISTANT_PRIMARY_SELECTOR, ASSISTANT_FALLBACK_SELECTOR] as const);
-  // Variante de DOM sin .markdown (dump capture-fail 2026-10-06): el
-  // contenedor trae ambos lados ("Tú dijiste: ... ChatGPT dijo: <respuesta>").
-  const extracted = extractResponse(container);
-  if (extracted) return extracted;
-  if (/^(Tú dijiste|You said):/.test(container)) return "";
-  return container;
+  return (await readLastAssistantSnapshot(page)).text;
 }
 
 /** Markdown de la ultima respuesta (mismo elemento que readLastAssistant). */
@@ -468,8 +459,9 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   const t0 = performance.now();
   const composerText = () => composer.innerText().catch(() => "");
   await waitConversationSettle(page);
-  const beforeId = await lastAssistantIdentity(page);
-  const beforeText = await readLastAssistant(page);
+  const before = await readLastAssistantSnapshot(page);
+  const beforeId = before.id;
+  const beforeText = before.text;
 
   const connector = options.connector ?? (process.env.CODEX_WEB_HTTP_CONNECTOR?.trim() || undefined);
   if (connector) {
@@ -576,24 +568,27 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   let text = "";
   let stableSince = 0;
   let proven = false;
+  let textId = "";
   while (Date.now() < deadline) {
-    const current = await readLastAssistant(page);
+    const snapshot = await readLastAssistantSnapshot(page);
+    const current = snapshot.text;
     // Never Guess: solo vale si se PRUEBA que es un turno nuevo (identidad o
     // texto distintos del ultimo turno previo). Antes, sin ver "Detener", se
     // podia devolver la respuesta anterior como si fuera la nueva.
-    const acceptable = Boolean(current) && isNewAssistantTurn(beforeId, beforeText, await lastAssistantIdentity(page), current);
-    if (acceptable && current === text) {
+    const acceptable = Boolean(current) && isNewAssistantTurn(beforeId, beforeText, snapshot.id, current);
+    if (acceptable && current === text && snapshot.id === textId) {
       if (stableSince === 0) stableSince = Date.now();
       if (Date.now() - stableSince >= Math.max(1_500, settleMs)) { proven = true; break; }
     } else {
       stableSince = 0;
       text = acceptable ? current : "";
+      textId = snapshot.id;
     }
     await page.waitForTimeout(settleMs);
   }
   // Se agoto el tiempo sin un turno nuevo estable y demostrado: captura vacia
   // (error nombrado aguas arriba), nunca "lo que mas se parezca".
-  if (!proven && text && !isNewAssistantTurn(beforeId, beforeText, await lastAssistantIdentity(page), text)) text = "";
+  if (!proven) text = "";
   if (!text.trim()) await dumpCaptureFailure(page);
   const markdown = text.trim() ? await readLastAssistantMarkdown(page, text) : undefined;
   return {
