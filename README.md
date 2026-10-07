@@ -24,9 +24,13 @@ caller (any OpenAI-compatible client)
 - **Native tools** (`Codex ISyMCP` connector): `codex_exec`, `codex_apply_patch`,
   `codex_view_image`, `codex_tool_inventory`, turn lifecycle — executed locally.
 - **Session tokens**: `isymcp session mint|list|revoke` — capability tokens bound
-  to a workspace; read-only by default (`--write` to allow patches).
-- **Sandbox**: bubblewrap. Read-only root by default; `--write` sessions bind only
-  their workspace. Without bwrap, read-only sessions fail closed.
+  to a workspace; read-only by default (`--write` to allow patches); expire after
+  7 days (`--ttl <hours>`, `--ttl 0` = never).
+- **Sandbox**: bubblewrap. `$HOME` and the bridge home (tokens, cookies) are
+  hidden behind tmpfs, no network, minimal env; only the session workspace is
+  exposed (read-only, or read-write with `--write`). Toolchains under `$HOME`
+  (`~/.bun`, `~/.local/bin`, `~/.cargo/bin`, …) come back read-only. Without
+  bwrap every session fails closed.
 - **Idempotency**: `x-isymcp-turn-id` header — replays return the same response
   (`x-isymcp-replayed: 1`) without re-executing the model.
 - **Honest errors**: typed taxonomy mapped to HTTP status (400/401/409/502/503/504).
@@ -40,9 +44,10 @@ caller (any OpenAI-compatible client)
 
 ```bash
 bun install
+bun link            # puts `isymcp` on your PATH (or: alias isymcp="bun run $PWD/src/isymcp.ts")
 
-# 1. Import your ChatGPT session cookies (one time)
-bun run scripts/import-cookies.ts
+# 1. Import your ChatGPT session cookies (one time; keep the file chmod 600)
+bun run scripts/import-cookies.ts --file /path/to/cookie.txt
 
 # 2. Bring everything up (server + tunnel + connector)
 isymcp up
@@ -70,7 +75,8 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 
 ## Evidence
 
-- `bun test` → **124/124**.
+- `bun test` → **147/147** (incl. live sandbox-isolation and CSRF/DNS-rebinding
+  regressions).
 - Soak: **100 sequential real HTTP turns** (unique nonce per turn + idempotent
   replay check): **99 exact, 0 infrastructure failures, 0 empty captures,
   0 duplicates, 0 cross-talk**. The single failure was an *external* OpenAI
@@ -87,8 +93,25 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 
 - Secrets live outside the repo: `~/.codex-web-http/` (0600).
 - Session tokens are shown once; every artifact stores fingerprints (`sha256[:12]`).
-- The panel binds 127.0.0.1 only.
+  The token travels in the ChatGPT message text, so it ends up in your OpenAI
+  history: that is why tokens expire. Revoke with `isymcp session revoke <fp>`.
+- Bridge (:8791) and panel (:8798) bind 127.0.0.1 **and** reject foreign `Host`
+  / `Origin` headers and non-JSON POSTs, so a web page you visit cannot drive
+  them (CSRF), read them (DNS rebinding) or open the websocket.
+  Extra hostnames: `CODEX_WEB_HTTP_ALLOWED_HOSTS=a,b`.
+- Do not mint a session whose workspace contains secrets (e.g. all of `~`):
+  the workspace is exactly what the model can read.
 - `URL != authority`: conversation URLs and local files never grant execution.
+
+### Knobs
+
+| Env | Default | What |
+|---|---|---|
+| `CODEX_WEB_HTTP_CHROME` | `/usr/bin/google-chrome` | Chrome binary |
+| `CODEX_WEB_HTTP_SANDBOX_NET` | off | `1` gives sandboxed commands network |
+| `CODEX_WEB_HTTP_SANDBOX_ENV` | — | extra env vars passed into the sandbox |
+| `CODEX_WEB_HTTP_SANDBOX_RO_BINDS` | — | extra read-only paths (relative to `$HOME` or absolute) |
+| `CODEX_WEB_HTTP_SANDBOX=off` | — | operator opt-out: only `--write` sessions run, unconfined |
 
 ## License
 

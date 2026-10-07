@@ -5,3 +5,6 @@ capture/
 backups/
 diagnostics/
 probe/evidence/
+node_modules/
+run/
+.test-tmp/

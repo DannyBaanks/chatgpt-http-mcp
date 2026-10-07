@@ -7,7 +7,7 @@
 //
 //   bun run scripts/connect-tunnel.ts
 //   bun run scripts/connect-tunnel.ts --org-file ~/Development/organ.txt
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -55,9 +55,24 @@ if (!existsSync(binary)) {
   process.exit(2);
 }
 
+// tunnel-client recibe el comando como UN string. Si el repo vive en una ruta
+// con espacios ("ISyCo Git/..."), un `bun run <ruta>` sin comillas se parte.
+// Se genera un lanzador en ~/.codex-web-http/bin (ruta sin espacios) que
+// cita la ruta real con comillas de shell.
+function mcpLauncher(): string {
+  const mainTs = join(import.meta.dir, "..", "src", "mcp", "main.ts");
+  const binDir = join(home(), "bin");
+  mkdirSync(binDir, { recursive: true });
+  const launcher = join(binDir, "isymcp-mcp");
+  const quoted = `'${mainTs.replace(/'/g, `'\\''`)}'`;
+  writeFileSync(launcher, `#!/usr/bin/env bash\n# generado por scripts/connect-tunnel.ts\nexec bun run ${quoted} "$@"\n`, { mode: 0o700 });
+  chmodSync(launcher, 0o700);
+  return launcher;
+}
+
 const mcpCommand =
   argValue("--mcp-command") ??
-  `bun run ${join(import.meta.dir, "..", "src", "mcp", "main.ts")} --contract native --broker-socket /tmp/codex-web-http-broker.sock`;
+  `${mcpLauncher()} --contract native --broker-socket /tmp/codex-web-http-broker.sock`;
 
 const proc = Bun.spawnSync([
   binary, "runtimes", "connect",

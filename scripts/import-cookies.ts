@@ -8,7 +8,7 @@
 //
 //   bun run scripts/import-cookies.ts                     # ~/Development/cookie.txt
 //   bun run scripts/import-cookies.ts --file /ruta/x.txt --out /ruta/state.json
-import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -24,6 +24,12 @@ const domain = argValue("--domain") ?? ".chatgpt.com";
 if (!existsSync(file)) {
   console.error(`No existe ${file}`);
   process.exit(2);
+}
+// El archivo de entrada trae la sesion de ChatGPT en claro: avisar si otros
+// usuarios del sistema pueden leerlo.
+const inputMode = statSync(file).mode & 0o777;
+if (inputMode & 0o077) {
+  console.error(`AVISO: ${file} tiene permisos ${inputMode.toString(8)}; otros usuarios pueden leer tus cookies. Corre: chmod 600 ${JSON.stringify(file)}`);
 }
 const raw = await Bun.file(file).text();
 const match = /^\s*cookie\s*[:=]\s*(.+)$/im.exec(raw);

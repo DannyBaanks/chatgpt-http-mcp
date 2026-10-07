@@ -1,8 +1,12 @@
 {
-  "name": "codex-web-http",
+  "name": "chatgpt-http-mcp",
   "private": true,
   "type": "module",
-  "description": "MCP/Responses local para Codex: passthrough nativo + (futuro) transporte Web clonado",
+  "description": "ChatGPT Web -> HTTP API local (OpenAI-compatible) + MCP nativo con sandbox bwrap",
+  "license": "MIT",
+  "bin": {
+    "isymcp": "src/isymcp.ts"
+  },
   "packageManager": "bun@1.4.2",
   "scripts": {
     "start": "bun run src/cli.ts",
