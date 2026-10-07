@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # Los tests del MCP ejecutan comandos de verdad dentro de bwrap (sandbox
+      # read-only, sin red, $HOME tapado): no se simulan. Ubuntu 24.04 bloquea
+      # los user namespaces sin privilegios via AppArmor; bwrap los necesita.
+      - name: Sandbox (bubblewrap)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-all --die-with-parent -- true
+          echo "bwrap OK"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Tests
+        run: bun test
