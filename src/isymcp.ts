@@ -294,6 +294,10 @@ function help(): void {
                              caduca a los 7 dias, --ttl 0 = nunca)
   isymcp session list        sesiones vivas (solo fingerprint)
   isymcp session revoke <token|fp>
+  isymcp harness list        CLIs/TUIs de agentes detectadas + si tienen isymcp-chatgpt
+  isymcp harness install <ids|--all> [--apply]
+                             instala el MCP isymcp-chatgpt (sin --apply: solo el plan)
+  isymcp harness uninstall <ids|--all> [--apply]
   isymcp logs                ultimos 50
   isymcp logs --last 20
   isymcp logs export         guarda TODOS en ~/.codex-web-http/logs/
@@ -506,9 +510,44 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   } else {
     guardarSesion(sub || "default");
   }
+} else if (cmd === "harness") {
+  await harnessCommand(sub ?? "list", rest);
 } else if (cmd === "logs") {
   logs([sub, ...rest].filter((part): part is string => Boolean(part)));
 } else {
   help();
   process.exit(2);
+}
+
+// harness list|install|uninstall — MCP isymcp-chatgpt en otras CLIs/TUIs.
+// Sin --apply NUNCA escribe: imprime el comando exacto que correria.
+async function harnessCommand(sub: string, rest: string[]): Promise<void> {
+  const { apply, CATALOG, detect, plan } = await import("./harness");
+  const json = rest.includes("--json");
+  if (sub === "list") {
+    const statuses = await detect();
+    if (json) { console.log(JSON.stringify(statuses, null, 2)); return; }
+    for (const s of statuses) {
+      const state = !s.present ? "no instalado" : !s.supported ? `detectado · ${s.pending}` : s.installed === true ? "isymcp-chatgpt ✓" : s.installed === false ? "sin isymcp-chatgpt" : "estado desconocido";
+      console.log(`  ${s.present ? "●" : "·"} ${s.id.padEnd(9)} ${state}`);
+    }
+    return;
+  }
+  if (sub !== "install" && sub !== "uninstall") throw new Error("uso: isymcp harness list | install|uninstall <ids|--all> [--apply]");
+  const ids = rest.includes("--all")
+    ? (await detect()).filter((s) => s.present && s.supported).map((s) => s.id)
+    : rest.filter((a) => !a.startsWith("--"));
+  if (ids.length === 0) throw new Error(`indica harnesses (${CATALOG.filter((d) => d.strategy).map((d) => d.id).join(", ")}) o --all`);
+  if (!rest.includes("--apply")) {
+    console.log(`PLAN (${sub}) — no se escribio nada. Repite con --apply para ejecutarlo:`);
+    for (const step of await plan(sub, ids)) console.log(`  ${step.id.padEnd(9)} ${step.argv ? step.argv.join(" ") : `(nada) ${step.reason}`}`);
+    return;
+  }
+  const results = await apply(sub, ids, true);
+  if (json) { console.log(JSON.stringify(results, null, 2)); return; }
+  for (const r of results) {
+    const mark = !r.ran ? "–" : r.ok ? "✓" : "✗";
+    console.log(`  ${mark} ${r.id.padEnd(9)} ${r.ran ? `verificado=${r.verified}` : ""} ${r.detail}`);
+  }
+  if (results.some((r) => r.ran && !r.ok)) process.exitCode = 1;
 }
