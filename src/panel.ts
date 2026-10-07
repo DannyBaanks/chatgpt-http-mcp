@@ -1,13 +1,16 @@
 // panel.ts — panel visual del bridge (estilo ISyCo Worlds).
 //   isymcp panel [--port 8798]   ->  http://127.0.0.1:8798
-// GET / -> pagina; GET /fragment -> solo el <main> (auto-refresco);
-// GET /api/state -> JSON; POST /api/action -> acciones via isymcp.
+// GET / -> pagina (pestanas Chat | Estado); GET /fragment -> solo el <main>
+// del Estado (auto-refresco); GET /api/state -> JSON; POST /api/action ->
+// acciones via isymcp; /api/chats* -> chat local (los turnos van al bridge).
 // Todo es local: sin fuentes, scripts ni imagenes de internet.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isExpired, readSessions } from "./codex-sessions";
 import { guardLocalRequest } from "./local-guard";
+import { chatPath, createChat, listChats, loadChat, publicChat } from "./chats";
+import { CHAT_SCRIPT, CHAT_STYLE, renderChatView } from "./panel-chat";
 
 function pgrep(pattern: string): boolean {
   const p = Bun.spawnSync(["pgrep", "-f", pattern], { stdout: "ignore", stderr: "ignore" });
@@ -311,18 +314,47 @@ async function refresh(){const live=document.querySelector('.live');try{const r=
 document.addEventListener('click',async(ev)=>{const b=ev.target.closest('[data-action]');if(!b)return;const a=b.dataset.action;b.disabled=true;const old=b.textContent;b.textContent='…';
 try{const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:a})});const j=await r.json();toast((j.ok?'✓ ':'✗ ')+a+'\\n'+(j.out||'').slice(-600),j.ok?'ok':'bad');}
 catch(e){toast('✗ '+a+'\\n'+e,'bad');}finally{b.disabled=false;b.textContent=old;refresh();}});
-setInterval(refresh,4000);
+setInterval(()=>{if(!document.body.classList.contains('tab-chat'))refresh();},4000);
+`;
+
+const SHELL_STYLE = `
+.top{position:sticky;top:0;z-index:6;height:57px;display:flex;align-items:center;gap:14px;padding:0 16px;background:rgba(9,11,10,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.top .logo{font:700 16px var(--mono);letter-spacing:.12em;color:var(--ok)}
+.tabs{display:flex;gap:4px;margin-left:8px}
+.tabs a{font:600 13px var(--sans);color:var(--mute);text-decoration:none;padding:7px 12px;border-radius:8px}
+.tabs a.on{color:var(--ink);background:#151b18}
+.top .live{margin-left:auto}
+.drawer-btn{background:none;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:5px 9px;font:13px var(--mono);cursor:pointer}
+body.tab-chat{overflow:hidden}
+body:not(.tab-chat) #view-chat,body.tab-chat #view-estado{display:none}
+@media (max-width:520px){.top{gap:8px;padding:0 10px}.top .logo{font-size:14px}.tabs{margin-left:0}.tabs a{padding:6px 8px}.live span.lbl{display:none}}
 `;
 
 export function renderPanel(state: PanelState): string {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ISyMCP Panel</title><style>${STYLE}</style></head>
-<body><div class="wrap">
-<div class="brand"><h1>ISyMCP PANEL</h1><span class="sub">chatgpt-http-mcp · bridge local</span>
-<span class="live"><i></i> en vivo</span></div>
+<title>ISyMCP</title><style>${STYLE}${SHELL_STYLE}${CHAT_STYLE}</style></head>
+<body class="tab-chat">
+<header class="top">
+  <button class="drawer-btn" id="btn-side" title="Chats">☰</button>
+  <span class="logo">ISyMCP</span>
+  <nav class="tabs"><a href="#chat" data-tab="chat" class="on">Chat</a><a href="#estado" data-tab="estado">Estado</a></nav>
+  <span class="live"><i></i><span class="lbl"> en vivo</span></span>
+  <button class="drawer-btn" id="btn-config" title="Configuración">⚙</button>
+</header>
+<div id="view-chat">${renderChatView()}</div>
+<div id="view-estado"><div class="wrap">
+<div class="brand"><h1>ISyMCP PANEL</h1><span class="sub">chatgpt-http-mcp · bridge local</span></div>
 ${renderMain(state)}
 <footer>127.0.0.1 only · Host/Origin protegidos · <code>isymcp panel</code></footer>
-</div><div class="toasts"></div><script>${SCRIPT}</script></body></html>`;
+</div></div>
+<div class="toasts"></div>
+<script>${SCRIPT}
+function showTab(){const t=location.hash.startsWith('#estado')?'estado':'chat';document.body.classList.toggle('tab-chat',t==='chat');
+document.querySelectorAll('.tabs a').forEach(a=>a.classList.toggle('on',a.dataset.tab===t));if(t==='estado')refresh();}
+window.addEventListener('hashchange',showTab);showTab();
+document.getElementById('btn-side').onclick=()=>{document.body.classList.toggle('show-side');document.body.classList.remove('show-config');};
+document.getElementById('btn-config').onclick=()=>{document.body.classList.toggle('show-config');document.body.classList.remove('show-side');};
+${CHAT_SCRIPT}</script></body></html>`;
 }
 
 const ACTIONS: Record<string, string[]> = {
@@ -357,6 +389,7 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       const denied = guardLocalRequest(req, { requireJsonBody: true });
       if (denied) return denied;
       const url = new URL(req.url);
+      if (url.pathname.startsWith("/api/chat")) return handleChatApi(req, url, bridgePort);
       if (url.pathname === "/api/action" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { action?: string };
         return Response.json(runPanelAction(String(body.action ?? "")));
@@ -368,4 +401,56 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
     },
   });
   return server;
+}
+
+function apiError(status: number, type: string, message: string): Response {
+  return Response.json({ error: { type, message } }, { status });
+}
+
+/**
+ * API del chat local. El navegador solo manda chat_id + texto; nunca una URL
+ * /c/ ni tokens. Los turnos se reenvian al bridge (donde vive Chrome); el
+ * listado y la creacion se resuelven aqui contra el registro privado.
+ */
+export async function handleChatApi(req: Request, url: URL, bridgePort: string): Promise<Response> {
+  const bridge = `http://127.0.0.1:${bridgePort}`;
+  if (url.pathname === "/api/chat/status" && req.method === "GET") {
+    try {
+      const r = await fetch(`${bridge}/isymcp/chat/status`, { signal: AbortSignal.timeout(1500) });
+      return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+    } catch {
+      return apiError(503, "bridge_unavailable", "el bridge local no responde");
+    }
+  }
+  if (url.pathname === "/api/chats") {
+    if (req.method === "GET") return Response.json({ chats: listChats().map((c) => publicChat(c, false)) });
+    if (req.method === "POST") return Response.json(publicChat(createChat(), false), { status: 201 });
+    return apiError(405, "method_not_allowed", "GET o POST");
+  }
+  const m = /^\/api\/chats\/([^/]+)(\/messages)?$/.exec(url.pathname);
+  if (!m) return apiError(404, "not_found", "ruta desconocida");
+  const id = decodeURIComponent(m[1]!);
+  if (!chatPath(id)) return apiError(400, "chat_bad_id", "chat_id invalido");
+  const chat = loadChat(id);
+  if (!chat) return apiError(404, "chat_not_found", "chat desconocido");
+  if (!m[2]) {
+    if (req.method !== "GET") return apiError(405, "method_not_allowed", "GET");
+    return Response.json(publicChat(chat, true));
+  }
+  if (req.method !== "POST") return apiError(405, "method_not_allowed", "POST");
+  const body = (await req.json().catch(() => null)) as { message?: unknown } | null;
+  if (!body || typeof body.message !== "string") return apiError(400, "chat_bad_request", "se espera {message}");
+  // Solo se reenvian chat_id + message: aunque el navegador mande mas campos
+  // (p. ej. una URL), no llegan al bridge.
+  try {
+    const r = await fetch(`${bridge}/isymcp/chat/turn`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: id, message: body.message }),
+      signal: AbortSignal.timeout(300_000),
+    });
+    return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+  } catch (error) {
+    return apiError(503, "bridge_unavailable", `el bridge local no responde (${bridge}): ${error instanceof Error ? error.message : String(error)}`);
+  }
 }

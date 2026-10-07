@@ -209,3 +209,28 @@ describe("sanitizado de evidencia", () => {
     expect(out).not.toContain("0000aaaa");
   });
 });
+
+describe("T6 markdown del chat: sin HTML del modelo", () => {
+  test("script, img, handlers y javascript: quedan inertes", async () => {
+    const { renderMarkdown } = await import("../src/markdown");
+    const out = renderMarkdown([
+      "<script>alert(1)</script>",
+      "<img src=x onerror=alert(2)>",
+      "[x](javascript:alert(3))",
+      "[y](https://ok.example\" onmouseover=\"alert(4))",
+      "```\n</code></pre><script>alert(5)</script>\n```",
+      "`<b>`",
+      "\u00000\u0000",
+    ].join("\n\n"));
+    expect(out).not.toMatch(/<script|<img|<a href="javascript|onmouseover="/i);
+    expect(out).toContain("&lt;script&gt;");
+    expect(out).toContain("<code>&lt;b&gt;</code>");
+  });
+
+  test("lo que se manda al navegador (toString) es el mismo renderizador", async () => {
+    const { renderMarkdown } = await import("../src/markdown");
+    const browserFn = new Function(`return (${renderMarkdown.toString()})`)() as (s: string) => string;
+    const sample = "**a** `b` [c](https://d.e) <i>x</i>\n- f\n```js\n<g>\n```";
+    expect(browserFn(sample)).toBe(renderMarkdown(sample));
+  });
+});

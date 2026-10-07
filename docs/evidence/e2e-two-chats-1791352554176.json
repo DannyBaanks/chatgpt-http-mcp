@@ -1,0 +1,44 @@
+{
+  "ts": "2026-10-07T05:55:54.176Z",
+  "pass": true,
+  "nonces": {
+    "A": "ALFAMUXP0VL389XT",
+    "B": "BRAVOMUXP0VL3R344"
+  },
+  "urls_distinct": true,
+  "totalMs": 58841,
+  "steps": [
+    {
+      "chat": "A",
+      "prompt": "Palabra clave de ESTE chat: ALFAMUXP0VL389XT. No la guardes en memoria. Responde solo: OK",
+      "ok": true,
+      "reply": "OK",
+      "ms": 20106,
+      "url": "chatgpt.com/c/<redacted>"
+    },
+    {
+      "chat": "B",
+      "prompt": "Palabra clave de ESTE chat: BRAVOMUXP0VL3R344. No la guardes en memoria. Responde solo: OK",
+      "ok": true,
+      "reply": "OK",
+      "ms": 11859,
+      "url": "chatgpt.com/c/<redacted>"
+    },
+    {
+      "chat": "A",
+      "prompt": "¿Cuál es la palabra clave de este chat? Responde solo la palabra, sin nada más.",
+      "ok": true,
+      "reply": "ALFAMUXP0VL389XT",
+      "ms": 11834,
+      "url": "chatgpt.com/c/<redacted>"
+    },
+    {
+      "chat": "B",
+      "prompt": "¿Cuál es la palabra clave de este chat? Responde solo la palabra, sin nada más.",
+      "ok": true,
+      "reply": "BRAVOMUXP0VL3R344",
+      "ms": 14508,
+      "url": "chatgpt.com/c/<redacted>"
+    }
+  ]
+}

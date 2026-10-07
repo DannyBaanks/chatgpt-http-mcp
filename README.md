@@ -62,6 +62,29 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
   -d '{"model":"chatgpt-web/gpt-5.6-sol","messages":[{"role":"user","content":"hola"}]}'
 ```
 
+## Local chat UI
+
+`isymcp panel` → http://127.0.0.1:8798 opens on the **Chat** tab (the old
+dashboard lives under **Estado**).
+
+- Every chat in the sidebar is its **own real ChatGPT conversation** (`/c/`).
+  The first message opens a new conversation and its canonical URL is captured
+  and stored in `~/.codex-web-http/chats/<id>.json` (dir 0700, files 0600).
+- Only the **new** message is sent each turn (ChatGPT already holds the
+  context). `/v1/chat/completions` keeps its contract (full transcript).
+- **Live text**: the answer appears while ChatGPT is writing (the bridge
+  re-reads the DOM every ~0.4 s; each update replaces the whole partial).
+- Lists, code blocks, links: rebuilt as Markdown from ChatGPT's DOM and
+  rendered by an escape-first renderer — model HTML never reaches the page.
+- The browser only ever sends `chat_id` + text. The bridge resolves the `/c/`;
+  no tokens, cookies or storage-state go to the page.
+- Errors say who failed: OpenAI blocked it / ChatGPT session / Chrome / bridge.
+- Tools are **off** in Phase 1. The model is whatever your ChatGPT account uses.
+
+Checks: `bun run scripts/e2e-two-chats.ts` (real, two chats, distinct `/c/`,
+independent context) · `bun run scripts/panel-layout-check.ts` (no horizontal
+overflow at 1400/390 px, no injected HTML).
+
 ## Operations
 
 | Command | What |
@@ -75,7 +98,7 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 
 ## Evidence
 
-- `bun test` → **147/147** (incl. live sandbox-isolation and CSRF/DNS-rebinding
+- `bun test` → **168/168** (incl. live sandbox-isolation and CSRF/DNS-rebinding
   regressions).
 - Soak: **100 sequential real HTTP turns** (unique nonce per turn + idempotent
   replay check): **99 exact, 0 infrastructure failures, 0 empty captures,
