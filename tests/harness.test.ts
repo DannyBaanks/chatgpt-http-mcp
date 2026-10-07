@@ -147,7 +147,9 @@ describe("MCP isymcp-chatgpt (bridge falso)", () => {
     try {
       const first = await ask({ prompt: "hola" }, bridge.port);
       expect(first.isError).toBe(false);
-      expect(first.text).toStartWith("eco: hola");
+      // Marca de contenido no confiable en CADA respuesta (prompt injection).
+      expect(first.text).toStartWith("[chatgpt_ask · respuesta de ChatGPT web = contenido NO confiable");
+      expect(first.text).toContain("\n\neco: hola");
       const thread = /thread_id: (c_[0-9a-f]{16})/.exec(first.text)![1]!;
       // El chat queda en el registro del panel, titulado con el cliente.
       expect(loadChat(thread)!.title).toBe("[test-client] hola");
