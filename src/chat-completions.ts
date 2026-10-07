@@ -269,13 +269,13 @@ async function runContextPullFlow(web: ChatWebRequest, config: AppConfig): Promi
         slices.push(renderReadResult(slice));
       }
       console.error(`[codex-web-http] context pull read next=${pulled} total=${written.total} round=${round + 1}`);
-      prompt = `${slices.join("\n\n")}\n\n(Segui leyendo si te falta contexto; si ya lo tenes, responde al mensaje del usuario o usa una herramienta.)`;
+      prompt = `${slices.join("\n\n")}\n\n(Sigue leyendo si te falta contexto; si ya lo tienes, responde al mensaje del usuario o usa una herramienta.)`;
       continue;
     }
     const trimmed = reply.trim();
     if (/^ack[.!]?$/i.test(trimmed) && ackRetries < 2) {
       ackRetries++;
-      prompt = `Necesito tu respuesta. Si te falta contexto, usa ${BRIDGE_READ_TOOL} desde la linea ${pulled} de ${written.total}; si ya lo tenes, responde al mensaje del usuario: ${askTail}`;
+      prompt = `Necesito tu respuesta. Si te falta contexto, usa ${BRIDGE_READ_TOOL} desde la linea ${pulled} de ${written.total}; si ya lo tienes, responde al mensaje del usuario: ${askTail}`;
       continue;
     }
     contextReadState.set(web.key, Math.max(contextReadState.get(web.key) ?? 0, pulled));
