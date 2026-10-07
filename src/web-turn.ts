@@ -73,6 +73,22 @@ export function canonicalConversationUrl(raw: string | null | undefined): string
   }
 }
 
+/**
+ * Never Guess: ¿la respuesta capturada pertenece a un turno NUEVO?
+ *   - no habia turno previo (beforeId vacio)        -> si;
+ *   - el ultimo turno cambio de identidad            -> si (aunque el texto se
+ *     repita, p. ej. "OK" dos veces seguidas);
+ *   - misma identidad pero texto distinto            -> si (el turno previo no
+ *     cambia de texto: es la nueva respuesta renderizandose);
+ *   - misma identidad Y mismo texto                  -> NO: es la respuesta
+ *     anterior, no se devuelve.
+ */
+export function isNewAssistantTurn(beforeId: string, beforeText: string, idNow: string, current: string): boolean {
+  if (!current) return false;
+  if (!beforeId) return true;
+  return idNow !== beforeId || current !== beforeText;
+}
+
 /** A donde hay que ir (o null si la pestana ya esta donde debe). */
 export function navigationTarget(currentUrl: string, nav: WebNavigation | undefined): string | null {
   if (!nav) return null;
@@ -559,19 +575,25 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   }
   let text = "";
   let stableSince = 0;
+  let proven = false;
   while (Date.now() < deadline) {
     const current = await readLastAssistant(page);
-    // Con generacion confirmada, el texto previo no es una respuesta valida.
-    const acceptable = Boolean(current) && !(sawBusy && current === beforeText);
+    // Never Guess: solo vale si se PRUEBA que es un turno nuevo (identidad o
+    // texto distintos del ultimo turno previo). Antes, sin ver "Detener", se
+    // podia devolver la respuesta anterior como si fuera la nueva.
+    const acceptable = Boolean(current) && isNewAssistantTurn(beforeId, beforeText, await lastAssistantIdentity(page), current);
     if (acceptable && current === text) {
       if (stableSince === 0) stableSince = Date.now();
-      if (Date.now() - stableSince >= Math.max(1_500, settleMs)) break;
+      if (Date.now() - stableSince >= Math.max(1_500, settleMs)) { proven = true; break; }
     } else {
       stableSince = 0;
-      text = current;
+      text = acceptable ? current : "";
     }
     await page.waitForTimeout(settleMs);
   }
+  // Se agoto el tiempo sin un turno nuevo estable y demostrado: captura vacia
+  // (error nombrado aguas arriba), nunca "lo que mas se parezca".
+  if (!proven && text && !isNewAssistantTurn(beforeId, beforeText, await lastAssistantIdentity(page), text)) text = "";
   if (!text.trim()) await dumpCaptureFailure(page);
   const markdown = text.trim() ? await readLastAssistantMarkdown(page, text) : undefined;
   return {

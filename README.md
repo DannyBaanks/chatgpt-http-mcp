@@ -155,6 +155,16 @@ other agents ──► MCP isymcp-chatgpt ───┘          │
   that log.
 - **Reviver**: if Chromium crashes mid-turn, the bridge relaunches it and
   re-reads the answer that was already generated. It never sends the turn twice.
+- **Never Guess**: an answer only counts if it provably belongs to *this* turn
+  (the last assistant turn changed identity, or its text changed). Otherwise
+  the turn fails with a DOM dump. The bridge never returns the previous answer
+  or "whatever looks closest".
+- **Canary**: `isymcp canary` runs three real turns in one dedicated chat. An
+  exact echo A; an exact echo B that must not contain A (no cross-turn
+  contamination); and a list plus code block (Markdown capture still alive).
+  The result shows up in the status panel. `isymcp canary schedule --apply`
+  runs it daily and sends a desktop notification on failure, so you learn
+  about a chatgpt.com redesign the day it lands.
 
 <details>
 <summary><b>Chat details</b></summary>
@@ -198,6 +208,8 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 | `isymcp session list` / `revoke <fp>` | audit / revoke (revoking also kills its turn tokens) |
 | `isymcp harness list` | which agent CLIs you have, and whether they have `chatgpt_ask` |
 | `isymcp harness install` / `uninstall <ids\|--all> [--apply]` | plan by default; `--apply` runs and verifies |
+| `isymcp canary` / `canary status` | real turn check: capture, turn identity, Markdown |
+| `isymcp canary schedule [--apply]` | daily systemd user timer (plan by default) |
 | `isymcp logs` | bridge logs |
 
 **Harness support.**
@@ -244,6 +256,8 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
   - `scripts/e2e-two-chats.ts`: two chats, two `/c/`, each with its own context.
   - `scripts/e2e-chat-tools.ts`: read and write through tools, cards taken from
     the trace, no turn token left alive.
+- **Canary:** OK against real chatgpt.com through both an existing and a
+  temporary bridge.
 - **Panel layout check:** `scripts/panel-layout-check.ts`, no horizontal
   overflow at 1400 px or 390 px, no injected HTML, no page errors.
 
