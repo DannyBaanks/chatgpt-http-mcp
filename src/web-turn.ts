@@ -10,6 +10,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { sanitizeEvidenceText } from "./sanitize";
+import { domToMarkdown, markdownMatchesText } from "./dom-markdown";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +20,11 @@ export interface WebTurnResult {
   submitted: boolean;
   reused: boolean;
   url: string;
+  /**
+   * Markdown reconstruido del DOM de la respuesta (solo si coincide con
+   * `text`). Presentacion para el chat local; `text` no cambia.
+   */
+  markdown?: string;
 }
 
 export interface WebTurnOptions {
@@ -34,6 +40,46 @@ export interface WebTurnOptions {
    * (p. ej. "Codex ISyMCP"). Si no se pasa, cae a CODEX_WEB_HTTP_CONNECTOR.
    */
   connector?: string;
+  /**
+   * Navegacion explicita ANTES del turno (dentro del candado): "new" abre una
+   * conversacion nueva; "conversation" va a un /c/ concreto. Sin esto, el
+   * turno usa la pestana tal como este (comportamiento historico).
+   */
+  navigate?: WebNavigation;
+  /** Avisos de fase para la UI local (navegando / pensando). */
+  onPhase?: (phase: "navigating" | "thinking") => void;
+  /**
+   * Texto parcial MIENTRAS ChatGPT escribe (cada ~400 ms, solo si cambio).
+   * Cada llamada trae la respuesta completa hasta ese momento (reemplaza, no
+   * concatena): no hay fragmentos que duplicar. Solo lo usa el chat local.
+   */
+  onProgress?: (partial: string) => void;
+}
+
+export type WebNavigation = { to: "new" } | { to: "conversation"; url: string };
+
+export const CHATGPT_HOME = "https://chatgpt.com/";
+
+/** URL canonica de una conversacion (https://chatgpt.com/c/<id>) o null. */
+export function canonicalConversationUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.hostname !== "chatgpt.com") return null;
+    const m = /^\/c\/([0-9a-f][0-9a-f-]{7,})\/?$/i.exec(url.pathname);
+    return m ? `https://chatgpt.com/c/${m[1].toLowerCase()}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A donde hay que ir (o null si la pestana ya esta donde debe). */
+export function navigationTarget(currentUrl: string, nav: WebNavigation | undefined): string | null {
+  if (!nav) return null;
+  if (nav.to === "new") return CHATGPT_HOME;
+  const target = canonicalConversationUrl(nav.url);
+  if (!target) throw new Error(`web_bad_conversation_url: ${nav.url}`);
+  return canonicalConversationUrl(currentUrl) === target ? null : target;
 }
 
 const CONNECTOR_MENTION_QUERY = "@codex";
@@ -262,6 +308,27 @@ async function readLastAssistant(page: Page): Promise<string> {
   return container;
 }
 
+/** Markdown de la ultima respuesta (mismo elemento que readLastAssistant). */
+async function readLastAssistantMarkdown(page: Page, text: string): Promise<string | undefined> {
+  const script = `(() => {
+    const toMd = ${domToMarkdown.toString()};
+    const primary = Array.from(document.querySelectorAll(${JSON.stringify(ASSISTANT_PRIMARY_SELECTOR)}));
+    const turns = primary.length > 0 ? primary : Array.from(document.querySelectorAll(${JSON.stringify(ASSISTANT_FALLBACK_SELECTOR)}));
+    for (let i = turns.length - 1; i >= 0; i--) {
+      // UI 2026-10: data-markdown-text-style; UI anterior: .markdown.
+      const marks = turns[i].querySelectorAll('[data-markdown-text-style="assistant-message"], .markdown');
+      if (marks.length > 0) return toMd(marks[marks.length - 1]);
+    }
+    return "";
+  })()`;
+  try {
+    const markdown = String(await page.evaluate(script));
+    return markdown && markdownMatchesText(markdown, text) ? markdown : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function assistantTurnCount(page: Page): Promise<number> {
   return page
     .locator('[data-testid^="conversation-turn-"][data-message-author-role="assistant"], [data-turn-key]:has([data-conversation-role="assistant"])')
@@ -359,6 +426,13 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   if (!prompt.trim()) throw new Error("web_empty_prompt: prompt vacio");
   const reused = Boolean(session);
   const { page } = await openSession(options);
+  const target = navigationTarget(page.url(), options.navigate);
+  if (target) {
+    options.onPhase?.("navigating");
+    await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator('#prompt-textarea, div[contenteditable="true"]').first().waitFor({ state: "visible", timeout: 60_000 });
+  }
+  options.onPhase?.("thinking");
   const settleMs = options.settleMs ?? 1_000;
   const deadlineMs = options.deadlineMs ?? 120_000;
   const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
@@ -452,12 +526,22 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
     .locator('button[data-testid="stop-button"], button[aria-label*="Detener"], button[aria-label*="Stop"]')
     .first();
   let sawBusy = false;
+  let lastProgress = "";
   const graceUntil = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const busy = (await stopButton.count().catch(() => 0)) > 0;
     if (busy) sawBusy = true;
     if (sawBusy && !busy) break;
     if (!sawBusy && Date.now() > graceUntil) break;
+    if (busy && options.onProgress) {
+      const current = await readLastAssistant(page).catch(() => "");
+      // El turno viejo sigue siendo "el ultimo" hasta que aparece el nuevo.
+      if (current && current !== beforeText && current !== lastProgress) {
+        lastProgress = current;
+        const md = await readLastAssistantMarkdown(page, current);
+        try { options.onProgress(md ?? current); } catch { /* la UI nunca rompe el turno */ }
+      }
+    }
     await page.waitForTimeout(400);
   }
   let text = "";
@@ -476,12 +560,14 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
     await page.waitForTimeout(settleMs);
   }
   if (!text.trim()) await dumpCaptureFailure(page);
+  const markdown = text.trim() ? await readLastAssistantMarkdown(page, text) : undefined;
   return {
     text: text.trim(),
     ms: Math.round(performance.now() - t0),
     submitted: true,
     reused,
     url: page.url(),
+    ...(markdown ? { markdown } : {}),
   };
   } catch (err) {
     if (!isCrashError(err)) throw err;

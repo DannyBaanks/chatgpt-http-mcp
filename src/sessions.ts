@@ -3,6 +3,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { canonicalConversationUrl, type WebNavigation } from "./web-turn";
 
 export interface SessionRecord {
   name: string;
@@ -55,4 +56,19 @@ export function rememberConversation(name: string, url: string): void {
   const current = loadSession(name);
   if (!current) return;
   saveSession({ ...current, conversationUrl: url, updatedAt: new Date().toISOString() });
+}
+
+/**
+ * A donde debe ir la pestana compartida antes de un turno de la ruta
+ * OpenAI-compatible: su conversacion "casada". Antes la pestana solo podia
+ * estar ahi; ahora el chat del panel la mueve a otros /c/, asi que sin esto un
+ * turno de opencode podria caer en un chat del panel.
+ *   - con /c/ recordado      -> volver a el (no navega si ya esta ahi);
+ *   - registro sin /c/ aun   -> conversacion nueva (como al lanzar Chrome);
+ *   - sin registro default   -> comportamiento historico (no navega).
+ */
+export function defaultNavigation(record: SessionRecord | null): WebNavigation | undefined {
+  if (!record) return undefined;
+  const url = canonicalConversationUrl(record.conversationUrl);
+  return url ? { to: "conversation", url } : { to: "new" };
 }

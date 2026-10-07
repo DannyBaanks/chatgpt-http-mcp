@@ -13,8 +13,10 @@ import { handleChatCompletions } from "./chat-completions";
 import { runIdempotent } from "./turn-idempotency";
 import { parseWsTurn, toJsonl, wsFrames } from "./ws-responses";
 import { sendWebTurn } from "./web-turn";
-import { loadSession, rememberConversation } from "./sessions";
+import { defaultNavigation, loadSession, rememberConversation } from "./sessions";
 import { guardLocalRequest } from "./local-guard";
+import { ChatTurnError, chatStatus, runChatTurn } from "./chat-turn";
+import { publicChat } from "./chats";
 
 type Route = { method: "GET" | "POST"; endpoint: NativeEndpoint };
 
@@ -86,6 +88,26 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
       const turnId = req.headers.get("x-isymcp-turn-id")?.trim() || null;
       return runIdempotent(turnId, () => handleChatCompletions(req, config));
     }
+    // Chat local del panel (isymcp panel). Rutas propias: el contrato
+    // OpenAI-compatible de /v1/* no cambia. El panel es el unico cliente
+    // previsto; la guarda Host/Origin/JSON de arriba aplica igual.
+    if (url.pathname === "/isymcp/chat/status" && req.method === "GET") {
+      return Response.json(chatStatus());
+    }
+    if (url.pathname === "/isymcp/chat/turn") {
+      if (req.method !== "POST") return errorJson(405, "method_not_allowed", "POST esperado");
+      const body = (await req.json().catch(() => null)) as { chat_id?: unknown; message?: unknown } | null;
+      if (!body || typeof body.chat_id !== "string" || typeof body.message !== "string") {
+        return errorJson(400, "chat_bad_request", "se espera {chat_id, message}");
+      }
+      try {
+        const outcome = await runChatTurn(body.chat_id, body.message, config);
+        return Response.json({ ok: outcome.ok, reply: outcome.reply, chat: publicChat(outcome.chat, false) });
+      } catch (error) {
+        if (error instanceof ChatTurnError) return errorJson(error.status, error.type, error.message);
+        return errorJson(500, "chat_internal", error instanceof Error ? error.message : String(error));
+      }
+    }
     const route = ROUTES[url.pathname];
     if (!route) {
       return errorJson(404, "not_found", `ruta desconocida: ${url.pathname}`);
@@ -141,6 +163,7 @@ export function startServer(config: AppConfig = loadConfig()) {
             // (y mata el turno que este en vuelo).
             statePath: config.browserStatePath,
             conversationUrl: session?.conversationUrl ?? undefined,
+            navigate: defaultNavigation(session),
             browser: config.browser,
             headed: config.browserHeaded,
             deadlineMs: config.webTurnDeadlineMs,

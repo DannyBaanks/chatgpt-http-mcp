@@ -22,7 +22,7 @@
 // permisos y devuelve los resultados como role:"tool" en el proximo request.
 import { sendWebTurn, withWebLock } from "./web-turn";
 import { classifyWebError } from "./error-taxonomy";
-import { loadSession, rememberConversation } from "./sessions";
+import { defaultNavigation, loadSession, rememberConversation } from "./sessions";
 import { isWebModel } from "./web-responses";
 import type { AppConfig } from "./config";
 import {
@@ -196,6 +196,7 @@ async function sendSingleTurn(web: ChatWebRequest, config: AppConfig): Promise<s
   const result = await sendWebTurn(web.prompt, {
     statePath: config.browserStatePath,
     conversationUrl: conversation?.conversationUrl ?? undefined,
+    navigate: defaultNavigation(conversation),
     browser: config.browser,
     headed: config.browserHeaded,
     deadlineMs: config.webTurnDeadlineMs,
