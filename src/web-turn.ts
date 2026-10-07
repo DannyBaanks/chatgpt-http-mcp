@@ -6,6 +6,7 @@
 // los turnos del e2e con los de un servidor.
 //
 // Sin sesion/cookies no inventa nada: devuelve error nombrado.
+import { AsyncLocalStorage } from "node:async_hooks";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { sanitizeEvidenceText } from "./sanitize";
@@ -134,7 +135,9 @@ function chromeVersion(bin: string): string {
     return "153.0.0.0";
   }
 }
-const normalUA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion("/usr/bin/google-chrome")} Safari/537.36`;
+/** Chrome completo; CODEX_WEB_HTTP_CHROME para rutas fuera de Ubuntu/Debian. */
+const CHROME_BINARY = process.env.CODEX_WEB_HTTP_CHROME?.trim() || "/usr/bin/google-chrome";
+const normalUA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion(CHROME_BINARY)} Safari/537.36`;
 
 /** Extrae la ultima respuesta del asistente a partir de las marcas de la UI. */
 export function extractResponse(main: string): string {
@@ -173,7 +176,7 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
   const key = `${which}|${statePath}|${options.headed ? "headed" : "headless"}`;
   if (session && session.key === key) return session;
 
-  const executablePath = which === "shell" ? shellBinary() : "/usr/bin/google-chrome";
+  const executablePath = which === "shell" ? shellBinary() : CHROME_BINARY;
   if (!existsSync(executablePath)) {
     throw new Error(`web_browser_missing: binario no encontrado: ${executablePath}`);
   }
@@ -333,7 +336,26 @@ async function dumpCaptureFailure(page: Page): Promise<void> {
   }
 }
 
-export async function sendWebTurn(prompt: string, options: WebTurnOptions = {}): Promise<WebTurnResult> {
+// Una sola pagina de ChatGPT para todo el proceso: dos turnos a la vez
+// escribirian en el mismo composer (y dos primeros turnos lanzarian dos
+// Chrome). Todo pasa por este candado, en orden de llegada. Es reentrante
+// para que un flujo de varias rondas (context pull/push) lo tome una vez en
+// la request y sus sendWebTurn internos no se bloqueen a si mismos.
+const webLockContext = new AsyncLocalStorage<true>();
+let webLockTail: Promise<unknown> = Promise.resolve();
+
+export function withWebLock<T>(run: () => Promise<T>): Promise<T> {
+  if (webLockContext.getStore()) return run();
+  const result = webLockTail.then(() => webLockContext.run(true, run));
+  webLockTail = result.catch(() => undefined);
+  return result;
+}
+
+export function sendWebTurn(prompt: string, options: WebTurnOptions = {}): Promise<WebTurnResult> {
+  return withWebLock(() => sendWebTurnUnlocked(prompt, options));
+}
+
+async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {}): Promise<WebTurnResult> {
   if (!prompt.trim()) throw new Error("web_empty_prompt: prompt vacio");
   const reused = Boolean(session);
   const { page } = await openSession(options);

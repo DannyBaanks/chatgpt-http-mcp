@@ -20,7 +20,7 @@
 // bridge agrega el contrato al prompt; el modelo pide funciones con un sobre
 // JSON y el bridge lo traduce a `tool_calls`. Las ejecuta la TUI con SUS
 // permisos y devuelve los resultados como role:"tool" en el proximo request.
-import { sendWebTurn } from "./web-turn";
+import { sendWebTurn, withWebLock } from "./web-turn";
 import { classifyWebError } from "./error-taxonomy";
 import { loadSession, rememberConversation } from "./sessions";
 import { isWebModel } from "./web-responses";
@@ -365,9 +365,12 @@ export async function handleChatCompletions(req: Request, config: AppConfig): Pr
   }
   let turn: ChatTurnResult;
   try {
-    turn = config.contextMode === "pull" ? await runContextPullFlow(web, config)
-      : config.contextMode === "push" ? await runContextFileFlow(web, config)
-        : await runSingleTurn(web, config);
+    // El candado cubre la request entera: las rondas de un flujo no se
+    // intercalan con las de otra request en la misma conversacion.
+    turn = await withWebLock(() =>
+      config.contextMode === "pull" ? runContextPullFlow(web, config)
+        : config.contextMode === "push" ? runContextFileFlow(web, config)
+          : runSingleTurn(web, config));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const { type, status } = classifyWebError(message);

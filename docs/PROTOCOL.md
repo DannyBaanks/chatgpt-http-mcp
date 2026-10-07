@@ -94,6 +94,8 @@ El tipo viaja como prefijo del mensaje (`<type>: detalle`) y mapea a status:
 | tipo | status | significado |
 |---|---|---|
 | `chat_invalid_json` / `not_web_model` / `web_empty_prompt` | 400 | request invalido |
+| `forbidden_host` / `forbidden_origin` | 403 | Host u Origin no loopback (CSRF / DNS rebinding); ver `src/local-guard.ts` |
+| `unsupported_media_type` | 415 | POST sin `content-type: application/json` |
 | `web_session_missing` / `web_session_expired` | 401 | sesion/cookies |
 | `web_connector_unavailable` | 409 | connector no seleccionable (estado) |
 | `web_turn_submit_failed` | 502 | el turno NUNCA se envio |

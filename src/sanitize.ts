@@ -5,6 +5,8 @@ const PATTERNS: Array<[RegExp, string]> = [
   [/request_id:\s*\S+/gi, "request_id: <redacted>"],
   [/Bearer\s+[A-Za-z0-9._~+/-]{8,}=*/g, "Bearer <redacted>"],
   [/sk-[A-Za-z0-9_-]{16,}/g, "sk-<redacted>"],
+  // Id de conversacion: no da acceso sin la cuenta, pero identifica el chat.
+  [/(chatgpt\.com\/c\/)[0-9a-f-]{8,}/gi, "$1<redacted>"],
   [/(authorization|api[_-]?key|session[_-]?token|__Secure-[a-z0-9.-]+)["']?\s*[:=]\s*["']?[^\s"',}]{8,}/gi, "$1: <redacted>"],
 ];
 

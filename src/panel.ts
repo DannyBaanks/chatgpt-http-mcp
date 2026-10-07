@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readSessions } from "./codex-sessions";
+import { guardLocalRequest } from "./local-guard";
 
 function pgrep(pattern: string): boolean {
   const p = Bun.spawnSync(["pgrep", "-f", pattern], { stdout: "ignore", stderr: "ignore" });
@@ -62,22 +63,32 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
   };
 }
 
+/** Todo lo que entra al HTML viene de logs, URLs o labels: se escapa. */
+export function escapeHtml(value: unknown): string {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function renderPanel(state: PanelState): string {
   const dot = (ok: boolean) => `<span style="color:${ok ? "#3d3" : "#e33"}">●</span>`;
   const card = (title: string, body: string) =>
     `<div style="border:1px solid #2a2a2a;border-radius:10px;padding:14px 16px;background:#111;min-width:260px">`
     + `<div style="color:#8f8;letter-spacing:.08em;font-size:12px;margin-bottom:8px">${title}</div>${body}</div>`;
-  const sessions = state.sessions.map((s) => `${s.writable ? "rw" : "ro"} ${s.label} [${s.fp}]`).join("<br>") || "(ninguna)";
-  const errors = state.lastErrors.map((e) => `<div style="color:#e99;font-size:12px">${e.slice(0, 160)}</div>`).join("") || "(sin errores recientes)";
+  const sessions = state.sessions.map((s) => escapeHtml(`${s.writable ? "rw" : "ro"} ${s.label} [${s.fp}]`)).join("<br>") || "(ninguna)";
+  const errors = state.lastErrors.map((e) => `<div style="color:#e99;font-size:12px">${escapeHtml(e.slice(0, 160))}</div>`).join("") || "(sin errores recientes)";
   return `<!doctype html><html><head><meta charset="utf-8"><title>ISyMCP Panel</title></head>
 <body style="background:#0a0a0a;color:#ddd;font:14px system-ui;padding:24px">
 <h1 style="color:#7f7">ISyMCP PANEL</h1>
 <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:14px">
-${card("SERVER", `${dot(state.server === "up")} ${state.server} · :${state.serverPort}`)}
+${card("SERVER", `${dot(state.server === "up")} ${escapeHtml(state.server)} · :${escapeHtml(state.serverPort)}`)}
 ${card("TUNEL", `${dot(state.tunnel === "ready")} ${state.tunnel}`)}
 ${card("MCP STDIO", `${dot(state.mcp === "up")} ${state.mcp}`)}
 ${card("BROWSER", `${dot(state.browser === "ok")} ${state.browser}`)}
-${card("CONVERSACION", `<div style="font-size:12px;word-break:break-all">${state.conversation ?? "(sin /c/ aun)"}</div>`)}
+${card("CONVERSACION", `<div style="font-size:12px;word-break:break-all">${state.conversation ? escapeHtml(state.conversation) : "(sin /c/ aun)"}</div>`)}
 ${card("SESIONES MCP", `<div style="font-size:12px">${sessions}</div>`)}
 ${card("ULTIMOS ERRORES", errors)}
 </div>
@@ -89,7 +100,7 @@ ${card("ULTIMOS ERRORES", errors)}
 <button onclick="act('session-list')">Sessions</button>
 </div>
 <script>async function act(a){const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:a})});const j=await r.json();alert((j.ok?'OK\n':'FALLO\n')+(j.out||a));location.reload();}</script>
-<div style="margin-top:16px;color:#666;font-size:12px">M13b · acciones via isymcp · ${state.ts}</div>
+<div style="margin-top:16px;color:#666;font-size:12px">M13b · acciones via isymcp · ${escapeHtml(state.ts)}</div>
 </body></html>`;
 }
 
@@ -122,6 +133,10 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
     hostname: "127.0.0.1",
     port,
     async fetch(req) {
+      // Host/Origin loopback + JSON en POST: sin esto cualquier pagina web
+      // podia disparar acciones (CSRF) o leer /api/state (DNS rebinding).
+      const denied = guardLocalRequest(req, { requireJsonBody: true });
+      if (denied) return denied;
       const url = new URL(req.url);
       if (url.pathname === "/api/action" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { action?: string };

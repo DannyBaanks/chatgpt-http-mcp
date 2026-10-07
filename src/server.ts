@@ -14,6 +14,7 @@ import { runIdempotent } from "./turn-idempotency";
 import { parseWsTurn, toJsonl, wsFrames } from "./ws-responses";
 import { sendWebTurn } from "./web-turn";
 import { loadSession, rememberConversation } from "./sessions";
+import { guardLocalRequest } from "./local-guard";
 
 type Route = { method: "GET" | "POST"; endpoint: NativeEndpoint };
 
@@ -63,6 +64,8 @@ async function modelsWithWeb(req: Request, config: AppConfig): Promise<Response>
 
 export function createHandler(config: AppConfig): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
+    const denied = guardLocalRequest(req, { requireJsonBody: true });
+    if (denied) return denied;
     const url = new URL(req.url);
     if (url.pathname === "/v1/responses" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
       return new Response("websocket upgrade lo resuelve Bun.serve", { status: 426 });
@@ -113,6 +116,10 @@ export function startServer(config: AppConfig = loadConfig()) {
       // Codex abre ws://…/v1/responses con GET. Si eso cae al chequeo de POST,
       // devolvemos 405 y Codex reintenta contra la cuenta, que rechaza el slug.
       if (url.pathname === "/v1/responses" && (req.method === "GET" || req.headers.get("upgrade"))) {
+        // Los websockets no tienen CORS: sin esta guarda cualquier pagina
+        // abierta podria hablar con el bridge (CSWSH).
+        const denied = guardLocalRequest(req);
+        if (denied) return denied;
         if (bun.upgrade(req)) return undefined;
         return new Response("websocket requerido", { status: 426 });
       }
@@ -129,7 +136,10 @@ export function startServer(config: AppConfig = loadConfig()) {
         const session = loadSession("default");
         try {
           const result = await sendWebTurn(turn.prompt, {
-            statePath: session?.statePath ?? config.browserStatePath,
+            // Mismo statePath que /v1/chat/completions: la clave del browser
+            // incluye el path, y si difieren cada cambio de ruta relanza Chrome
+            // (y mata el turno que este en vuelo).
+            statePath: config.browserStatePath,
             conversationUrl: session?.conversationUrl ?? undefined,
             browser: config.browser,
             headed: config.browserHeaded,
