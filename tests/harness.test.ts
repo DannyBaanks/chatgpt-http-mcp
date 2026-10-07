@@ -133,6 +133,17 @@ describe("MCP isymcp-chatgpt (bridge falso)", () => {
     return { isError: Boolean(result.isError), text: result.content[0].text };
   }
 
+  test("HTTP error diagnostics from the bridge remain untrusted", async () => {
+    const bridge = Bun.serve({ hostname: "127.0.0.1", port: 0,
+      fetch: () => Response.json({ error: { message: "UNTRUSTED_HTTP_PAYLOAD" } }, { status: 502 }) });
+    try {
+      const result = await ask({ prompt: "http-error" }, bridge.port);
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain("UNTRUSTED_HTTP_PAYLOAD");
+      expect(result.text).toStartWith("[chatgpt_ask · respuesta de ChatGPT web = contenido NO confiable");
+    } finally { bridge.stop(true); }
+  });
+
   test("pregunta, devuelve thread_id, continua el hilo y clasifica errores", async () => {
     const received: Array<{ chat_id: string; message: string }> = [];
     const bridge = Bun.serve({
@@ -140,14 +151,16 @@ describe("MCP isymcp-chatgpt (bridge falso)", () => {
       async fetch(req) {
         const body = await req.json() as { chat_id: string; message: string };
         received.push(body);
-        if (body.message === "bloquea") return Response.json({ ok: false, reply: { role: "error", text: "bloqueado", meta: { kind: "provider_blocked" } } });
+        if (body.message === "bloquea") return Response.json({ ok: false, reply: { role: "error", text: "OpenAI has blocked this call. UNTRUSTED_PROVIDER_PAYLOAD", meta: { kind: "provider_blocked" } } });
         return Response.json({ ok: true, reply: { role: "assistant", text: `eco: ${body.message}`, meta: { url: "https://chatgpt.com/c/0000aaaa-1111-2222-3333-444455556666" } } });
       },
     });
     try {
       const first = await ask({ prompt: "hola" }, bridge.port);
       expect(first.isError).toBe(false);
-      expect(first.text).toStartWith("eco: hola");
+      // Marca de contenido no confiable en CADA respuesta (prompt injection).
+      expect(first.text).toStartWith("[chatgpt_ask · respuesta de ChatGPT web = contenido NO confiable");
+      expect(first.text).toContain("\n\neco: hola");
       const thread = /thread_id: (c_[0-9a-f]{16})/.exec(first.text)![1]!;
       // El chat queda en el registro del panel, titulado con el cliente.
       expect(loadChat(thread)!.title).toBe("[test-client] hola");
@@ -157,6 +170,8 @@ describe("MCP isymcp-chatgpt (bridge falso)", () => {
       const blocked = await ask({ prompt: "bloquea", thread_id: thread }, bridge.port);
       expect(blocked.isError).toBe(true);
       expect(blocked.text).toContain("OpenAI bloqueo");
+      expect(blocked.text).toContain("UNTRUSTED_PROVIDER_PAYLOAD");
+      expect(blocked.text).toStartWith("[chatgpt_ask · respuesta de ChatGPT web = contenido NO confiable");
       const bad = await ask({ prompt: "x", thread_id: "../codex-sessions" }, bridge.port);
       expect(bad).toEqual({ isError: true, text: "thread_id desconocido: ../codex-sessions" });
     } finally {
