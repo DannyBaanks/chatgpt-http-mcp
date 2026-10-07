@@ -14,6 +14,8 @@
 // Resultado: ~/.codex-web-http/canary/latest.json (+ historial por dia).
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { desktopNotice, type Notice } from "./notice";
 import { bridgeHome } from "./codex-sessions";
 import { createChat, listChats } from "./chats";
 
@@ -32,6 +34,7 @@ export interface CanaryResult {
   bridge: "existing" | "temporary" | "unavailable";
   checks: CanaryCheck[];
   error?: string;
+  notice?: Notice;
 }
 
 export function canaryDir(): string {
@@ -40,7 +43,9 @@ export function canaryDir(): string {
 
 export function readLatestCanary(): CanaryResult | null {
   try {
-    return JSON.parse(readFileSync(join(canaryDir(), "latest.json"), "utf8")) as CanaryResult;
+    const result = JSON.parse(readFileSync(join(canaryDir(), "latest.json"), "utf8")) as CanaryResult;
+    if (!result.ok && !result.notice) result.notice = failureNotice(result, join(canaryDir(), "latest.json"));
+    return result;
   } catch {
     return null;
   }
@@ -48,9 +53,42 @@ export function readLatestCanary(): CanaryResult | null {
 
 function saveResult(result: CanaryResult): void {
   mkdirSync(canaryDir(), { recursive: true, mode: 0o700 });
+  // Every failure points to its own snapshot; later runs cannot replace it.
+  if (!result.ok) {
+    const evidence = join(canaryDir(), `failure-${result.ts.replace(/[:.]/g, "-")}-${randomUUID()}.json`);
+    result.notice = failureNotice(result, evidence);
+    writeFileSync(evidence, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
+  }
   const body = `${JSON.stringify(result, null, 2)}\n`;
   writeFileSync(join(canaryDir(), "latest.json"), body, { mode: 0o600 });
   writeFileSync(join(canaryDir(), `canary-${result.ts.slice(0, 10)}.json`), body, { mode: 0o600 });
+}
+
+/** Classify only what the recorded failure demonstrates. Raw detail stays in evidence. */
+function failureNotice(result: CanaryResult, evidence: string): Notice {
+  const failed = result.checks.find((check) => !check.ok);
+  let component = "canary";
+  let summary = "El canario no pudo completar la prueba.";
+  let severity: Notice["severity"] = "error";
+  if (result.error?.startsWith("bridge temporal")) {
+    component = "canary.bridge.startup";
+    summary = "El bridge temporal no arranco.";
+    if (/CODEX_WEB_HTTP_\w+ invalido/.test(result.error)) {
+      summary = "El bridge temporal no arranco: configuracion invalida.";
+      severity = "action_required";
+    }
+  } else if (result.bridge === "unavailable" || /Unable to connect|fetch failed|ECONNREFUSED/i.test(result.error ?? "")) {
+    component = "canary.bridge.connection";
+    summary = "No se pudo conectar con el bridge local.";
+  } else if (failed) {
+    component = `canary.capture.${failed.name}`;
+    summary = failed.detail.startsWith("CONTAMINADA")
+      ? "La respuesta contiene texto del turno anterior."
+      : failed.name === "markdown" ? "La respuesta no conserva la lista o el bloque de codigo."
+        : `La respuesta no supero la comprobacion ${failed.name}.`;
+  }
+  return { kind: "NOTICE", severity, source: "isymcp", component, event: "canary_failed", summary,
+    evidence_ref: evidence, action: "isymcp canary status" };
 }
 
 /** El chat del canario (uno solo, reutilizado). */
@@ -166,7 +204,8 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
 /** Aviso de escritorio si hay pantalla y notify-send (best-effort). */
 export async function notifyFailure(result: CanaryResult): Promise<void> {
   if (result.ok || (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) || !Bun.which("notify-send")) return;
-  const failed = result.checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`).join("\n") || result.error || "fallo";
-  const p = Bun.spawn(["notify-send", "-u", "critical", "ISyMCP: el canario fallo", failed], { stdout: "ignore", stderr: "ignore" });
+  const notice = result.notice ?? failureNotice(result, join(canaryDir(), "latest.json"));
+  const { title, body } = desktopNotice(notice);
+  const p = Bun.spawn(["notify-send", "-u", "critical", title, body], { stdout: "ignore", stderr: "ignore" });
   await p.exited;
 }

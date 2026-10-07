@@ -565,7 +565,12 @@ async function canaryCommand(sub: string, rest: string[]): Promise<void> {
   const show = (r: NonNullable<ReturnType<typeof readLatestCanary>>) => {
     console.log(`canario ${r.ok ? "OK ✓" : "FALLO ✗"} · ${r.ts} · bridge=${r.bridge}`);
     for (const c of r.checks) console.log(`  ${c.ok ? "✓" : "✗"} ${c.name.padEnd(9)} ${(c.ms / 1000).toFixed(1)} s · ${c.detail}`);
-    if (r.error) console.log(`  error: ${r.error}`);
+    if (r.notice) {
+      console.log(`  Origen: ${r.notice.source} / ${r.notice.component} · ${r.notice.severity} · ${r.notice.event}`);
+      console.log(`  ${r.notice.summary}`);
+      console.log(`  Evidencia: ${r.notice.evidence_ref}`);
+      if (r.notice.action) console.log(`  Accion: ${r.notice.action}`);
+    } else if (r.error) console.log(`  error: ${r.error}`);
   };
   if (sub === "run") {
     const result = await runCanary();

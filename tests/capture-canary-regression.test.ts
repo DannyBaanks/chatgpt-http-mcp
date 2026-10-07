@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { readFileSync, mkdtempSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { renderMain } from "../src/panel";
 import { extractResponse, isNewAssistantTurn } from "../src/web-turn";
 
 // Execute the production DOM reader with only the browser boundary replaced.
@@ -71,5 +72,42 @@ for (const minimalPath of [false, true]) {
     const result = JSON.parse(readFileSync(join(home, "canary/latest.json"), "utf8"));
     expect(result.ok).toBe(false);
     expect(result.error).toContain("CODEX_WEB_HTTP_WEB_MODELS invalido");
+    expect(result.notice).toMatchObject({ source: "isymcp", component: "canary.bridge.startup", event: "canary_failed", severity: "action_required" });
+    expect(result.notice.summary).toBe("El bridge temporal no arranco: configuracion invalida.");
+    expect(result.notice.summary).not.toContain("throw new Error");
+    expect(result.notice.action).toBe("isymcp canary status");
+    expect(JSON.parse(readFileSync(result.notice.evidence_ref, "utf8")).error).toContain("CODEX_WEB_HTTP_WEB_MODELS invalido");
+    const html = renderMain({ ts: result.ts, server: "down", serverPort: "1", tunnel: "stopped", mcp: "down", browser: "ok", conversation: null, sessions: [], lastErrors: [], canary: result });
+    expect(html).toContain("Origen: isymcp / canary.bridge.startup");
+    expect(html).toContain(result.notice.summary);
+    expect(html).toContain(result.notice.evidence_ref);
+    expect(html).not.toContain("throw new Error");
   }, 30_000);
 }
+
+
+test("desktop notice identifies origin and action without dumping the stack", async () => {
+  const home = mkdtempSync(join(tmpdir(), "isymcp-notice-"));
+  const bin = join(home, "bin");
+  mkdirSync(bin);
+  const recorded = join(home, "notification.json");
+  // Substitute only the desktop command; run the real CLI and failure path.
+  writeFileSync(join(bin, "notify-send"), `#!${process.execPath}
+import {writeFileSync} from "node:fs"; writeFileSync(process.env.NOTICE_CAPTURE, JSON.stringify(process.argv.slice(2)));
+`, { mode: 0o700 });
+  const p = Bun.spawn([process.execPath, "run", join(import.meta.dir, "../src/isymcp.ts"), "canary"], {
+    env: { ...process.env, PATH: bin + ":/usr/bin:/bin", DISPLAY: ":test", WAYLAND_DISPLAY: "", NOTICE_CAPTURE: recorded,
+      CODEX_WEB_HTTP_HOME: home, CODEX_WEB_HTTP_PORT: "1", CODEX_WEB_HTTP_WEB_MODELS: "invalid" },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const [exit, stdout] = await Promise.all([p.exited, new Response(p.stdout).text(), new Response(p.stderr).text()]);
+  expect(exit).toBe(1);
+  const args = JSON.parse(readFileSync(recorded, "utf8")) as string[];
+  expect(args[2]).toContain("ISYMCP");
+  expect(args[3]).toContain("canary.bridge.startup");
+  expect(args[3]).toContain("canary_failed");
+  expect(args[3]).toContain("isymcp canary status");
+  expect(args[3]).not.toContain("throw new Error");
+  expect(stdout).toContain("Origen: isymcp / canary.bridge.startup");
+  expect(stdout).toContain("Evidencia:");
+});
