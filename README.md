@@ -97,6 +97,50 @@ close the window, and that becomes the bridge's default.
 
 ---
 
+## Limitations & risks — read before using
+
+> [!WARNING]
+> **RISK: HIGH — this is an unsupported use of ChatGPT Web.** ISyMCP drives the
+> consumer chatgpt.com interface with a headless browser and reads answers from
+> the page. OpenAI's [Terms of Use](https://openai.com/policies/row-terms-of-use/)
+> forbid automatically or programmatically extracting data or output, and OpenAI
+> can suspend accounts that break them. **Your account is what's at stake.**
+> We don't claim a legal reading either way. If you need something supported
+> and stable, use the official API.
+
+- **It breaks when chatgpt.com changes.** Answers are read from the page. A
+  redesign can break capture. This already happened once: the `.markdown` class
+  disappeared and the capture had to be fixed. Failures produce a sanitized DOM
+  dump in `~/.codex-web-http/run/capture-fail-*`.
+- **`chatgpt_ask` answers are untrusted content**, like a web page. ChatGPT may
+  have read hostile pages, and its answer lands in another agent's context, and
+  that agent may have its own shell or write tools. Every answer carries an
+  untrusted-content marker. Don't let an agent take side-effect actions (write,
+  shell, push, delete) based only on it without your approval.
+- **Tools inside ChatGPT.** A page ChatGPT reads could try to make it run
+  commands. With bubblewrap enabled, the host filesystem is mounted read-only;
+  the user's home and the bridge's secrets directory are hidden, then the
+  session folder is re-exposed read-only or writable according to the session.
+  System files outside that folder can still be read; this is not a filesystem
+  restricted to that folder. Network access is disabled **by default**;
+  `CODEX_WEB_HTTP_SANDBOX_NET=1` enables it. In a `--write` session, damage inside
+  the session folder is possible. Prefer read-only sessions. Explicitly setting
+  `CODEX_WEB_HTTP_SANDBOX=off` lets writable sessions run without bubblewrap.
+- **The untrusted-content marker is advisory.** It labels bridge responses,
+  including provider errors and HTTP diagnostics. It does not enforce approval
+  or prevent prompt injection; the receiving agent must respect the user's
+  existing authorization and its own permission controls.
+- **Your ChatGPT cookies are the crown jewel.** They sit in `~/.codex-web-http/`
+  with 0600 permissions, which stops other users but not malware or any process
+  running as you.
+- **Slow and serial.** One account, one tab, one turn at a time, each taking
+  about 20–60 s. This is not a throughput replacement for an API.
+- **Linux only** for tools (bubblewrap). Chat and the API need Chrome.
+- **Not demonstrated:** behaviour of the ChatGPT tunnel after many idle hours
+  (reported SSE reconnection loops). Not observed, and not tested yet.
+
+---
+
 ## How it works
 
 ```
@@ -201,6 +245,8 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
   ChatGPT yourself, it stays in your OpenAI history, which is why tokens expire.
 - **Approvals.** Nothing writes to another tool's config without an explicit
   confirmation, after you've seen the exact command.
+- **Untrusted output.** `chatgpt_ask` marks every answer as untrusted content
+  (see *Limitations & risks*).
 - **Secrets** live outside the repo in `~/.codex-web-http/` (0600). Traces
   never store command output.
 - Don't create a session for a folder that holds secrets (for example all of
