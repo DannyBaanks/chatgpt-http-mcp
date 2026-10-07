@@ -147,7 +147,10 @@ si todos usan su base_url: esta limitación se prueba y documenta, no se oculta.
 
 ## Estado al cierre de esta auditoría
 
-M7: bug DEMONSTRATED, fix NOT_IMPLEMENTED.
+M7: input fidelity DEMONSTRATED by parser/HTTP/WebSocket regression tests.
+The old user-only bug is fixed. Unsupported modalities and tool result items
+now fail explicitly before browser submission; tool declarations are preserved
+separately. This is not a native tool loop or Web/App E2E.
 M8 text E2E y TASK_CONTEXT_ISOLATION: NOT_DEMONSTRATED.
 Model/effort: observación visible DEMONSTRATED; enforcement NOT_IMPLEMENTED.
 Tool loop/authority/exactly-once: NOT_DEMONSTRATED.
@@ -155,5 +158,6 @@ Live streaming/cancel/compaction/long context: NOT_DEMONSTRATED en Responses.
 Image input: NOT_DEMONSTRATED; claim actual debe corregirse en implementación.
 Installer propio y convivencia native/Web: NOT_DEMONSTRATED.
 Codex CLI contra fixture: DEMONSTRATED; Codex App real: NOT_DEMONSTRATED.
-Suite/CI: NOT_RUN para esta auditoría sin cambios de producto.
-PR de implementación: NOT_CREATED.
+Suite M7: 220 pass / 0 fail (31 files), locally verified 2026-10-07.
+CI: pending publication of the M7 PR.
+PR de implementación: pending publication of the M7 delivery.

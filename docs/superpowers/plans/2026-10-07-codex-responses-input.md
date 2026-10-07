@@ -35,11 +35,11 @@
 
 **Interfaces:** Existing `extractPrompt(body: Record<string, unknown>): string` and `peekWebRequest(req: Request)` are the observable boundaries.
 
-- [ ] Add `user_only_is_preserved`: message user + input_text M7_USER_NONCE must produce nonempty text containing M7_USER_NONCE.
-- [ ] Add tests for instructions before user text, roles/order, exact string input, multiple text parts and direct input_text.
-- [ ] Add negative mixed image, malformed text, unknown item and unsupported function/custom result tests, expecting named errors.
-- [ ] Add additional_tools fixture based on the observed Codex namespace/custom declarations, asserting declarations stay separate and ordered.
-- [ ] Run `bun test tests/responses-input.test.ts tests/web-responses.test.ts`; preserve raw failing log and exit status.
+- [x] Add `user_only_is_preserved`: message user + input_text M7_USER_NONCE must produce nonempty text containing M7_USER_NONCE.
+- [x] Add tests for instructions before user text, roles/order, exact string input, multiple text parts and direct input_text.
+- [x] Add negative mixed image, malformed text, unknown item and unsupported function/custom result tests, expecting named errors.
+- [x] Add additional_tools fixture based on the observed Codex namespace/custom declarations, asserting declarations stay separate and ordered.
+- [x] Run `bun test tests/responses-input.test.ts tests/web-responses.test.ts`; preserve raw failing log and exit status.
 
 ### Task 2: Implement the pure parser
 
@@ -47,13 +47,13 @@
 
 **Interfaces:** `parseResponsesInput(body: Record<string, unknown>): ParsedResponsesInput`; `ParsedResponsesInput = { prompt: string; declarations: Record<string, unknown>[] }`; `ResponsesInputError extends Error` carries `type` and HTTP `status=400`.
 
-- [ ] Validate input string or array and instructions string; do not coerce malformed input.
-- [ ] Preserve message roles user/assistant/developer/system using explicit role labels for structured input; keep standalone string exact when instructions absent.
-- [ ] Accept textual input_text/output_text with string text. Reject image and unknown parts with `web_unsupported_input`; reject malformed objects with `web_invalid_input`.
-- [ ] Keep additional_tools.tools declarations separate; validate their container without claiming execution support. Reject unsupported tool/result items until the later native-loop plan.
-- [ ] Return `web_empty_input` for no usable message text, including declarations-only input; instructions alone do not fabricate a user turn.
-- [ ] Delegate extractPrompt to the parser and retain declarations in WebRequest for future transport; do not change Chat Completions.
-- [ ] Run the targeted tests; preserve passing log. Commit parser and tests with explicit paths.
+- [x] Validate input string or array and instructions string; do not coerce malformed input.
+- [x] Preserve message roles user/assistant/developer/system using explicit role labels for structured input; keep standalone string exact when instructions absent.
+- [x] Accept textual input_text/output_text with string text. Reject image and unknown parts with `web_unsupported_input`; reject malformed objects with `web_invalid_input`.
+- [x] Keep additional_tools.tools declarations separate; validate their container without claiming execution support. Reject unsupported tool/result items until the later native-loop plan.
+- [x] Return `web_empty_input` for no usable message text, including declarations-only input; instructions alone do not fabricate a user turn.
+- [x] Delegate extractPrompt to the parser and retain declarations in WebRequest for future transport; do not change Chat Completions.
+- [x] Run the targeted tests; preserve passing log. Commit parser and tests with explicit paths.
 
 ### Task 3: Propagate errors consistently at transport boundaries
 
@@ -61,18 +61,18 @@
 
 **Interfaces:** HTTP Web requests catch ResponsesInputError and return `{error:{type,message}}` with 400. WebSocket error events contain the same type/message, without submitting an empty/partial prompt. Non-Web HTTP requests retain native forwarding; native WebSocket rejection retains the existing behavior and does not gain browser routing.
 
-- [ ] Test the real HTTP handler with image+text and invalid input; it must return a typed 400 without needing browser state.
-- [ ] Test valid structured WebSocket user input and malformed input; native model requests remain outside this parser's Web-only validation.
-- [ ] Apply matching HTTP/WebSocket handling. Parse errors do not fall through to native upstream or become generic 500.
-- [ ] Run `bun test tests/responses-input.test.ts tests/web-responses.test.ts tests/ws-responses.test.ts tests/passthrough.test.ts tests/chat-completions.test.ts`.
-- [ ] Commit transport handling with explicit paths.
+- [x] Test the real HTTP handler with image+text and invalid input; it must return a typed 400 without needing browser state.
+- [x] Test valid structured WebSocket user input and malformed input; native model requests remain outside this parser's Web-only validation.
+- [x] Apply matching HTTP/WebSocket handling. Parse errors do not fall through to native upstream or become generic 500.
+- [x] Run `bun test tests/responses-input.test.ts tests/web-responses.test.ts tests/ws-responses.test.ts tests/passthrough.test.ts tests/chat-completions.test.ts`.
+- [x] Commit transport handling with explicit paths.
 
 ### Task 4: Verify and publish the narrow claim
 
 **Files:** Update `docs/CODEX_WEB_BACKEND_DESIGN.md`; create a uniquely named evidence manifest under `docs/evidence/` referencing raw red/green outputs and hashes.
 
-- [ ] Run `bun test` once, `git diff --check`, and inspect status/diff for unexpected paths.
-- [ ] Record M7 parser fidelity as demonstrated by tests; do not upgrade text App E2E, task isolation, tools, model enforcement or streaming.
+- [x] Run `bun test` once, `git diff --check`, and inspect status/diff for unexpected paths.
+- [x] Record M7 parser fidelity as demonstrated by tests; do not upgrade text App E2E, task isolation, tools, model enforcement or streaming.
 - [ ] Publish one focused PR for M7 and attach it to this chat. Record actual CI result; no merge without the requested authorization.
 
 ## Next delivery dependencies
