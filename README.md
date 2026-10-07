@@ -79,7 +79,13 @@ dashboard lives under **Estado**).
 - The browser only ever sends `chat_id` + text. The bridge resolves the `/c/`;
   no tokens, cookies or storage-state go to the page.
 - Errors say who failed: OpenAI blocked it / ChatGPT session / Chrome / bridge.
-- Tools are **off** in Phase 1. The model is whatever your ChatGPT account uses.
+- Tools are **off** in Phase 1.
+- **ChatGPT settings (model / reasoning)**: the web transport does not pick a
+  model — it uses whatever the headless ChatGPT shows. *Verificar* reads it
+  (read-only; e.g. `GPT-5.6 Sol · Instant (1/3)`). *Sincronizar ajustes* pauses
+  turns, opens a **visible** Chrome with your session, you set things by hand
+  and close it; the new storage-state (with IndexedDB) is saved only if still
+  logged in, with a 0600 backup of the previous one (last 5 kept).
 
 Checks: `bun run scripts/e2e-two-chats.ts` (real, two chats, distinct `/c/`,
 independent context) · `bun run scripts/panel-layout-check.ts` (no horizontal
@@ -98,7 +104,7 @@ overflow at 1400/390 px, no injected HTML).
 
 ## Evidence
 
-- `bun test` → **168/168** (incl. live sandbox-isolation and CSRF/DNS-rebinding
+- `bun test` → **171/171** (incl. live sandbox-isolation and CSRF/DNS-rebinding
   regressions).
 - Soak: **100 sequential real HTTP turns** (unique nonce per turn + idempotent
   replay check): **99 exact, 0 infrastructure failures, 0 empty captures,

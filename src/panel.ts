@@ -390,6 +390,7 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       if (denied) return denied;
       const url = new URL(req.url);
       if (url.pathname.startsWith("/api/chat")) return handleChatApi(req, url, bridgePort);
+      if (url.pathname.startsWith("/api/settings")) return handleSettingsApi(req, url, bridgePort);
       if (url.pathname === "/api/action" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { action?: string };
         return Response.json(runPanelAction(String(body.action ?? "")));
@@ -452,5 +453,30 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
     return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
   } catch (error) {
     return apiError(503, "bridge_unavailable", `el bridge local no responde (${bridge}): ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** Proxy de "Sincronizar ajustes" al bridge (que es quien maneja Chrome). */
+export async function handleSettingsApi(req: Request, url: URL, bridgePort: string): Promise<Response> {
+  const routes: Record<string, { method: string; target: string; timeoutMs: number }> = {
+    "/api/settings": { method: "GET", target: "/isymcp/settings", timeoutMs: 2_000 },
+    "/api/settings/open": { method: "POST", target: "/isymcp/settings/open", timeoutMs: 5_000 },
+    "/api/settings/finish": { method: "POST", target: "/isymcp/settings/finish", timeoutMs: 5_000 },
+    // Verificar puede esperar a que termine un turno (candado) y lanzar Chrome.
+    "/api/settings/verify": { method: "POST", target: "/isymcp/settings/verify", timeoutMs: 240_000 },
+  };
+  const route = routes[url.pathname];
+  if (!route) return apiError(404, "not_found", "ruta desconocida");
+  if (req.method !== route.method) return apiError(405, "method_not_allowed", route.method);
+  try {
+    const r = await fetch(`http://127.0.0.1:${bridgePort}${route.target}`, {
+      method: route.method,
+      headers: route.method === "POST" ? { "content-type": "application/json" } : undefined,
+      body: route.method === "POST" ? "{}" : undefined,
+      signal: AbortSignal.timeout(route.timeoutMs),
+    });
+    return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+  } catch {
+    return apiError(503, "bridge_unavailable", "el bridge local no responde");
   }
 }

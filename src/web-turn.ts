@@ -7,7 +7,7 @@
 //
 // Sin sesion/cookies no inventa nada: devuelve error nombrado.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { chromium, type Browser, type Page } from "playwright-core";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { sanitizeEvidenceText } from "./sanitize";
 import { domToMarkdown, markdownMatchesText } from "./dom-markdown";
@@ -213,6 +213,30 @@ async function reviveSession(): Promise<void> {
   await current.browser.close().catch(() => {});
 }
 
+/** Lanza Chrome con la sesion de ChatGPT (mismo perfil para headless y visible). */
+export async function launchChatGPTBrowser(
+  executablePath: string,
+  statePath: string,
+  opts: { headless: boolean; sandbox: boolean; viewport?: { width: number; height: number } | null },
+): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
+  const browser = await chromium.launch({
+    executablePath,
+    headless: opts.headless,
+    // El headless shell no soporta el sandbox de Chrome; el Chrome completo si.
+    chromiumSandbox: opts.sandbox,
+    ignoreDefaultArgs: ["--enable-automation"],
+    args: ["--disable-blink-features=AutomationControlled"],
+  });
+  const context = await browser.newContext({
+    storageState: statePath,
+    locale: "es-ES",
+    userAgent: normalUA,
+    viewport: opts.viewport === undefined ? { width: 1280, height: 800 } : opts.viewport,
+  });
+  const page = await context.newPage();
+  return { browser, context, page };
+}
+
 async function openSession(options: WebTurnOptions): Promise<{ browser: Browser; page: Page }> {
   const which = options.browser ?? "chrome";
   const statePath = options.statePath ?? join(homedir(), ".codex-web-http", "storage-state.json");
@@ -227,21 +251,10 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
     throw new Error(`web_browser_missing: binario no encontrado: ${executablePath}`);
   }
   if (session) await session.browser.close().catch(() => {});
-  const browser = await chromium.launch({
-    executablePath,
+  const { browser, page } = await launchChatGPTBrowser(executablePath, statePath, {
     headless: !options.headed,
-    // El headless shell no soporta el sandbox de Chrome; el Chrome completo si.
-    chromiumSandbox: which !== "shell",
-    ignoreDefaultArgs: ["--enable-automation"],
-    args: ["--disable-blink-features=AutomationControlled"],
+    sandbox: which !== "shell",
   });
-  const context = await browser.newContext({
-    storageState: statePath,
-    locale: "es-ES",
-    userAgent: normalUA,
-    viewport: { width: 1280, height: 800 },
-  });
-  const page = await context.newPage();
   const startUrl = options.conversationUrl?.includes("/c/") ? options.conversationUrl : "https://chatgpt.com/";
   await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
   const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
@@ -584,6 +597,20 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
     }
     throw new Error(`web_page_crashed: la pagina crasheo y no se pudo recapturar (${String(err).slice(0, 120)})`);
   }
+}
+
+/** Binario de Chrome segun el modo (para lanzar ventanas fuera de la sesion). */
+export function chromeExecutable(which: "chrome" | "shell" = "chrome"): string {
+  return which === "shell" ? shellBinary() : CHROME_BINARY;
+}
+
+/**
+ * Corre fn con la pestana headless (lanzandola si hace falta). El llamador
+ * debe estar dentro de withWebLock: la pestana es compartida.
+ */
+export async function withSessionPage<T>(options: WebTurnOptions, fn: (page: Page) => Promise<T>): Promise<T> {
+  const { page } = await openSession(options);
+  return fn(page);
 }
 
 /** Cierra la sesion perezosa (tests, scripts, apagado). */

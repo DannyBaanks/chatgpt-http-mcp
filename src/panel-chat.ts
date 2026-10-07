@@ -91,8 +91,10 @@ export function renderChatView(): string {
     </div>
   </section>
   <aside class="config" aria-label="Configuración">
-    <div class="row"><h4>MODELO</h4><div class="val">Default de tu cuenta</div>
-      <div class="note">El transporte web no elige modelo: usa el que tenga chatgpt.com. Sincronizar reasoning/ajustes llega en la próxima fase.</div></div>
+    <div class="row"><h4>AJUSTES DE CHATGPT</h4>
+      <div class="val" id="seen">sin verificar</div>
+      <div class="note" id="settings-note">Lo que ve ISyMCP en el selector de modelo de ChatGPT. Para cambiarlo, sincroniza: se abre un Chrome con tu sesión, lo configuras a mano y lo cierras.</div>
+      <div class="actions"><button class="btn" id="btn-verify" type="button">Verificar</button><button class="btn btn-go" id="btn-sync" type="button">Sincronizar ajustes</button><button class="btn btn-stop" id="btn-finish" type="button" hidden>Listo, guardar</button></div></div>
     <div class="row"><h4>CODEX ISyMCP</h4><span class="toggle"><span></span> OFF</span>
       <div class="note">Tools apagadas en cada chat nuevo. Encenderlas llega en la Fase 2.</div></div>
     <div class="row"><h4>CONVERSACIÓN</h4><div class="val" id="convlink"><span class="muted">sin /c/ todavía</span></div>
@@ -128,7 +130,7 @@ async function loadList(){const r=await api('/api/chats');if(r.ok){const fresh=r
   for(const c of chat.list)if(!fresh.some(f=>f.id===c.id)&&c.id===chat.current)fresh.unshift(c);chat.list=fresh;renderList();}}
 function scrollEnd(){const m=$('msgs');m.scrollTop=m.scrollHeight;}
 function addCopy(root){root.querySelectorAll('pre').forEach(pre=>{const b=el('button','copy','copiar');b.type='button';b.onclick=()=>{navigator.clipboard?.writeText(pre.querySelector('code').textContent);b.textContent='copiado';setTimeout(()=>b.textContent='copiar',1200);};pre.appendChild(b);});}
-function metaLine(m,url){const d=el('div','meta');d.appendChild(el('span','','modelo default'));if(m&&m.ms!=null)d.appendChild(el('span','',(m.ms/1000).toFixed(1)+' s'));
+function metaLine(m,url){const d=el('div','meta');d.appendChild(el('span','',settingsLabel()||'modelo default'));if(m&&m.ms!=null)d.appendChild(el('span','',(m.ms/1000).toFixed(1)+' s'));
   const u=(m&&m.url)||url;if(u){const a=el('a','', 'Abrir en ChatGPT ↗');a.href=u;a.target='_blank';a.rel='noreferrer';d.appendChild(a);}return d;}
 function renderMessage(m,url){const box=el('div','msg '+(m.role==='user'?'user':'assistant'));
   if(m.role==='user'){box.appendChild(el('div','bubble',m.text));return box;}
@@ -186,5 +188,24 @@ $('newchat').onclick=()=>{if(chat.creating)return chat.creating;chat.creating=(a
 async function bridgeState(){const s=await api('/api/chat/status').catch(()=>null);const b=$('bridgestate');b.replaceChildren();
   const ok=s&&s.ok;const dot=el('span','',ok?'● en línea':'● apagado');dot.style.color=ok?'var(--ok)':'var(--bad)';b.appendChild(dot);
   if(!ok){const btn=el('button','btn btn-go','Encender');btn.dataset.action='server-start';btn.style.marginLeft='8px';b.appendChild(btn);}}
-(async()=>{await loadList();if(!chat.touched){if(chat.current&&chat.list.some(c=>c.id===chat.current))await openChat(chat.current);else{chat.current=null;renderEmpty();}}bridgeState();setInterval(bridgeState,5000);})();
+let settings={state:'idle',last:null,seen:null};let lastShownResult=null;
+function settingsLabel(){const v=settings.seen;if(!v||(!v.model&&!v.effort))return '';return [v.model,v.effort].filter(Boolean).join(' · ');}
+function renderSettings(){const seen=$('seen');const v=settings.seen;
+  seen.textContent=v&&(v.model||v.effort)?[v.model||'?',(v.effort||'?')+(v.effortPosition&&v.effortSteps?' ('+v.effortPosition+'/'+v.effortSteps+')':'')].join(' · '):(v?'no se pudo leer el selector':'sin verificar');
+  const open=settings.state!=='idle';$('btn-sync').hidden=open;$('btn-finish').hidden=settings.state!=='open';$('btn-verify').disabled=open;
+  const note=$('settings-note');
+  if(settings.state==='open')note.textContent='Chrome abierto: elige modelo y reasoning en chatgpt.com y cierra la ventana (o pulsa "Listo, guardar"). Los mensajes esperan en cola mientras tanto.';
+  else if(settings.state==='saving')note.textContent='Guardando ajustes…';
+  else if(settings.last)note.textContent=(settings.last.saved?'✓ ':'✗ ')+settings.last.reason;}
+async function pollSettings(){const r=await api('/api/settings').catch(()=>null);if(!r||!r.ok)return;const prev=settings.state;settings=r.json;renderSettings();
+  // Tras guardar, verificar solo: asi se ve si el headless quedo sincronizado.
+  if(prev!=='idle'&&settings.state==='idle'&&settings.last&&settings.last.saved&&settings.last.at!==lastShownResult){lastShownResult=settings.last.at;verify();}}
+async function verify(){const b=$('btn-verify');b.disabled=true;b.textContent='verificando…';const r=await api('/api/settings/verify',{method:'POST',body:'{}'}).catch(()=>null);
+  b.disabled=false;b.textContent='Verificar';if(r&&r.ok){settings=r.json;settings.seen=r.json.seen;renderSettings();}else toast('✗ no se pudo verificar: '+((r&&r.json&&r.json.error&&r.json.error.message)||'bridge apagado'),'bad');}
+$('btn-verify').onclick=verify;
+$('btn-sync').onclick=async()=>{const r=await api('/api/settings/open',{method:'POST',body:'{}'}).catch(()=>null);
+  if(r&&(r.status===202)){settings=r.json;renderSettings();toast('Chrome abierto: configura ChatGPT y ciérralo','ok');}else toast('✗ '+((r&&r.json&&(r.json.reason||(r.json.error&&r.json.error.message)))||'bridge apagado'),'bad');};
+$('btn-finish').onclick=async()=>{await api('/api/settings/finish',{method:'POST',body:'{}'}).catch(()=>null);pollSettings();};
+setInterval(pollSettings,2000);
+(async()=>{await loadList();if(!chat.touched){if(chat.current&&chat.list.some(c=>c.id===chat.current))await openChat(chat.current);else{chat.current=null;renderEmpty();}}bridgeState();setInterval(bridgeState,5000);pollSettings();})();
 `;

@@ -17,6 +17,7 @@ import { defaultNavigation, loadSession, rememberConversation } from "./sessions
 import { guardLocalRequest } from "./local-guard";
 import { ChatTurnError, chatStatus, runChatTurn } from "./chat-turn";
 import { publicChat } from "./chats";
+import { finishSettingsWindow, openSettingsWindow, settingsStatus, verifySettings } from "./chatgpt-settings";
 
 type Route = { method: "GET" | "POST"; endpoint: NativeEndpoint };
 
@@ -93,6 +94,22 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
     // previsto; la guarda Host/Origin/JSON de arriba aplica igual.
     if (url.pathname === "/isymcp/chat/status" && req.method === "GET") {
       return Response.json(chatStatus());
+    }
+    // "Sincronizar ajustes": ventana visible de Chrome para configurar ChatGPT a mano.
+    if (url.pathname === "/isymcp/settings" && req.method === "GET") return Response.json(settingsStatus());
+    if (url.pathname === "/isymcp/settings/open" && req.method === "POST") {
+      const r = openSettingsWindow(config);
+      return Response.json({ ...r, ...settingsStatus() }, { status: r.started ? 202 : 409 });
+    }
+    if (url.pathname === "/isymcp/settings/finish" && req.method === "POST") {
+      return Response.json({ finished: finishSettingsWindow(), ...settingsStatus() });
+    }
+    if (url.pathname === "/isymcp/settings/verify" && req.method === "POST") {
+      try {
+        return Response.json({ seen: await verifySettings(config), ...settingsStatus() });
+      } catch (error) {
+        return errorJson(502, "settings_verify_failed", error instanceof Error ? error.message : String(error));
+      }
     }
     if (url.pathname === "/isymcp/chat/turn") {
       if (req.method !== "POST") return errorJson(405, "method_not_allowed", "POST esperado");
