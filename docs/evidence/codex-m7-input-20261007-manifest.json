@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-07",
+  "base": "2ec8686",
+  "scope": "M7 parser and transport validation; no live Web/Codex App E2E, configuration/auth untouched",
+  "runs": [
+    {
+      "command": "bun test tests/responses-input.test.ts tests/web-responses.test.ts",
+      "result": "RED: 15 pass / 19 fail"
+    },
+    {
+      "command": "bun test tests/responses-input.test.ts tests/web-responses.test.ts",
+      "result": "GREEN: 34 pass / 0 fail"
+    },
+    {
+      "command": "bun test tests/responses-input.test.ts tests/ws-responses.test.ts",
+      "result": "RED: 23 pass / 4 fail"
+    },
+    {
+      "command": "bun test tests/responses-input.test.ts tests/web-responses.test.ts tests/ws-responses.test.ts tests/passthrough.test.ts tests/chat-completions.test.ts",
+      "result": "GREEN: 54 pass / 0 fail"
+    },
+    {
+      "command": "bun test",
+      "result": "GREEN: 220 pass / 0 fail; 31 files"
+    }
+  ],
+  "raw_artifacts": [
+    {
+      "path": "/tmp/isymcp-m7-red.log",
+      "sha256": "4ea811a34423f4aab310a31b00cf2be708618f2ecb052b374acd57d82cb31a11"
+    },
+    {
+      "path": "/tmp/isymcp-m7-parser-green.log",
+      "sha256": "61208eb964941fb535385016573e2cc0055cd256e74948724ad4142ff262417f"
+    },
+    {
+      "path": "/tmp/isymcp-m7-transport-red.log",
+      "sha256": "4cc2c7126125af7a7bf119009d58620ff5ead907d760947285bbf6019f131dfc"
+    },
+    {
+      "path": "/tmp/isymcp-m7-transport-green.log",
+      "sha256": "1e4b9039a0c572ebacb190cde3e6a72e8e610978366b07f3d0daee7e6cea6432"
+    },
+    {
+      "path": "/tmp/isymcp-m7-suite.log",
+      "sha256": "a51e061e0d94abb50ba82011711bd90e9821725ae08643642141304249242933"
+    },
+    {
+      "path": "/tmp/isymcp-m7-real-capture-parser.json",
+      "sha256": "fb199e0290eaa1f9d14e625aa04c22e163f6d30eccd498c47f1036c1410244ce"
+    }
+  ],
+  "observed_request_replay": {
+    "source": "/tmp/isymcp-codex-contract-1dk9wpkp/request.json",
+    "result": "parser accepts actual Codex 0.160.0 capture, retains user instruction and 2 declarations",
+    "exit_code": 0
+  }
+}

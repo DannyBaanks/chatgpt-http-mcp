@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-07",
+  "os": "Ubuntu 24.04",
+  "codex_version": "0.160.0",
+  "isymcp_commit": "5f1458f8b6b24bec64a1059588686335dac7fda8",
+  "scope": "Read-only contract discovery. Local fixture provider, not a ChatGPT or Codex App E2E. Authorization headers excluded. No product/config/auth changes. Raw evidence kept locally; may contain local context, do not publish blindly.",
+  "artifacts": [
+    {
+      "path": "/tmp/isymcp-codex-contract-1dk9wpkp/stderr.log",
+      "sha256": "7dccebeda6ccf030d96d8a7eb2026a853ed525790e4409a99f3f69a70e4a41a0"
+    },
+    {
+      "path": "/tmp/isymcp-codex-contract-1dk9wpkp/command.json",
+      "sha256": "20ff9f84f369c77d7ac9c2d7217873a7ac13767fb121dc43ae2824e3e25ff701"
+    },
+    {
+      "path": "/tmp/isymcp-codex-contract-1dk9wpkp/exit.txt",
+      "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+    },
+    {
+      "path": "/tmp/isymcp-codex-contract-1dk9wpkp/request.json",
+      "sha256": "7cdb3259fdef6c38b852fc73199b49f65bf71b47dc313f1c7c660b6e330f2b58"
+    },
+    {
+      "path": "/tmp/isymcp-codex-contract-1dk9wpkp/stdout.jsonl",
+      "sha256": "ee51d2ebedfdd78038f17df8d50bf907d8d7206b97bd21f22a8471e0089c9dda"
+    },
+    {
+      "path": "/tmp/isymcp-codex-contract-probe.py",
+      "sha256": "f5e0d71d12608767262d96a192d57ef1d4f7504abd0c9a17a8a4702ffb480377"
+    },
+    {
+      "path": "/tmp/isymcp-m7-failing-witness.json",
+      "sha256": "db44d29565b93cac71b156ac271f2d4b9eda3df13edeea6465a9bc359179c0ce"
+    },
+    {
+      "path": "/tmp/isymcp-web-model-observation.json",
+      "sha256": "8c0da9904513823fa1a3db36ad34a82f698affaec3d55a322093d239d05f1b08"
+    },
+    {
+      "path": "/tmp/isymcp-repo-inventory.txt",
+      "sha256": "23cd2229a03a3af8d4959012b6694ea030968bda49055b5f4389b67660b606fd"
+    }
+  ]
+}

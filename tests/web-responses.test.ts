@@ -27,14 +27,14 @@ describe("extractPrompt", () => {
     expect(extractPrompt({ instructions: "eres util", input: "hola" })).toBe("eres util\n\nhola");
   });
 
-  test("items de mensaje: el eco del usuario se omite, el asistente se queda", () => {
+  test("items de mensaje conservan usuario, asistente y orden", () => {
     const prompt = extractPrompt({
       input: [
         { type: "message", role: "user", content: [{ type: "input_text", text: "mi turno" }] },
         { type: "message", role: "assistant", content: [{ type: "output_text", text: "contexto previo" }] },
       ],
     });
-    expect(prompt).toBe("contexto previo");
+    expect(prompt).toBe("[user]\nmi turno\n\n[assistant]\ncontexto previo");
   });
 
   test("input_text plano sin content", () => {

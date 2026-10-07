@@ -5,6 +5,7 @@
 // M7: si el POST /v1/responses pide un modelo chatgpt-web/*, la llamada va al
 // browser persistente (src/web-turn.ts) en vez de al upstream nativo. Ese es
 // el punto donde Codex deja de hablar con Electron y habla con este CLI.
+import { ResponsesInputError } from "./responses/input";
 import { loadConfig, type AppConfig } from "./config";
 import { filterHeaders, forwardNative, type NativeEndpoint, upstreamUrl } from "./passthrough";
 import { augmentCatalog, openAiWebModelList } from "./web-models";
@@ -138,8 +139,13 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
     if (route.endpoint === "responses" && config.webModels === "on") {
       // peek sobre un clon: el request original sigue intacto para el
       // passthrough nativo cuando el modelo NO es Web.
-      const web = await peekWebRequest(req);
-      if (web) return handleWebResponses(req, config, web);
+      try {
+        const web = await peekWebRequest(req);
+        if (web) return handleWebResponses(req, config, web);
+      } catch (error) {
+        if (error instanceof ResponsesInputError) return errorJson(error.status, error.type, error.message);
+        throw error;
+      }
     }
     return forwardNative(req, route.endpoint, config);
   };
@@ -167,7 +173,14 @@ export function startServer(config: AppConfig = loadConfig()) {
     websocket: {
       async message(ws, message) {
         const raw = typeof message === "string" ? message : new TextDecoder().decode(message);
-        const turn = parseWsTurn(raw);
+        let turn;
+        try {
+          turn = parseWsTurn(raw);
+        } catch (error) {
+          if (!(error instanceof ResponsesInputError)) throw error;
+          ws.send(JSON.stringify({ type: "error", error: { type: error.type, message: error.message } }));
+          return;
+        }
         if (!turn?.web) {
           ws.send(JSON.stringify({ type: "error", error: { message: "solo modelos chatgpt-web/* por este websocket" } }));
           return;
