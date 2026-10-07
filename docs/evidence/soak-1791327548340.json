@@ -1,0 +1,809 @@
+{
+  "ts": "2026-10-06T22:59:08.332Z",
+  "n": 100,
+  "ok": 29,
+  "fail": 71,
+  "totalMs": 1234301,
+  "results": [
+    {
+      "i": 1,
+      "nonce": "SOAK_1791326315041_35z4ah",
+      "ok": true,
+      "replayed": "1",
+      "ms": 33136,
+      "http": "SOAK_1791326315041_35z4ah"
+    },
+    {
+      "i": 2,
+      "nonce": "SOAK_1791326348177_wqyorr",
+      "ok": true,
+      "replayed": "1",
+      "ms": 56770,
+      "http": "SOAK_1791326348177_wqyorr"
+    },
+    {
+      "i": 3,
+      "nonce": "SOAK_1791326404947_is90n7",
+      "ok": true,
+      "replayed": "1",
+      "ms": 42474,
+      "http": "SOAK_1791326404947_is90n7"
+    },
+    {
+      "i": 4,
+      "nonce": "SOAK_1791326447421_bamvkf",
+      "ok": true,
+      "replayed": "1",
+      "ms": 20904,
+      "http": "SOAK_1791326447421_bamvkf"
+    },
+    {
+      "i": 5,
+      "nonce": "SOAK_1791326468325_jm4liy",
+      "ok": true,
+      "replayed": "1",
+      "ms": 34850,
+      "http": "SOAK_1791326468325_jm4liy"
+    },
+    {
+      "i": 6,
+      "nonce": "SOAK_1791326503175_ebgn4p",
+      "ok": true,
+      "replayed": "1",
+      "ms": 43570,
+      "http": "SOAK_1791326503175_ebgn4p"
+    },
+    {
+      "i": 7,
+      "nonce": "SOAK_1791326546745_a7d8fb",
+      "ok": true,
+      "replayed": "1",
+      "ms": 29876,
+      "http": "SOAK_1791326546745_a7d8fb"
+    },
+    {
+      "i": 8,
+      "nonce": "SOAK_1791326576621_zyhucf",
+      "ok": true,
+      "replayed": "1",
+      "ms": 41346,
+      "http": "SOAK_1791326576621_zyhucf"
+    },
+    {
+      "i": 9,
+      "nonce": "SOAK_1791326617967_jnl0ns",
+      "ok": true,
+      "replayed": "1",
+      "ms": 42113,
+      "http": "SOAK_1791326617967_jnl0ns"
+    },
+    {
+      "i": 10,
+      "nonce": "SOAK_1791326660080_9u8rjo",
+      "ok": true,
+      "replayed": "1",
+      "ms": 52117,
+      "http": "SOAK_1791326660080_9u8rjo"
+    },
+    {
+      "i": 11,
+      "nonce": "SOAK_1791326712197_fbdgwk",
+      "ok": true,
+      "replayed": "1",
+      "ms": 35523,
+      "http": "SOAK_1791326712197_fbdgwk"
+    },
+    {
+      "i": 12,
+      "nonce": "SOAK_1791326747720_q3p3ks",
+      "ok": true,
+      "replayed": "1",
+      "ms": 37607,
+      "http": "SOAK_1791326747720_q3p3ks"
+    },
+    {
+      "i": 13,
+      "nonce": "SOAK_1791326785327_a7oana",
+      "ok": true,
+      "replayed": "1",
+      "ms": 37303,
+      "http": "SOAK_1791326785327_a7oana"
+    },
+    {
+      "i": 14,
+      "nonce": "SOAK_1791326822630_nuptej",
+      "ok": true,
+      "replayed": "1",
+      "ms": 40856,
+      "http": "SOAK_1791326822630_nuptej"
+    },
+    {
+      "i": 15,
+      "nonce": "SOAK_1791326863486_e9m3hp",
+      "ok": true,
+      "replayed": "1",
+      "ms": 28242,
+      "http": "SOAK_1791326863486_e9m3hp"
+    },
+    {
+      "i": 16,
+      "nonce": "SOAK_1791326891728_uemwmm",
+      "ok": true,
+      "replayed": "1",
+      "ms": 39430,
+      "http": "SOAK_1791326891728_uemwmm"
+    },
+    {
+      "i": 17,
+      "nonce": "SOAK_1791326931158_cxyku3",
+      "ok": true,
+      "replayed": "1",
+      "ms": 36669,
+      "http": "SOAK_1791326931158_cxyku3"
+    },
+    {
+      "i": 18,
+      "nonce": "SOAK_1791326967827_cjsn2e",
+      "ok": false,
+      "replayed": "1",
+      "ms": 36752,
+      "http": "Esta llamada a la herramienta se ha bloqueado por los controles de seguridad de OpenAI."
+    },
+    {
+      "i": 19,
+      "nonce": "SOAK_1791327004579_dxc6op",
+      "ok": true,
+      "replayed": "1",
+      "ms": 36574,
+      "http": "SOAK_1791327004579_dxc6op"
+    },
+    {
+      "i": 20,
+      "nonce": "SOAK_1791327041153_yqvq7p",
+      "ok": true,
+      "replayed": "1",
+      "ms": 36827,
+      "http": "SOAK_1791327041153_yqvq7p"
+    },
+    {
+      "i": 21,
+      "nonce": "SOAK_1791327077980_bdcrmc",
+      "ok": true,
+      "replayed": "1",
+      "ms": 33864,
+      "http": "SOAK_1791327077980_bdcrmc"
+    },
+    {
+      "i": 22,
+      "nonce": "SOAK_1791327111844_wa2j3u",
+      "ok": true,
+      "replayed": "1",
+      "ms": 31629,
+      "http": "SOAK_1791327111844_wa2j3u"
+    },
+    {
+      "i": 23,
+      "nonce": "SOAK_1791327143473_agm7y3",
+      "ok": true,
+      "replayed": "1",
+      "ms": 35853,
+      "http": "SOAK_1791327143473_agm7y3"
+    },
+    {
+      "i": 24,
+      "nonce": "SOAK_1791327179327_sadqqh",
+      "ok": true,
+      "replayed": "1",
+      "ms": 43142,
+      "http": "SOAK_1791327179327_sadqqh"
+    },
+    {
+      "i": 25,
+      "nonce": "SOAK_1791327222470_5vvati",
+      "ok": true,
+      "replayed": "1",
+      "ms": 59472,
+      "http": "SOAK_1791327222470_5vvati"
+    },
+    {
+      "i": 26,
+      "nonce": "SOAK_1791327281942_27391j",
+      "ok": true,
+      "replayed": "1",
+      "ms": 32526,
+      "http": "SOAK_1791327281942_27391j"
+    },
+    {
+      "i": 27,
+      "nonce": "SOAK_1791327314469_0t3w2y",
+      "ok": true,
+      "replayed": "1",
+      "ms": 40676,
+      "http": "SOAK_1791327314469_0t3w2y"
+    },
+    {
+      "i": 28,
+      "nonce": "SOAK_1791327355145_r3ij7q",
+      "ok": true,
+      "replayed": "1",
+      "ms": 45316,
+      "http": "SOAK_1791327355145_r3ij7q"
+    },
+    {
+      "i": 29,
+      "nonce": "SOAK_1791327400461_jxxkmd",
+      "ok": true,
+      "replayed": "1",
+      "ms": 42036,
+      "http": "SOAK_1791327400461_jxxkmd"
+    },
+    {
+      "i": 30,
+      "nonce": "SOAK_1791327442497_5qbdwb",
+      "ok": true,
+      "replayed": "1",
+      "ms": 54294,
+      "http": "SOAK_1791327442497_5qbdwb"
+    },
+    {
+      "i": 31,
+      "nonce": "SOAK_1791327496815_lgdyfm",
+      "ok": false,
+      "replayed": "0",
+      "ms": 51121,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"click: Target crashed \\nCall log:\\n\\u001b[2m  - waiting for locator('#prompt-textar"
+    },
+    {
+      "i": 32,
+      "nonce": "SOAK_1791327547962_2yyb0v",
+      "ok": false,
+      "replayed": "0",
+      "ms": 4,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 33,
+      "nonce": "SOAK_1791327547968_a9040f",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 34,
+      "nonce": "SOAK_1791327547971_rp3qij",
+      "ok": false,
+      "replayed": "0",
+      "ms": 7,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 35,
+      "nonce": "SOAK_1791327547978_vvodvq",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 36,
+      "nonce": "SOAK_1791327547981_2zioai",
+      "ok": false,
+      "replayed": "0",
+      "ms": 7,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 37,
+      "nonce": "SOAK_1791327547988_4u4t2m",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 38,
+      "nonce": "SOAK_1791327547991_nlpbk8",
+      "ok": false,
+      "replayed": "0",
+      "ms": 4,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 39,
+      "nonce": "SOAK_1791327547995_pg0i9m",
+      "ok": false,
+      "replayed": "0",
+      "ms": 5,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 40,
+      "nonce": "SOAK_1791327548000_ukadwe",
+      "ok": false,
+      "replayed": "0",
+      "ms": 8,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 41,
+      "nonce": "SOAK_1791327548008_rqppgy",
+      "ok": false,
+      "replayed": "0",
+      "ms": 5,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 42,
+      "nonce": "SOAK_1791327548014_ub6ww0",
+      "ok": false,
+      "replayed": "0",
+      "ms": 4,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 43,
+      "nonce": "SOAK_1791327548018_77woeq",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 44,
+      "nonce": "SOAK_1791327548021_o3agpm",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 45,
+      "nonce": "SOAK_1791327548023_y0y4xg",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 46,
+      "nonce": "SOAK_1791327548026_6xmq2z",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 47,
+      "nonce": "SOAK_1791327548028_6q5tix",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 48,
+      "nonce": "SOAK_1791327548030_xp910f",
+      "ok": false,
+      "replayed": "0",
+      "ms": 5,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 49,
+      "nonce": "SOAK_1791327548035_zsv0f6",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 50,
+      "nonce": "SOAK_1791327548038_7lf0cn",
+      "ok": false,
+      "replayed": "0",
+      "ms": 4,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 51,
+      "nonce": "SOAK_1791327548042_i0yvjo",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 52,
+      "nonce": "SOAK_1791327548046_tugamp",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 53,
+      "nonce": "SOAK_1791327548049_z9q4c7",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 54,
+      "nonce": "SOAK_1791327548052_rmv43n",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 55,
+      "nonce": "SOAK_1791327548054_ici0ah",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 56,
+      "nonce": "SOAK_1791327548057_co65r3",
+      "ok": false,
+      "replayed": "0",
+      "ms": 4,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 57,
+      "nonce": "SOAK_1791327548061_y02wvq",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 58,
+      "nonce": "SOAK_1791327548064_p308a4",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 59,
+      "nonce": "SOAK_1791327548067_kxv2jk",
+      "ok": false,
+      "replayed": "0",
+      "ms": 7,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 60,
+      "nonce": "SOAK_1791327548075_j9wh6j",
+      "ok": false,
+      "replayed": "0",
+      "ms": 5,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 61,
+      "nonce": "SOAK_1791327548080_yexpwi",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 62,
+      "nonce": "SOAK_1791327548082_1veszr",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 63,
+      "nonce": "SOAK_1791327548085_e7kls9",
+      "ok": false,
+      "replayed": "0",
+      "ms": 4,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 64,
+      "nonce": "SOAK_1791327548089_8lzptm",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 65,
+      "nonce": "SOAK_1791327548091_td9v6e",
+      "ok": false,
+      "replayed": "0",
+      "ms": 1,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 66,
+      "nonce": "SOAK_1791327548092_2opmlg",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 67,
+      "nonce": "SOAK_1791327548094_lnu4dt",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 68,
+      "nonce": "SOAK_1791327548096_6nxt8c",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 69,
+      "nonce": "SOAK_1791327548098_7mq33s",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 70,
+      "nonce": "SOAK_1791327548100_t3ymle",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 71,
+      "nonce": "SOAK_1791327548102_aqt5mi",
+      "ok": false,
+      "replayed": "0",
+      "ms": 4,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 72,
+      "nonce": "SOAK_1791327548106_cb6tfi",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 73,
+      "nonce": "SOAK_1791327548109_3ubwwv",
+      "ok": false,
+      "replayed": "0",
+      "ms": 4,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 74,
+      "nonce": "SOAK_1791327548113_sz5gpz",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 75,
+      "nonce": "SOAK_1791327548115_8ierq2",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 76,
+      "nonce": "SOAK_1791327548117_1597s4",
+      "ok": false,
+      "replayed": "0",
+      "ms": 1,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 77,
+      "nonce": "SOAK_1791327548118_m42cwy",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 78,
+      "nonce": "SOAK_1791327548120_y9j4lg",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 79,
+      "nonce": "SOAK_1791327548122_zquh9z",
+      "ok": false,
+      "replayed": "0",
+      "ms": 1,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 80,
+      "nonce": "SOAK_1791327548123_ij84fo",
+      "ok": false,
+      "replayed": "0",
+      "ms": 1,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 81,
+      "nonce": "SOAK_1791327548124_8oh5lh",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 82,
+      "nonce": "SOAK_1791327548126_ndrh2k",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 83,
+      "nonce": "SOAK_1791327548128_zgev90",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 84,
+      "nonce": "SOAK_1791327548130_aegmah",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 85,
+      "nonce": "SOAK_1791327548133_ys1uz1",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 86,
+      "nonce": "SOAK_1791327548136_bnvgy9",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 87,
+      "nonce": "SOAK_1791327548138_ff42rh",
+      "ok": false,
+      "replayed": "0",
+      "ms": 7,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 88,
+      "nonce": "SOAK_1791327548145_6jmnsi",
+      "ok": false,
+      "replayed": "0",
+      "ms": 5,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 89,
+      "nonce": "SOAK_1791327548150_fscx1w",
+      "ok": false,
+      "replayed": "0",
+      "ms": 14,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 90,
+      "nonce": "SOAK_1791327548164_jlomwc",
+      "ok": false,
+      "replayed": "0",
+      "ms": 9,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 91,
+      "nonce": "SOAK_1791327548173_xbdzpl",
+      "ok": false,
+      "replayed": "0",
+      "ms": 5,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 92,
+      "nonce": "SOAK_1791327548178_8vp1vg",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 93,
+      "nonce": "SOAK_1791327548181_6d504l",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 94,
+      "nonce": "SOAK_1791327548183_r9tvtp",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 95,
+      "nonce": "SOAK_1791327548186_4xjt0u",
+      "ok": false,
+      "replayed": "0",
+      "ms": 6,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 96,
+      "nonce": "SOAK_1791327548192_lg2kph",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 97,
+      "nonce": "SOAK_1791327548195_20vm91",
+      "ok": false,
+      "replayed": "0",
+      "ms": 5,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 98,
+      "nonce": "SOAK_1791327548200_q1vcwn",
+      "ok": false,
+      "replayed": "0",
+      "ms": 4,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 99,
+      "nonce": "SOAK_1791327548204_qk4y2g",
+      "ok": false,
+      "replayed": "0",
+      "ms": 3,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    },
+    {
+      "i": 100,
+      "nonce": "SOAK_1791327548207_1g2b6h",
+      "ok": false,
+      "replayed": "0",
+      "ms": 2,
+      "http": "{\"type\":\"web_turn_failed\",\"message\":\"waitForTimeout: Page crashed\"}"
+    }
+  ]
+}
