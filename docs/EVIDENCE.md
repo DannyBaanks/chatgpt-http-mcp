@@ -317,3 +317,16 @@ Failure matrix:
 Failure matrix final: todos los casos DEMONSTRATED salvo "timeout" que ahora
 tambien lo esta; la captura quedo pulida (verificacion viva de la captura
 pendiente en la proxima corrida HTTP).
+
+## Soak 100 v2 (M9, 2026-10-06) — 99/100, fallo unico EXTERNO
+
+- `docs/evidence/soak-1791333507786.json` (69.6 min, con reviver M13c armado).
+- **99 ok** (nonce exacto + `replay=1` en los 99), **1 fail**: turno 95,
+  "OpenAI ha bloqueado esta llamada a una herramienta porque no se ha podido
+  determinar el estado de seguridad" — bloqueo del lado OpenAI ANTES de llegar
+  al tunel; el turno se envio y el replay devolvio `replay=1`.
+- **0 crashes, 0 abortos, 0 fallos de captura, 0 cross-talk** (el log no muestra
+  ni un `ABORT`/`crashed`; el reviver no hizo falta).
+- Clasificacion: el unico fail es EXTERNO (safety de OpenAI), no infraestructura
+  ni captura. Gate estricto 100/100: queda a 1 turno externo de distancia;
+  recomendar re-run solo si se exige el estricto.
