@@ -33,7 +33,8 @@ describe("buildOpencodePatch", () => {
     const models = (provider as { models: Record<string, { name: string; limit: { context: number } }> }).models;
     expect(Object.keys(models).length).toBeGreaterThan(0);
     expect(Object.keys(models).every((slug) => slug.startsWith("chatgpt-web/"))).toBe(true);
-    expect(models["chatgpt-web/gpt-5.6-sol-instant"].limit.context).toBe(41_000);
+    expect(Object.keys(models)).toEqual(["chatgpt-web/gpt-5.6-sol"]);
+    expect(models["chatgpt-web/gpt-5.6-sol"].limit.context).toBeGreaterThan(0);
     const mcp = patch.mcp["isyco-web-http"] as Record<string, unknown>;
     expect(mcp.type).toBe("local");
     expect(mcp.command).toEqual(["bun", "/x/src/mcp/main.ts", "--contract", "native"]);
@@ -52,7 +53,7 @@ describe("installIntoOpencode", () => {
     const applied = installIntoOpencode({ ...opts, dryRun: false });
     expect(applied.action).toBe("apply");
     const written = JSON.parse(readFileSync(configPath, "utf8"));
-    expect(written.provider["isyco-web"].models["chatgpt-web/gpt-5.6-sol-instant"].name).toBe("GPT-5.6 Sol Instant (Web)");
+    expect(written.provider["isyco-web"].models["chatgpt-web/gpt-5.6-sol"].name).toBe("GPT-5.6 Sol (Web)");
     const restored = installIntoOpencode({ ...opts, dryRun: false, restore: true });
     expect(restored.action).toBe("restore");
     expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({});

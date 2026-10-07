@@ -76,7 +76,8 @@ function startServer(options: { connector?: string | null } = {}): void {
     ...process.env,
     CODEX_WEB_HTTP_WEB_MODELS: process.env.CODEX_WEB_HTTP_WEB_MODELS ?? "on",
     CODEX_WEB_HTTP_PORT: PORT,
-    CODEX_WEB_HTTP_CAPS: process.env.CODEX_WEB_HTTP_CAPS ?? "sol,pro,extrahigh,bigger",
+    // No se asume Pro: el catalogo solo anuncia lo verificable (web-models.ts).
+    CODEX_WEB_HTTP_CAPS: process.env.CODEX_WEB_HTTP_CAPS ?? "sol",
   };
   if (connector) childEnv.CODEX_WEB_HTTP_CONNECTOR = connector;
   else delete childEnv.CODEX_WEB_HTTP_CONNECTOR;
