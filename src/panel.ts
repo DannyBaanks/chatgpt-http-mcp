@@ -431,7 +431,7 @@ ${renderMain(state)}
 <section class="card harness" id="harness-card">
   <h3>HARNESSES · MCP isymcp-chatgpt</h3>
   <p class="muted small">Instala en tus otras CLIs/TUIs de agentes (Claude Code, Codex, Qwen, Gemini, Grok…) la herramienta <code>chatgpt_ask</code>: consultan a tu ChatGPT web por el bridge. Nada se escribe sin tu confirmación; después se verifica con la propia herramienta.</p>
-  <div id="harness-list" class="muted small">Pulsa «Detectar».</div>
+  <div id="harness-list" class="muted small">Presiona «Detectar».</div>
   <div class="actions"><button class="btn" id="harness-detect" type="button">Detectar</button><button class="btn btn-go" id="harness-plan-install" type="button" disabled>Instalar seleccionados…</button><button class="btn btn-stop" id="harness-plan-remove" type="button" disabled>Quitar seleccionados…</button></div>
   <div id="harness-plan" hidden></div>
 </section>

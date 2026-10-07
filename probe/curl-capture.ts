@@ -22,7 +22,7 @@ const file = argValue("--curl") ?? join(homedir(), "Development", "cookie.txt");
 const out = argValue("--out") ?? join(homedir(), ".codex-web-http", "capture", "turn.json");
 
 if (!existsSync(file)) {
-  console.error(`No existe ${file}. Copia la request como cURL (bash) y guardala ahi.`);
+  console.error(`No existe ${file}. Copia la request como cURL (bash) y guárdala ahí.`);
   process.exit(2);
 }
 const raw = await Bun.file(file).text();

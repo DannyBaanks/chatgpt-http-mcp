@@ -235,7 +235,7 @@ function renderSettings(){const seen=$('seen');const v=settings.seen;
   seen.textContent=v&&(v.model||v.effort)?[v.model||'?',(v.effort||'?')+(v.effortPosition&&v.effortSteps?' ('+v.effortPosition+'/'+v.effortSteps+')':'')].join(' · '):(v?'no se pudo leer el selector':'sin verificar');
   const open=settings.state!=='idle';$('btn-sync').hidden=open;$('btn-finish').hidden=settings.state!=='open';$('btn-verify').disabled=open;
   const note=$('settings-note');
-  if(settings.state==='open')note.textContent='Chrome abierto: elige modelo y reasoning en chatgpt.com y cierra la ventana (o pulsa "Listo, guardar"). Los mensajes esperan en cola mientras tanto.';
+  if(settings.state==='open')note.textContent='Chrome abierto: elige modelo y reasoning en chatgpt.com y cierra la ventana (o presiona "Listo, guardar"). Los mensajes esperan en cola mientras tanto.';
   else if(settings.state==='saving')note.textContent='Guardando ajustes…';
   else if(settings.last)note.textContent=(settings.last.saved?'✓ ':'✗ ')+settings.last.reason;}
 async function pollSettings(){const r=await api('/api/settings').catch(()=>null);if(!r||!r.ok)return;const prev=settings.state;settings=r.json;renderSettings();
