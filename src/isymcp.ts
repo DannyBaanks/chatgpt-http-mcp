@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { bindCookies } from "./sessions";
-import { isExpired, mintSession, readSessions, revokeSession } from "./codex-sessions";
+import { isExpired, listUserSessions, mintSession, revokeSession } from "./codex-sessions";
 import { startPanel } from "./panel";
 import { runHook } from "./hooks";
 import { installWebModels } from "../scripts/install-web-models";
@@ -188,7 +188,7 @@ function codexSession(sub: string, rest: string[]): void {
     return;
   }
   if (sub === "list") {
-    const sessions = readSessions();
+    const sessions = listUserSessions();
     for (const s of sessions) {
       const expiry = !s.expiresAt ? "sin-caducidad" : isExpired(s) ? "CADUCADA" : `caduca ${s.expiresAt}`;
       console.log(`${s.createdAt} ${s.writable ? "rw" : "ro"} ${s.cwd} (${s.label}) [${s.fp}] ${expiry}`);
@@ -258,7 +258,7 @@ async function status(): Promise<void> {
   } catch {
     console.log("  conversacion (registro de sesion ilegible)");
   }
-  const sessions = readSessions();
+  const sessions = listUserSessions();
   const detail = sessions.map((s) => `${s.label}[${s.fp}]${s.writable ? "/rw" : "/ro"}`).join(", ");
   console.log(`  sessions  ${sessions.length}${detail ? ` -> ${detail}` : ""}`);
 }

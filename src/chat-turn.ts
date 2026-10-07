@@ -10,7 +10,11 @@
 //     de otro chat, NO se persiste y el turno se marca como error de captura);
 //   - todo corre dentro de withWebLock: cambiar de chat nunca puede tocar la
 //     pestana mientras otro turno esta activo.
+import { randomBytes } from "node:crypto";
 import type { AppConfig } from "./config";
+import { isExpired, listUserSessions, mintTurnToken, revokeTurnToken, type CodexSession } from "./codex-sessions";
+import { buildChatGPTCommand, CONNECTOR_NAME } from "./mcp/identity";
+import { readTraceSince, toolCards, traceSize, type ToolCard } from "./tool-trace";
 import { classifyWebError } from "./error-taxonomy";
 import {
   CHAT_ID_RE, listChats, loadChat, saveChat,
@@ -25,11 +29,15 @@ export const MAX_CHAT_MESSAGE_CHARS = 100_000;
 
 export type ChatPhase = "idle" | "queued" | "navigating" | "thinking";
 // Estado para la UI: el turno activo (dentro del candado) y cuantos esperan.
-let active: { chat_id: string; phase: Exclude<ChatPhase, "idle" | "queued">; since: string; partial?: string } | null = null;
+let active: { chat_id: string; phase: Exclude<ChatPhase, "idle" | "queued">; since: string; partial?: string; tools?: ToolCard[] } | null = null;
 let queued = 0;
-export function chatStatus(): { phase: ChatPhase; chat_id: string | null; queued: number; since: string | null; partial?: string } {
+export function chatStatus(): { phase: ChatPhase; chat_id: string | null; queued: number; since: string | null; partial?: string; tools?: ToolCard[] } {
   if (active) {
-    return { phase: active.phase, chat_id: active.chat_id, queued, since: active.since, ...(active.partial ? { partial: active.partial } : {}) };
+    return {
+      phase: active.phase, chat_id: active.chat_id, queued, since: active.since,
+      ...(active.partial ? { partial: active.partial } : {}),
+      ...(active.tools?.length ? { tools: active.tools } : {}),
+    };
   }
   return { phase: queued > 0 ? "queued" : "idle", chat_id: null, queued, since: null };
 }
@@ -106,6 +114,9 @@ export async function runChatTurn(
         }, (partial) => {
           // Texto en vivo para la UI: la respuesta completa hasta ahora.
           if (active?.chat_id === chatId) active = { ...active, phase: "thinking", partial };
+        }, (tools) => {
+          // Tarjetas en vivo, desde la traza del MCP (evidencia).
+          if (active?.chat_id === chatId) active = { ...active, tools };
         });
       } finally {
         // Dentro del candado: el siguiente turno aun no pudo empezar.
@@ -124,6 +135,7 @@ async function turnInsideLock(
   deps: ChatTurnDeps,
   onPhase: (phase: "navigating" | "thinking") => void,
   onProgress: (partial: string) => void = () => {},
+  onTools: (cards: ToolCard[]) => void = () => {},
 ): Promise<ChatTurnOutcome> {
   // Releer DENTRO del candado: el turno anterior pudo fijar la /c/.
   const chat = loadChat(chatId);
@@ -135,10 +147,22 @@ async function turnInsideLock(
   chat.updated_at = new Date().toISOString();
   saveChat(chat);
 
+  // Fase 2: con tools, un token EFIMERO por turno (nunca el de la sesion).
+  // Se declaran antes de fail(): fail adjunta las tarjetas del turno.
+  let turnToken: CodexSession | null = null;
+  let traceStart = 0;
+  const cardsNow = (): ToolCard[] => (turnToken ? toolCards(readTraceSince(traceStart, turnToken.fp)) : []);
+  const toolsMeta = (): { tools_enabled?: boolean; tools?: ToolCard[] } => {
+    if (!chat.tools_enabled) return {};
+    let cards: ToolCard[] = [];
+    try { cards = cardsNow(); } catch { /* traza ilegible: sin tarjetas */ }
+    return { tools_enabled: true, ...(cards.length ? { tools: cards } : {}) };
+  };
+
   const fail = (kind: ChatErrorKind, text: string, detail?: string): ChatTurnOutcome => {
     const reply: ChatMessage = {
       role: "error", text, ts: new Date().toISOString(),
-      meta: { kind, ms: Date.now() - started, url: chat.conversation_url, ...(detail ? { detail: detail.slice(0, 600) } : {}) },
+      meta: { kind, ms: Date.now() - started, url: chat.conversation_url, ...(detail ? { detail: detail.slice(0, 600) } : {}), ...toolsMeta() },
     };
     chat.messages.push(reply);
     chat.updated_at = reply.ts;
@@ -146,59 +170,79 @@ async function turnInsideLock(
     return { ok: false, chat, reply };
   };
 
-  let result: WebTurnResult;
+  if (chat.tools_enabled) {
+    const parent = chat.session_fp ? listUserSessions().find((x) => x.fp === chat.session_fp) : undefined;
+    if (!parent || isExpired(parent)) {
+      return fail("tools_session", "La sesion de tools de este chat ya no existe o caduco. Elige otra en el panel.");
+    }
+    turnToken = mintTurnToken(parent.fp, `${chatId}:${randomBytes(4).toString("hex")}`);
+  }
+  traceStart = traceSize();
+  const toolTimer = turnToken ? setInterval(() => { try { onTools(cardsNow()); } catch { /* UI */ } }, 800) : null;
   try {
-    result = await deps.send(message, {
-      statePath: config.browserStatePath,
-      browser: config.browser,
-      headed: config.browserHeaded,
-      deadlineMs: config.webTurnDeadlineMs,
-      // Fase 1: sin tools. "" anula CODEX_WEB_HTTP_CONNECTOR del entorno.
-      connector: "",
-      // Para el reviver: si Chrome se cae, relanza en ESTA conversacion.
-      conversationUrl: chat.conversation_url ?? undefined,
-      navigate: firstTurn ? { to: "new" } : { to: "conversation", url: chat.conversation_url! },
-      onPhase,
-      onProgress,
-      // Sondeo mas fino para que el texto en vivo se vea fluido.
-      settleMs: 500,
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    const kind = errorKind(detail);
-    const text = kind === "session" ? "La sesion de ChatGPT no esta activa (cookies vencidas o faltantes)."
-      : kind === "browser" ? "Chrome se cayo y no se pudo recuperar el turno."
-        : kind === "capture" ? "ChatGPT no devolvio una respuesta legible a tiempo."
-          : "El bridge local no completo el turno.";
-    return fail(kind, text, detail);
+    return await sendAndRecord();
+  } finally {
+    if (toolTimer) clearInterval(toolTimer);
+    // El token del turno muere con el turno (aunque haya fallado).
+    if (turnToken) revokeTurnToken(turnToken.fp);
   }
 
-  const canonical = canonicalConversationUrl(result.url);
-  if (firstTurn) {
-    if (!canonical) {
-      return fail("capture", "No se pudo capturar la conversacion de ChatGPT (/c/) de este chat.", `url=${result.url}`);
+  async function sendAndRecord(): Promise<ChatTurnOutcome> {
+    let result: WebTurnResult;
+    try {
+      result = await deps.send(turnToken ? buildChatGPTCommand(message, { turnToken: turnToken.token }) : message, {
+        statePath: config.browserStatePath,
+        browser: config.browser,
+        headed: config.browserHeaded,
+        // Con tools el modelo hace rondas de llamadas: mas margen.
+        deadlineMs: turnToken ? Math.max(config.webTurnDeadlineMs, 180_000) : config.webTurnDeadlineMs,
+        // Sin tools, "" anula CODEX_WEB_HTTP_CONNECTOR del entorno.
+        connector: turnToken ? CONNECTOR_NAME : "",
+        // Para el reviver: si Chrome se cae, relanza en ESTA conversacion.
+        conversationUrl: chat.conversation_url ?? undefined,
+        navigate: firstTurn ? { to: "new" } : { to: "conversation", url: chat.conversation_url! },
+        onPhase,
+        onProgress,
+        // Sondeo mas fino para que el texto en vivo se vea fluido.
+        settleMs: 500,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const kind = errorKind(detail);
+      const text = kind === "session" ? "La sesion de ChatGPT no esta activa (cookies vencidas o faltantes)."
+        : kind === "browser" ? "Chrome se cayo y no se pudo recuperar el turno."
+          : kind === "capture" ? "ChatGPT no devolvio una respuesta legible a tiempo."
+            : "El bridge local no completo el turno.";
+      return fail(kind, text, detail);
     }
-    const clash = listChats().find((other) => other.id !== chat.id && other.conversation_url === canonical);
-    if (clash) {
-      return fail("capture", "La conversacion capturada ya pertenece a otro chat; no se asocio.", `url=${canonical} chat=${clash.id}`);
-    }
-    chat.conversation_url = canonical;
-  } else if (canonical !== chat.conversation_url) {
-    return fail("capture", "La pestana termino en otra conversacion; la respuesta no se asocio a este chat.", `esperada=${chat.conversation_url} real=${result.url}`);
-  }
 
-  if (!result.submitted) return fail("bridge", "El mensaje no llego a enviarse en ChatGPT.", `ms=${result.ms}`);
-  if (!result.text) return fail("capture", "ChatGPT no devolvio una respuesta legible a tiempo.", `ms=${result.ms}`);
-  if (isProviderBlock(result.text)) {
-    return fail("provider_blocked", result.text);
+    const canonical = canonicalConversationUrl(result.url);
+    if (firstTurn) {
+      if (!canonical) {
+        return fail("capture", "No se pudo capturar la conversacion de ChatGPT (/c/) de este chat.", `url=${result.url}`);
+      }
+      const clash = listChats().find((other) => other.id !== chat.id && other.conversation_url === canonical);
+      if (clash) {
+        return fail("capture", "La conversacion capturada ya pertenece a otro chat; no se asocio.", `url=${canonical} chat=${clash.id}`);
+      }
+      chat.conversation_url = canonical;
+    } else if (canonical !== chat.conversation_url) {
+      return fail("capture", "La pestana termino en otra conversacion; la respuesta no se asocio a este chat.", `esperada=${chat.conversation_url} real=${result.url}`);
+    }
+
+    if (!result.submitted) return fail("bridge", "El mensaje no llego a enviarse en ChatGPT.", `ms=${result.ms}`);
+    if (!result.text) return fail("capture", "ChatGPT no devolvio una respuesta legible a tiempo.", `ms=${result.ms}`);
+    if (isProviderBlock(result.text)) {
+      return fail("provider_blocked", result.text);
+    }
+    const reply: ChatMessage = {
+      // Markdown reconstruido si el bridge lo trae (listas, codigo); si no, texto plano.
+      role: "assistant", text: result.markdown?.trim() || result.text, ts: new Date().toISOString(),
+      meta: { ms: Date.now() - started, url: chat.conversation_url, ...toolsMeta() },
+    };
+    chat.messages.push(reply);
+    chat.updated_at = reply.ts;
+    saveChat(chat);
+    return { ok: true, chat, reply };
   }
-  const reply: ChatMessage = {
-    // Markdown reconstruido si el bridge lo trae (listas, codigo); si no, texto plano.
-    role: "assistant", text: result.markdown?.trim() || result.text, ts: new Date().toISOString(),
-    meta: { ms: Date.now() - started, url: chat.conversation_url },
-  };
-  chat.messages.push(reply);
-  chat.updated_at = reply.ts;
-  saveChat(chat);
-  return { ok: true, chat, reply };
 }
