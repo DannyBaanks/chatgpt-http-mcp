@@ -1,4 +1,4 @@
-// panel-chat.ts — pestana "Chat" del panel (Fase 1).
+// panel-chat.ts — pestana "Chat" del panel: chats, texto en vivo, tools y ajustes.
 //
 // El navegador es una VISTA: solo conoce chat_id y el texto que escribe. El
 // backend (bridge) resuelve chat_id -> /c/ y habla con ChatGPT. Ningun token,
