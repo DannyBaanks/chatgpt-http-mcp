@@ -1,104 +1,96 @@
-# codex-web-http
+# chatgpt-http-mcp
 
-Responses API local para Codex: **passthrough nativo** (sin navegador) hoy, y
-transporte Web clonado en los siguientes milestones. Plan completo:
-`.opencode/plans/codex-web-http.md`.
+**Turn ChatGPT Web into an HTTP API you control — with native tool execution on your machine.**
 
-## Lo unico que viniste a buscar
+No API key. No Electron. A small local bridge that drives a real ChatGPT Web
+conversation (headless Chrome), captures the answer from the DOM, and returns it
+over an OpenAI-compatible HTTP endpoint. Native tool calls travel back through an
+outbound tunnel to a local MCP server that executes under sandbox policy.
 
-```bash
-cd codex-web-http
-bun test          # 22 tests: passthrough, catalogo, streaming/parity (sin credenciales)
-bun run start     # server en http://127.0.0.1:8791
+```
+caller (any OpenAI-compatible client)
+  └─ POST /v1/chat/completions
+        └─ bridge (Bun)  ── session affinity (~/.codex-web-http/sessions)
+              └─ headless Chrome + Playwright ── ChatGPT Web turn
+                    └─ DOM capture (semantic selector → extractResponse → anti-echo)
+              └─ native tool calls: tunnel → MCP stdio → bubblewrap sandbox
+  └─ HTTP response
 ```
 
-## Login humano (una sola vez)
+## Features
 
-Necesario para M1/M4 (transporte Web). Es un login **tuyo** con passkey: el
-agente no lo puede hacer por vos.
+- **HTTP surface**: `POST /v1/chat/completions` (web models `chatgpt-web/*`),
+  native passthrough for `/v1/responses`, `/v1/models`, websocket.
+- **Native tools** (`Codex ISyMCP` connector): `codex_exec`, `codex_apply_patch`,
+  `codex_view_image`, `codex_tool_inventory`, turn lifecycle — executed locally.
+- **Session tokens**: `isymcp session mint|list|revoke` — capability tokens bound
+  to a workspace; read-only by default (`--write` to allow patches).
+- **Sandbox**: bubblewrap. Read-only root by default; `--write` sessions bind only
+  their workspace. Without bwrap, read-only sessions fail closed.
+- **Idempotency**: `x-isymcp-turn-id` header — replays return the same response
+  (`x-isymcp-replayed: 1`) without re-executing the model.
+- **Honest errors**: typed taxonomy mapped to HTTP status (400/401/409/502/503/504).
+- **Robust capture**: semantic selector chain, anti-echo, busy-wait, sanitized
+  failure dumps (`~/.codex-web-http/run/capture-fail-*`).
+- **Reviver**: detects Chromium page crashes, relaunches and re-captures the
+  already-generated answer — it never re-sends a turn.
+- **Visual panel**: `isymcp panel` → http://127.0.0.1:8798 (status + actions).
 
-```bash
-cd codex-web-http
-bun run login                 # fase 1: Chrome NORMAL; fase 2: export de cookies
-# 1) inicia sesion en la ventana (passkey/2FA incluidos)
-# 2) CIERRA la ventana de Chrome por completo -> el script exporta solo
-bun run login -- --export     # si ya cerraste Chrome antes: solo exporta
-bun run login -- --check      # opcional: solo muestra rutas, no abre nada
-```
-
-**Por que Chrome normal y no Playwright para el login:** Google rechaza el
-OAuth cuando el navegador trae flags de automatizacion (`--no-sandbox`,
-`--enable-automation`), con el error "browser or app may not be secure". Por
-eso la fase 1 no usa CDP; Playwright solo abre el perfil despues, en headless,
-para leer las cookies.
-
-- Perfil dedicado: `~/.codex-web-http/chrome-profile` (no toca tu Chrome personal).
-- Salida: `~/.codex-web-http/storage-state.json` con permisos **0600**, cookies
-  de sesion. **Nunca** se versiona, no se imprime su contenido y es borrable.
-- Si no detecta cookies de sesion, sale con error para que no sigas a ciegas.
-- Cuando termines, avisa al agente: sigue el gate M1 (captura + replay HTTP).
-
-## Regla de oro
-
-**La config de Codex se toca solo con `--apply` y siempre con backup.**
-Sin `--apply` es dry-run; `--restore` vuelve atras. Nunca se toca
-`~/.codex/auth.json`.
+## Quickstart
 
 ```bash
-bun run install:codex                          # dry-run (no escribe)
-bun run install:codex -- --apply               # escribe con backup
-bun run install:codex -- --restore             # restaura el backup mas reciente
-```
+bun install
 
-## E2E vivo (explicito y revocable)
+# 1. Import your ChatGPT session cookies (one time)
+bun run scripts/import-cookies.ts
+
+# 2. Bring everything up (server + tunnel + connector)
+isymcp up
+
+# 3. Or wire it into your TUI (opencode/OpenISy)
+isymcp tui install --apply
+```
 
 ```bash
-CODEX_ACCESS_TOKEN=... CODEX_ACCOUNT_ID=... bun run e2e:native
+curl -s http://127.0.0.1:8791/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{"model":"chatgpt-web/gpt-5.6-sol","messages":[{"role":"user","content":"hola"}]}'
 ```
 
-Sin token sale `SKIPPED`: el script no lee `auth.json`.
+## Operations
 
-## Estado
+| Command | What |
+|---|---|
+| `isymcp up / down / status` | server + tunnel lifecycle, honest status |
+| `isymcp panel` | visual control panel (:8798) |
+| `isymcp session mint --cwd <dir> [--write]` | issue a session token |
+| `isymcp session list / revoke <token\|fp>` | audit / revoke |
+| `isymcp tunnel connect / stop / status` | MCP tunnel |
+| `isymcp logs` | bridge logs |
 
-- M0 protocolo: `docs/PROTOCOL.md`.
-- M2 passthrough nativo + integracion con backup: implementado y testeado.
-- M3 catalogo Web clonado (subset visible): implementado detras de flag; el
-  matching por cuenta queda pendiente del login (M1). Aviso MIT en
-  `THIRD_PARTY_NOTICES.md`.
-- M5 streaming/cancelacion/timeout: wrapper SSE tolerante a reset, taxonomia
-  de errores y 7 casos de parity (`reports/PARITY.md`).
-- **M4-B transporte Web: DEMONSTRATED** — 3 turnos consecutivos sobre una sola
-  pestaña con Chrome headless (`reports/M4_WEB.md`); el shell queda
-  NOT_DEMONSTRATED para 3 turnos.
-- M1 (gate HTTP Web): **FAIL** — Cloudflare bloquea `Bun.fetch` aun con
-  Bearer+Cookie válidos (`reports/H1_HTTP_GATE.md`); por eso el tráfico Web va
-  por navegador y el nativo sigue por HTTP.
+## Evidence
 
-### Transporte Web (pestaña persistente)
+- `bun test` → **124/124**.
+- Soak: **100 sequential real HTTP turns** (unique nonce per turn + idempotent
+  replay check): **99 exact, 0 infrastructure failures, 0 empty captures,
+  0 duplicates, 0 cross-talk**. The single failure was an *external* OpenAI
+  safety block on one tool call — the bridge kept working, which is exactly what
+  the soak was meant to prove.
+- Failure dumps are sanitized; MCP traces store token fingerprints only.
 
-```bash
-cd codex-web-http
-bun run import:cookies          # storageState desde el header Cookie (0600)
-bun run e2e:web -- --turns 3    # 3 turnos, misma pestaña, respuestas exactas
-bun run e2e:web -- --turns 3 --browser shell   # comparacion (pendiente)
-```
+## Docs
 
-`CODEX_WEB_HTTP_TIMEOUT_MS` (default 120000) limita solo la fase de headers
-del upstream nativo; un stream largo no se corta por ese timeout. Ver
-`docs/EVIDENCE.md`.
+`docs/ARCHITECTURE.md` · `docs/PROTOCOL.md` · `docs/TUNNEL_AND_MODELS.md` ·
+`docs/LIFECYCLE.md` · `docs/LEGACY.md` · `docs/EVIDENCE.md`
 
-### Catalogo Web (opt-in)
+## Security notes
 
-Hasta que exista el transporte Web (M4), las filas Web se exponen solo si se
-piden explicitamente, para que Codex no pueda seleccionar un modelo que aun no
-puede responder:
+- Secrets live outside the repo: `~/.codex-web-http/` (0600).
+- Session tokens are shown once; every artifact stores fingerprints (`sha256[:12]`).
+- The panel binds 127.0.0.1 only.
+- `URL != authority`: conversation URLs and local files never grant execution.
 
-```bash
-CODEX_WEB_HTTP_WEB_MODELS=on CODEX_WEB_HTTP_CAPS=sol,extrahigh,pro bun run start
-bun run scripts/catalog-diff.ts            # invariantes + parity NOT_DEMONSTRATED
-bun run scripts/catalog-diff.ts --reference /ruta/reference-models.json
-```
+## License
 
-`CODEX_WEB_HTTP_CAPS` acepta `sol`, `extrahigh`, `pro`, `bigger` (default
-`sol`). `--reference` compara las filas `chatgpt-web/*` contra una captura de
-la referencia y solo pasa si no falta ninguna.
+MIT — see `LICENSE`. Derivative mechanics from MIT projects are credited in
+`NOTICE`.
