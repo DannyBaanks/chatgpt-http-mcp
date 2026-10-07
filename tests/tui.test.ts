@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOpencodeModels, buildOpencodePatch, detectTuis, installIntoOpencode } from "../src/tui";
 
@@ -14,7 +14,11 @@ describe("detectTuis", () => {
     expect(found.filter((t) => t.installable).map((t) => t.id)).toEqual(["opencode"]);
   });
 
-  test("el host real detecta opencode como presente", () => {
+  // Afirmacion sobre el host de desarrollo (Danny tiene opencode). En CI no hay
+  // opencode: ahi se salta (se ve como skip, no como pass en falso). La logica de
+  // deteccion la cubre el test de arriba con un home sintetico.
+  const hostHasOpencode = existsSync(join(homedir(), ".config", "opencode")) || Boolean(Bun.which("opencode"));
+  test.skipIf(!hostHasOpencode)("el host real detecta opencode como presente", () => {
     const found = detectTuis();
     expect(found.find((t) => t.id === "opencode")?.present).toBe(true);
   });
