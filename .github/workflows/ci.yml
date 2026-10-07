@@ -27,7 +27,7 @@ jobs:
       # read-only, sin red, $HOME tapado): no se simulan. Ubuntu 24.04 bloquea
       # los user namespaces sin privilegios via AppArmor; bwrap los necesita.
       - name: Install bubblewrap (bounded)
-        timeout-minutes: 3
+        timeout-minutes: 5
         run: |
           if ! command -v bwrap >/dev/null; then
             # Runner images already carry apt indexes. Avoid refreshing every
@@ -35,8 +35,19 @@ jobs:
             apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15)
             if ! sudo timeout 45s apt-get "${apt_options[@]}" install -y bubblewrap; then
               echo "Initial install failed; refreshing apt indexes (60 s maximum)."
-              sudo timeout 60s apt-get "${apt_options[@]}" update
-              sudo timeout 45s apt-get "${apt_options[@]}" install -y bubblewrap
+              sudo timeout 60s apt-get "${apt_options[@]}" update || true
+              if ! sudo timeout 45s apt-get "${apt_options[@]}" install -y bubblewrap; then
+                # The runner's Azure mirror (via /etc/apt/apt-mirrors.txt) has hung
+                # mid-download several times (exit 124). Fall back to the official
+                # Ubuntu archive, still bounded.
+                echo "Azure mirror failed; switching to archive.ubuntu.com."
+                if [ -f /etc/apt/apt-mirrors.txt ]; then
+                  echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+                fi
+                sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+                sudo timeout 90s apt-get "${apt_options[@]}" update || true
+                sudo timeout 60s apt-get "${apt_options[@]}" install -y bubblewrap
+              fi
             fi
           fi
           bwrap --version
