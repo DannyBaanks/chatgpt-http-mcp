@@ -1,0 +1,183 @@
+{
+  "ts": "2026-10-07T05:30:48.429Z",
+  "model": "chatgpt-web/gpt-5.6-sol",
+  "session_fp": "15274ea8610a",
+  "n": 10,
+  "ok": 9,
+  "fail": 1,
+  "totalMs": 332466,
+  "results": [
+    {
+      "i": 1,
+      "name": "echo",
+      "tool": "codex_exec",
+      "ok": true,
+      "replyOk": true,
+      "toolCalled": true,
+      "toolsSeen": [
+        "codex_turn_start",
+        "codex_exec",
+        "codex_turn_complete"
+      ],
+      "replayed": "1",
+      "ms": 42011,
+      "expected": "MUXNYQLFSV569K",
+      "reply": "MUXNYQLFSV569K"
+    },
+    {
+      "i": 2,
+      "name": "cat",
+      "tool": "codex_exec",
+      "ok": false,
+      "replyOk": false,
+      "toolCalled": false,
+      "toolsSeen": [],
+      "replayed": "1",
+      "ms": 18185,
+      "expected": "MUXNYQLE7KX926",
+      "reply": "Esta llamada a la herramienta se ha bloqueado por los controles de seguridad de OpenAI."
+    },
+    {
+      "i": 3,
+      "name": "sha256-pipe",
+      "tool": "codex_exec",
+      "ok": true,
+      "replyOk": true,
+      "toolCalled": true,
+      "toolsSeen": [
+        "codex_turn_start",
+        "codex_exec",
+        "codex_turn_complete"
+      ],
+      "replayed": "1",
+      "ms": 44859,
+      "expected": "693c3cf30c8cff17",
+      "reply": "693c3cf30c8cff17"
+    },
+    {
+      "i": 4,
+      "name": "ls",
+      "tool": "codex_exec",
+      "ok": true,
+      "replyOk": true,
+      "toolCalled": true,
+      "toolsSeen": [
+        "codex_turn_start",
+        "codex_exec",
+        "codex_turn_start",
+        "codex_exec",
+        "codex_turn_complete"
+      ],
+      "replayed": "1",
+      "ms": 35932,
+      "expected": "marca-MUXNYQLFFYWIET.dat",
+      "reply": "marca-MUXNYQLFFYWIET.dat"
+    },
+    {
+      "i": 5,
+      "name": "wc",
+      "tool": "codex_exec",
+      "ok": true,
+      "replyOk": true,
+      "toolCalled": true,
+      "toolsSeen": [
+        "codex_turn_start",
+        "codex_exec",
+        "codex_turn_complete"
+      ],
+      "replayed": "1",
+      "ms": 31481,
+      "expected": "37",
+      "reply": "37"
+    },
+    {
+      "i": 6,
+      "name": "git-log",
+      "tool": "codex_exec",
+      "ok": true,
+      "replyOk": true,
+      "toolCalled": true,
+      "toolsSeen": [
+        "codex_turn_start",
+        "codex_exec",
+        "codex_turn_complete"
+      ],
+      "replayed": "1",
+      "ms": 36002,
+      "expected": "soak MUXNYQLFKVCL45",
+      "reply": "soak MUXNYQLFKVCL45"
+    },
+    {
+      "i": 7,
+      "name": "toolchain-bun",
+      "tool": "codex_exec",
+      "ok": true,
+      "replyOk": true,
+      "toolCalled": true,
+      "toolsSeen": [
+        "codex_turn_start",
+        "codex_exec",
+        "codex_turn_complete"
+      ],
+      "replayed": "1",
+      "ms": 24583,
+      "expected": "1.4.2",
+      "reply": "1.4.2"
+    },
+    {
+      "i": 8,
+      "name": "apply-patch",
+      "tool": "codex_apply_patch",
+      "ok": true,
+      "replyOk": true,
+      "toolCalled": true,
+      "toolsSeen": [
+        "codex_turn_start",
+        "codex_apply_patch",
+        "codex_turn_complete"
+      ],
+      "replayed": "1",
+      "ms": 29964,
+      "expected": "archivo patch-MUXNYQLF04QAHB.txt creado",
+      "reply": "OK"
+    },
+    {
+      "i": 9,
+      "name": "view-image",
+      "tool": "codex_view_image",
+      "ok": true,
+      "replyOk": true,
+      "toolCalled": true,
+      "toolsSeen": [
+        "codex_turn_start",
+        "codex_view_image",
+        "codex_turn_start",
+        "codex_view_image",
+        "codex_turn_complete"
+      ],
+      "replayed": "1",
+      "ms": 33642,
+      "expected": "70",
+      "reply": "70"
+    },
+    {
+      "i": 10,
+      "name": "tool-inventory",
+      "tool": "codex_tool_inventory",
+      "ok": true,
+      "replyOk": true,
+      "toolCalled": true,
+      "toolsSeen": [
+        "codex_turn_start",
+        "codex_tool_inventory",
+        "codex_turn_start",
+        "codex_tool_inventory",
+        "codex_turn_complete"
+      ],
+      "replayed": "1",
+      "ms": 35271,
+      "expected": "6",
+      "reply": "6"
+    }
+  ]
+}
