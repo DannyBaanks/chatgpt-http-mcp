@@ -10,7 +10,7 @@
 // Regla de secretos: el token completo solo se muestra al crearlo. En
 // receipts, listados y logs se usa siempre el fingerprint sha256[:12].
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
@@ -21,6 +21,8 @@ export interface CodexSession {
   cwd: string;
   writable: boolean;
   createdAt: string;
+  /** ISO; ausente = sesion anterior a v0.4 (sin caducidad). */
+  expiresAt?: string | null;
 }
 
 interface Registry {
@@ -29,6 +31,9 @@ interface Registry {
 }
 
 const SCHEMA = "codex-web-http.codex-sessions/1";
+
+/** Caducidad por defecto de un session token (horas). */
+export const DEFAULT_TTL_HOURS = 24 * 7;
 
 export function bridgeHome(): string {
   return process.env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
@@ -72,13 +77,15 @@ function writeRegistry(reg: Registry): void {
 
 export function mintSession(
   cwd: string,
-  options: { label?: string; writable?: boolean } = {},
+  options: { label?: string; writable?: boolean; ttlHours?: number } = {},
 ): CodexSession {
   if (!cwd || !isAbsolute(cwd)) throw new Error(`cwd debe ser una ruta absoluta: ${cwd || "(vacio)"}`);
   const abs = resolve(cwd);
   if (!existsSync(abs) || !statSync(abs).isDirectory()) {
     throw new Error(`cwd no existe o no es un directorio: ${abs}`);
   }
+  const ttlHours = options.ttlHours ?? DEFAULT_TTL_HOURS;
+  if (!Number.isFinite(ttlHours) || ttlHours < 0) throw new Error(`ttl invalido: ${options.ttlHours}`);
   const token = randomBytes(32).toString("base64url");
   const session: CodexSession = {
     token,
@@ -87,6 +94,9 @@ export function mintSession(
     cwd: abs,
     writable: options.writable === true,
     createdAt: new Date().toISOString(),
+    // ttl 0 = sin caducidad (explicito). El token viaja en el texto del chat,
+    // asi que por defecto caduca.
+    expiresAt: ttlHours > 0 ? new Date(Date.now() + ttlHours * 3_600_000).toISOString() : null,
   };
   const reg = readRegistry();
   reg.sessions.push(session);
@@ -98,16 +108,30 @@ export function readSessions(): CodexSession[] {
   return readRegistry().sessions;
 }
 
+/** Prefijo minimo para revocar: con menos, un typo se lleva sesiones ajenas. */
+export const MIN_REVOKE_PREFIX = 6;
+
 export function revokeSession(prefixOrFp: string): number {
-  if (!prefixOrFp.trim()) throw new Error("revoke requiere un token o su fingerprint");
+  const needle = prefixOrFp.trim();
+  if (!needle) throw new Error("revoke requiere un token o su fingerprint");
+  if (needle.length < MIN_REVOKE_PREFIX) {
+    throw new Error(`revoke requiere al menos ${MIN_REVOKE_PREFIX} caracteres de token o fingerprint`);
+  }
   const reg = readRegistry();
-  const before = reg.sessions.length;
-  reg.sessions = reg.sessions.filter(
-    (s) => !s.token.startsWith(prefixOrFp) && !s.fp.startsWith(prefixOrFp),
-  );
-  const removed = before - reg.sessions.length;
-  if (removed > 0) writeRegistry(reg);
-  return removed;
+  const matches = reg.sessions.filter((s) => s.token.startsWith(needle) || s.fp.startsWith(needle));
+  if (matches.length > 1) {
+    throw new Error(`prefijo ambiguo: coincide con ${matches.length} sesiones (${matches.map((s) => s.fp).join(", ")}); usa mas caracteres`);
+  }
+  if (matches.length === 0) return 0;
+  reg.sessions = reg.sessions.filter((s) => s !== matches[0]);
+  writeRegistry(reg);
+  return 1;
+}
+
+export function isExpired(session: Pick<CodexSession, "expiresAt">, now = Date.now()): boolean {
+  if (!session.expiresAt) return false;
+  const at = Date.parse(session.expiresAt);
+  return Number.isNaN(at) || at <= now;
 }
 
 export function findSessionByToken(token: string): CodexSession | null {
@@ -115,7 +139,7 @@ export function findSessionByToken(token: string): CodexSession | null {
   for (const session of readRegistry().sessions) {
     const a = Buffer.from(session.token);
     const b = Buffer.from(token);
-    if (a.length === b.length && timingSafeEqual(a, b)) return session;
+    if (a.length === b.length && timingSafeEqual(a, b)) return isExpired(session) ? null : session;
   }
   return null;
 }
@@ -129,19 +153,86 @@ export function resolveWithin(root: string, candidate: string): string | null {
   return resolved;
 }
 
+/**
+ * Como resolveWithin, pero ademas sigue symlinks del path existente: un link
+ * dentro del workspace que apunta afuera se niega.
+ */
+export function resolveWithinReal(root: string, candidate: string): string | null {
+  const lexical = resolveWithin(root, candidate);
+  if (!lexical || !existsSync(lexical)) return lexical;
+  let realRoot: string;
+  let realTarget: string;
+  try {
+    realRoot = realpathSync(root);
+    realTarget = realpathSync(lexical);
+  } catch {
+    return null;
+  }
+  return resolveWithin(realRoot, realTarget) ? lexical : null;
+}
+
 export const BWRAP = "/usr/bin/bwrap";
 
 export function sandboxAvailable(): boolean {
-  // Escape hatch operativa/test: CODEX_WEB_HTTP_SANDBOX=off desactiva bwrap.
-  // Las sesiones read-only siguen fallando cerrado sin sandbox (ver sandboxArgv).
-  if (process.env.CODEX_WEB_HTTP_SANDBOX?.trim() === "off") return false;
+  if (sandboxDisabledByOperator()) return false;
   return existsSync(BWRAP);
 }
 
+/** CODEX_WEB_HTTP_SANDBOX=off: el operador apaga bwrap A PROPOSITO. */
+export function sandboxDisabledByOperator(): boolean {
+  return process.env.CODEX_WEB_HTTP_SANDBOX?.trim() === "off";
+}
+
 /**
- * argv de bwrap para una sesion. Read-only: root como solo-lectura.
- * Writable: ademas bindea el workspace (escrituras solo ahi). /tmp siempre tmpfs.
- * Devuelve null si no hay sandbox y la sesion es read-only (fail closed).
+ * Toolchains bajo $HOME que se re-exponen en solo-lectura encima del tmpfs
+ * (sin ellas `bun`, `cargo`... desaparecen del PATH). Ninguna guarda
+ * credenciales: de ~/.cargo solo va bin/, nunca credentials.toml.
+ * Extra: CODEX_WEB_HTTP_SANDBOX_RO_BINDS="ruta1,ruta2" (relativas a $HOME o
+ * absolutas).
+ */
+const HOME_TOOLCHAINS = [".bun", ".local/bin", ".local/opt", ".cargo/bin", ".rustup", ".nvm", "go/bin", ".deno/bin"];
+
+function toolchainBinds(home: string): string[] {
+  const extra = (process.env.CODEX_WEB_HTTP_SANDBOX_RO_BINDS ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const entry of [...HOME_TOOLCHAINS, ...extra]) {
+    const abs = isAbsolute(entry) ? entry : join(home, entry);
+    if (existsSync(abs)) out.push("--ro-bind", abs, abs);
+  }
+  return out;
+}
+
+/** Variables que el comando ve dentro de la burbuja (el resto se borra). */
+const SANDBOX_ENV_KEEP = ["PATH", "LANG", "LC_ALL", "TERM", "TZ"];
+
+function sandboxEnv(home: string): string[] {
+  const out: string[] = [];
+  const extra = (process.env.CODEX_WEB_HTTP_SANDBOX_ENV ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  for (const name of [...SANDBOX_ENV_KEEP, ...extra]) {
+    const value = process.env[name];
+    if (value !== undefined) out.push("--setenv", name, value);
+  }
+  out.push("--setenv", "HOME", home);
+  return out;
+}
+
+/**
+ * argv de bwrap para una sesion.
+ *
+ * Read-only: root solo-lectura, pero $HOME y el home del bridge (tokens,
+ * cookies) quedan tapados por tmpfs; sin red; env minimo. Solo el workspace
+ * se vuelve a exponer (ro, o rw si la sesion es writable).
+ *
+ * Sin bwrap devuelve null (fail closed) para read-only Y para writable, salvo
+ * que el operador haya apagado el sandbox explicitamente
+ * (CODEX_WEB_HTTP_SANDBOX=off), en cuyo caso writable corre sin burbuja.
+ * Red opt-in: CODEX_WEB_HTTP_SANDBOX_NET=1.
  */
 export function sandboxArgv(
   session: Pick<CodexSession, "cwd" | "writable">,
@@ -149,26 +240,36 @@ export function sandboxArgv(
   command: string[],
 ): string[] | null {
   if (!sandboxAvailable()) {
-    if (!session.writable) return null;
-    return [...command];
+    if (session.writable && sandboxDisabledByOperator()) return [...command];
+    return null;
   }
+  const home = homedir();
   const args = [
     BWRAP,
     "--ro-bind", "/", "/",
     "--dev", "/dev",
     "--proc", "/proc",
     "--tmpfs", "/tmp",
-    "--die-with-parent",
-    "--chdir", workdir,
+    "--tmpfs", home,
   ];
-  // Re-exponer el workspace DESPUES de --tmpfs /tmp: si el workspace vive bajo
-  // /tmp (tests, temporales) el tmpfs lo taparia y --chdir fallaria.
-  if (session.writable) {
-    args.push("--bind", session.cwd, session.cwd);
-  } else {
-    args.push("--ro-bind", session.cwd, session.cwd);
+  // Secretos del bridge fuera de $HOME (CODEX_WEB_HTTP_HOME) tambien se tapan.
+  const secrets = bridgeHome();
+  if (existsSync(secrets) && resolveWithin(home, secrets) === null) {
+    args.push("--tmpfs", secrets);
   }
-  args.push("--", ...command);
+  args.push(...toolchainBinds(home));
+  args.push("--unshare-all");
+  if (process.env.CODEX_WEB_HTTP_SANDBOX_NET?.trim() === "1") args.push("--share-net");
+  args.push("--die-with-parent", "--new-session", "--clearenv", ...sandboxEnv(home));
+  // Re-exponer el workspace DESPUES de los tmpfs: si vive bajo /tmp o $HOME
+  // el tmpfs lo taparia y --chdir fallaria.
+  args.push(session.writable ? "--bind" : "--ro-bind", session.cwd, session.cwd);
+  // Si el workspace contiene el home del bridge (p. ej. cwd=$HOME), taparlo
+  // otra vez encima del bind.
+  if (existsSync(secrets) && resolveWithin(session.cwd, secrets) !== null) {
+    args.push("--tmpfs", secrets);
+  }
+  args.push("--chdir", workdir, "--", ...command);
   return args;
 }
 

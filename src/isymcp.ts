@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { bindCookies } from "./sessions";
-import { mintSession, readSessions, revokeSession } from "./codex-sessions";
+import { isExpired, mintSession, readSessions, revokeSession } from "./codex-sessions";
 import { startPanel } from "./panel";
 import { runHook } from "./hooks";
 import { installWebModels } from "../scripts/install-web-models";
@@ -171,12 +171,15 @@ function codexSession(sub: string, rest: string[]): void {
     const cwd = opt("--cwd") ?? process.cwd();
     const label = opt("--label");
     const writable = rest.includes("--write") || rest.includes("--writable") || rest.includes("--rw");
-    const record = mintSession(cwd, { label, writable });
+    const ttlRaw = opt("--ttl");
+    const ttlHours = ttlRaw === undefined ? undefined : Number(ttlRaw);
+    const record = mintSession(cwd, { label, writable, ttlHours });
     console.log("sesion Codex ISyMCP creada (el token se muestra UNA vez; el registro es 0600)");
     console.log(`  label:    ${record.label}`);
     console.log(`  cwd:      ${record.cwd}`);
     console.log(`  writable: ${record.writable}`);
     console.log(`  fp:       ${record.fp}`);
+    console.log(`  caduca:   ${record.expiresAt ?? "nunca (--ttl 0)"}`);
     console.log(`  token:    ${record.token}`);
     console.log("");
     console.log("Para usarla, elegir el app Codex ISyMCP en el composer y pegar:");
@@ -187,7 +190,8 @@ function codexSession(sub: string, rest: string[]): void {
   if (sub === "list") {
     const sessions = readSessions();
     for (const s of sessions) {
-      console.log(`${s.createdAt} ${s.writable ? "rw" : "ro"} ${s.cwd} (${s.label}) [${s.fp}]`);
+      const expiry = !s.expiresAt ? "sin-caducidad" : isExpired(s) ? "CADUCADA" : `caduca ${s.expiresAt}`;
+      console.log(`${s.createdAt} ${s.writable ? "rw" : "ro"} ${s.cwd} (${s.label}) [${s.fp}] ${expiry}`);
     }
     console.log(`Sessions: ${sessions.length}`);
     return;
@@ -198,7 +202,7 @@ function codexSession(sub: string, rest: string[]): void {
     console.log(`Revoked sessions: ${revokeSession(target)}`);
     return;
   }
-  throw new Error("uso: isymcp session mint --cwd <dir> [--label x] [--write] | list | revoke <token|fp>");
+  throw new Error("uso: isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] | list | revoke <token|fp>");
 }
 
 function modelsRestore(): void {
@@ -238,7 +242,8 @@ async function status(): Promise<void> {
   console.log(`  server   ${up ? "up" : "down"}  http://127.0.0.1:${PORT}  pid=${pid && alive(pid) ? pid : "-"}`);
   console.log(`  log      ${LOG}`);
   tunnel("status");
-  const mcp = sh(["pgrep", "-af", "codex-web-http/src/mcp/main.ts"]);
+  // Por nombre de script, no por carpeta: el repo puede vivir en cualquier ruta.
+  const mcp = sh(["pgrep", "-af", "src/mcp/main.ts --contract"]);
   const line = mcp.out.split("\n").find((l) => l.includes("mcp/main.ts") && !l.includes("pgrep"));
   console.log(`  mcp      ${line ? "up" : "down"}`);
   console.log(`  connector ${process.env.CODEX_WEB_HTTP_CONNECTOR ?? CONNECTOR_NAME}`);
@@ -284,8 +289,9 @@ function help(): void {
   isymcp tui install         dry-run del parche opencode (provider+MCP)
   isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
   isymcp tui install --restore vuelve al backup
-  isymcp session mint --cwd <dir> [--label x] [--write]
-                             crea un session token del MCP (read-only por defecto)
+  isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas]
+                             crea un session token del MCP (read-only por defecto;
+                             caduca a los 7 dias, --ttl 0 = nunca)
   isymcp session list        sesiones vivas (solo fingerprint)
   isymcp session revoke <token|fp>
   isymcp logs                ultimos 50

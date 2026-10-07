@@ -27,6 +27,7 @@ import {
   fingerprint,
   patchPaths,
   resolveWithin,
+  resolveWithinReal,
   sandboxArgv,
   sandboxAvailable,
   type CodexSession,
@@ -111,13 +112,13 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown)
   if (!Array.isArray(command) || command.length === 0 || command.some((c) => typeof c !== "string" || !c.trim())) {
     return fail("command debe ser un argv no vacio de strings");
   }
-  const workdir = resolveWithin(session.cwd, typeof cwdArg === "string" && cwdArg ? cwdArg : ".");
+  const workdir = resolveWithinReal(session.cwd, typeof cwdArg === "string" && cwdArg ? cwdArg : ".");
   if (!workdir || !existsSync(workdir) || !statSync(workdir).isDirectory()) {
     return fail(`cwd fuera del workspace o inexistente: ${String(cwdArg ?? ".")}`, { session: sessionMeta(session) });
   }
   const argv = sandboxArgv(session, workdir, command as string[]);
   if (!argv) {
-    return fail("fail-closed: bwrap no disponible para una sesion read-only", { session: sessionMeta(session) });
+    return fail("fail-closed: bwrap no disponible (sin sandbox no se ejecuta; CODEX_WEB_HTTP_SANDBOX=off solo habilita sesiones writable)", { session: sessionMeta(session) });
   }
   const started = Date.now();
   const execTimeoutMs = Number(process.env.CODEX_WEB_HTTP_EXEC_TIMEOUT_MS ?? "") || 60_000;
@@ -219,7 +220,8 @@ const IMAGE_MIME: Record<string, string> = {
 
 function runViewImage(session: CodexSession, pathArg: unknown) {
   if (typeof pathArg !== "string" || !pathArg.trim()) return fail("path requerido");
-  const abs = resolveWithin(session.cwd, pathArg);
+  // Real: un symlink del workspace que apunta afuera no sirve para leer fuera.
+  const abs = resolveWithinReal(session.cwd, pathArg);
   if (!abs || !existsSync(abs) || !statSync(abs).isFile()) {
     return fail(`path fuera del workspace o inexistente: ${pathArg}`, { session: sessionMeta(session) });
   }
