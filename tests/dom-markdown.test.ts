@@ -7,9 +7,14 @@ import { renderMarkdown } from "../src/markdown";
 const txt = (s: string): MiniNode => ({ nodeType: 3, textContent: s, childNodes: [] });
 function h(tagName: string, attrs: Record<string, string>, ...children: Array<MiniNode | string>): MiniNode {
   const childNodes = children.map((c) => (typeof c === "string" ? txt(c) : c));
+  const className = attrs.class ?? "";
+  const classList = {
+    contains: (cls: string) => className.split(/\s+/).filter(Boolean).includes(cls),
+  };
   return {
     nodeType: 1, tagName: tagName.toUpperCase(), childNodes,
-    className: attrs.class ?? "",
+    className,
+    classList,
     getAttribute: (n) => attrs[n] ?? null,
     get textContent() { return childNodes.map((c) => c.textContent ?? "").join(""); },
   };

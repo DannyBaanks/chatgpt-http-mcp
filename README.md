@@ -108,6 +108,12 @@ has selected. In the chat's side panel, **Verificar** shows what ISyMCP sees
 visible Chrome with your session: you set the model and reasoning by hand,
 close the window, and that becomes the bridge's default.
 
+*Note on Reasoning Traces vs Internal CoT:* The captured thinking (`reasoning_content`
+in API / thought boxes in the panel) represents the **visible summary and UI-rendered thoughts**
+exposed by ChatGPT Web's DOM. Capturing this DOM presentation is NOT equivalent to obtaining
+the model's full, raw latent internal Chain-of-Thought tokens. We document and stream strictly
+what is visibly presented on screen.
+
 ---
 
 ## Limitations & risks — read before using
@@ -121,6 +127,8 @@ close the window, and that becomes the bridge's default.
 > We don't claim a legal reading either way. If you need something supported
 > and stable, use the official API.
 
+- **UI thoughts vs full internal reasoning.** Captured thoughts are DOM summaries
+  presented by the web interface, not the raw latent CoT tokens of the underlying model.
 - **It breaks when chatgpt.com changes.** Answers are read from the page. A
   redesign can break capture. This already happened once: the `.markdown` class
   disappeared and the capture had to be fixed. Failures produce a sanitized DOM

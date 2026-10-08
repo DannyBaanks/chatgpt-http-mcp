@@ -322,12 +322,21 @@ async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text
     const last = turns[turns.length - 1];
     if (!last) return { id: "", text: "", thought: "" };
 
-    // Captura de razonamiento / pensamiento colapsable
+    // Captura de razonamiento / pensamiento colapsable (resumen/trazas visibles en la UI de ChatGPT Web,
+    // NO la cadena latente interna completa de tokens CoT del modelo).
     let thought = "";
     if (typeof last.querySelectorAll === "function") {
+      const isAssistantMessage = (el: HTMLElement) => {
+        const attr = typeof el.getAttribute === "function" ? el.getAttribute("data-markdown-text-style") : null;
+        if (attr === "assistant-message") return true;
+        if (el.classList && typeof el.classList.contains === "function" && el.classList.contains("markdown")) return true;
+        if (typeof el.className === "string" && el.className.split(/\s+/).includes("markdown")) return true;
+        return false;
+      };
+
       const thoughtEls = Array.from(last.querySelectorAll('[data-testid="thought-content"], [data-testid="reasoning-content"], details.thought, .thought-content')) as HTMLElement[];
       for (const el of thoughtEls) {
-        if (el.getAttribute?.("data-markdown-text-style") !== "assistant-message" && !el.classList?.contains("markdown")) {
+        if (!isAssistantMessage(el)) {
           thought = (el.innerText ?? "").trim();
           if (thought) break;
         }
@@ -336,7 +345,7 @@ async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text
         const details = Array.from(last.querySelectorAll("details, [data-testid*='thought']")) as HTMLElement[];
         for (const d of details) {
           const t = (d.innerText ?? "").trim();
-          if (/pensó|thought|reasoning|thinking/i.test(t) && d.getAttribute?.("data-markdown-text-style") !== "assistant-message") {
+          if (/pensó|thought|reasoning|thinking/i.test(t) && !isAssistantMessage(d)) {
             thought = t;
             break;
           }
@@ -346,10 +355,10 @@ async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text
 
     const marks = last.querySelectorAll('[data-markdown-text-style="assistant-message"], .markdown');
     const text = (marks.length ? (marks[marks.length - 1] as HTMLElement).innerText : last.innerText) ?? "";
-    const id = last.getAttribute("data-turn-id")
+    const id = (typeof last.getAttribute === "function" ? (last.getAttribute("data-turn-id")
       ?? last.getAttribute("data-message-id")
       ?? last.getAttribute("data-turn-key")
-      ?? last.getAttribute("data-testid")
+      ?? last.getAttribute("data-testid")) : null)
       ?? "";
     if (thought === text.trim()) thought = "";
     return { id, text: text.trim(), thought: thought.trim() };
