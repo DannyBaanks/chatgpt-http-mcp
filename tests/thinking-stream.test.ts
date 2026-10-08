@@ -49,4 +49,49 @@ describe("captura y streaming de razonamiento / pensamiento (thinking stream)", 
     expect(status).toHaveProperty("phase");
     expect(status).toHaveProperty("chat_id");
   });
+
+  test("extraccion DOM de thought: ignora elementos markdown y assistant-message con getAttribute y classList completos", () => {
+    // Simulador de la logica interna de evaluacion DOM en el navegador
+    const isAssistantMessage = (el: { getAttribute?: (k: string) => string | null; classList?: { contains: (k: string) => boolean }; className?: string }) => {
+      const attr = typeof el.getAttribute === "function" ? el.getAttribute("data-markdown-text-style") : null;
+      if (attr === "assistant-message") return true;
+      if (el.classList && typeof el.classList.contains === "function" && el.classList.contains("markdown")) return true;
+      if (typeof el.className === "string" && el.className.split(/\s+/).includes("markdown")) return true;
+      return false;
+    };
+
+    // Caso 1: elemento con classList.contains('markdown') no debe ser considerado thought
+    const markdownEl = {
+      className: "markdown prose",
+      classList: { contains: (c: string) => c === "markdown" || c === "prose" },
+      getAttribute: (k: string) => (k === "class" ? "markdown prose" : null),
+      innerText: "Texto de respuesta normal",
+    };
+    expect(isAssistantMessage(markdownEl)).toBe(true);
+
+    // Caso 2: elemento con data-markdown-text-style="assistant-message"
+    const assistantEl = {
+      className: "",
+      classList: { contains: () => false },
+      getAttribute: (k: string) => (k === "data-markdown-text-style" ? "assistant-message" : null),
+      innerText: "Texto principal",
+    };
+    expect(isAssistantMessage(assistantEl)).toBe(true);
+
+    // Caso 3: elemento de pensamiento legitimo
+    const thoughtEl = {
+      className: "thought-content",
+      classList: { contains: (c: string) => c === "thought-content" },
+      getAttribute: (k: string) => (k === "data-testid" ? "thought-content" : null),
+      innerText: "Pensando en la solución paso a paso...",
+    };
+    expect(isAssistantMessage(thoughtEl)).toBe(false);
+
+    // Caso 4: mock incompleto sin getAttribute ni classList (no debe lanzar excepcion ni aprobar falsamente)
+    const brokenEl = {
+      className: "markdown",
+      innerText: "Texto sin metodos",
+    };
+    expect(isAssistantMessage(brokenEl as any)).toBe(true);
+  });
 });

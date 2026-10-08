@@ -108,6 +108,12 @@ has selected. In the chat's side panel, **Verificar** shows what ISyMCP sees
 visible Chrome with your session: you set the model and reasoning by hand,
 close the window, and that becomes the bridge's default.
 
+*Note on Reasoning Traces vs Internal CoT:* The captured thinking (`reasoning_content`
+in API / thought boxes in the panel) represents the **visible summary and UI-rendered thoughts**
+exposed by ChatGPT Web's DOM. Capturing this DOM presentation is NOT equivalent to obtaining
+the model's full, raw latent internal Chain-of-Thought tokens. We document and stream strictly
+what is visibly presented on screen.
+
 ---
 
 ## Limitations & risks — read before using
@@ -121,6 +127,8 @@ close the window, and that becomes the bridge's default.
 > We don't claim a legal reading either way. If you need something supported
 > and stable, use the official API.
 
+- **UI thoughts vs full internal reasoning.** Captured thoughts are DOM summaries
+  presented by the web interface, not the raw latent CoT tokens of the underlying model.
 - **It breaks when chatgpt.com changes.** Answers are read from the page. A
   redesign can break capture. This already happened once: the `.markdown` class
   disappeared and the capture had to be fixed. Failures produce a sanitized DOM
@@ -240,10 +248,10 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 
 **Harness support.**
 
-- *Installs through the tool's own `mcp add`:* Claude Code, Codex, Qwen Code,
-  Gemini CLI, Grok.
-- *Detected, not supported yet* (no verified config format, so nothing is
-  guessed): opencode, Crush, Cursor, Copilot, Kimi, Hermes, OpenClaw, Pi, fx.
+- *Installs through the tool's own native `mcp add`:* Claude Code, Codex, Qwen Code,
+  Gemini CLI, Grok, Copilot CLI, Hermes, OpenClaw, Pi.
+- *Detected, pending verified config format* (no guessing): opencode, Crush,
+  Cursor Agent, Kimi, fx.
 
 ## Security model
 
