@@ -14,6 +14,7 @@ import { canaryScheduled, listCodexTasks, type CodexTaskView } from "./codex-tas
 import { chatPath, createChat, listChats, loadChat, publicChat, saveChat } from "./chats";
 import { CHAT_SCRIPT, CHAT_STYLE, renderChatView } from "./panel-chat";
 import { apply as harnessApply, detect as harnessDetect, plan as harnessPlan, type HarnessAction } from "./harness";
+import type { SystemMetrics } from "./metrics";
 
 function pgrep(pattern: string): boolean {
   const p = Bun.spawnSync(["pgrep", "-f", pattern], { stdout: "ignore", stderr: "ignore" });
@@ -54,6 +55,7 @@ export interface PanelState {
   canary?: CanaryResult | null;
   canaryScheduled?: boolean | null;
   codexTasks?: CodexTaskView[];
+  metrics?: SystemMetrics | null;
 }
 
 const ROOT = join(import.meta.dir, "..");
@@ -118,6 +120,19 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
   } catch {
     /* registro ilegible: se muestra vacio, el CLI da el error */
   }
+  let metrics: SystemMetrics | null = null;
+  if (server === "up" && serverAuth !== "token_required") {
+    try {
+      const r = await fetch(`http://127.0.0.1:${bridgePort}/api/metrics`, {
+        headers: bridgeAuthHeaders(),
+        signal: AbortSignal.timeout(1500),
+      });
+      if (r.ok) metrics = (await r.json()) as SystemMetrics;
+    } catch {
+      /* metricas no disponibles */
+    }
+  }
+
   return {
     ts: new Date().toISOString(),
     server,
@@ -133,6 +148,7 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
     canary: readLatestCanary(),
     canaryScheduled: canaryScheduled(),
     codexTasks: listCodexTasks(),
+    metrics,
   };
 }
 
@@ -193,6 +209,27 @@ function canaryLine(c: CanaryResult | null, now: number): string {
   const checks = c.checks.map((k) => `${k.ok ? "✓" : "✗"} ${escapeHtml(k.name)}`).join(" · ") || escapeHtml(c.notice?.summary ?? c.error ?? "");
   const notice = c.notice ? `<p class="small">Origen: ${escapeHtml(c.notice.source)} / ${escapeHtml(c.notice.component)} · ${escapeHtml(c.notice.severity)} · ${escapeHtml(c.notice.event)}<br>${escapeHtml(c.notice.summary)}<br>Evidencia: <code>${escapeHtml(c.notice.evidence_ref)}</code><br>Detalle: <code>${escapeHtml(c.notice.action ?? "isymcp canary status")}</code></p>` : "";
   return `<p class="small" style="margin-top:10px">Canario <span class="pill tone-${tone}">${c.ok ? "OK" : "FALLO"}</span> <span class="muted">${age} · ${checks}</span></p>${notice}`;
+}
+
+function metricsBody(m?: SystemMetrics | null): string {
+  if (!m || !m.turns || !m.memory || !m.tokens || !m.latency_ms) {
+    return `<p class="muted">sin telemetría disponible (sin turnos registrados o servicio inactivo)</p>`;
+  }
+  const uptime = m.uptimeSeconds < 60 ? `${m.uptimeSeconds}s`
+    : m.uptimeSeconds < 3600 ? `${Math.floor(m.uptimeSeconds / 60)}m`
+      : `${Math.floor(m.uptimeSeconds / 3600)}h ${Math.floor((m.uptimeSeconds % 3600) / 60)}m`;
+  const rssMb = (m.memory.rss_bytes / (1024 * 1024)).toFixed(1);
+
+  return `<div class="metrics-grid">
+    <div class="metric-item"><div class="metric-val">${m.turns.total}</div><div class="metric-lbl">Turnos Totales</div></div>
+    <div class="metric-item"><div class="metric-val" style="color:var(--ok)">${m.turns.success}</div><div class="metric-lbl">Éxitos</div></div>
+    <div class="metric-item"><div class="metric-val" style="color:${m.turns.failed > 0 ? "var(--bad)" : "var(--mute)"}">${m.turns.failed}</div><div class="metric-lbl">Fallos</div></div>
+    <div class="metric-item"><div class="metric-val" style="color:var(--warn)">${m.turns.reasoning_turns}</div><div class="metric-lbl">Con Pensamiento</div></div>
+    <div class="metric-item"><div class="metric-val">${m.latency_ms.avg} ms</div><div class="metric-lbl">Latencia Media</div></div>
+    <div class="metric-item"><div class="metric-val">${m.tokens.total_tokens_estimated.toLocaleString()}</div><div class="metric-lbl">Tokens Estimados</div></div>
+    <div class="metric-item"><div class="metric-val">${m.tokens.reasoning_tokens_estimated.toLocaleString()}</div><div class="metric-lbl">Tokens Pensamiento</div></div>
+    <div class="metric-item"><div class="metric-val">${uptime}</div><div class="metric-lbl">Uptime (${rssMb} MB RSS)</div></div>
+  </div>`;
 }
 
 /** El <main> del panel: lo re-pide el navegador cada pocos segundos. */
@@ -285,6 +322,10 @@ export function renderMain(state: PanelState): string {
   <h3>TAREAS DE CODEX <span class="muted small">· API Responses: una conversación de GPT.com por tarea</span></h3>
   ${codexTasksBody(state.codexTasks ?? [], now)}
 </section>
+<section class="card">
+  <h3>MÉTRICAS &amp; OBSERVABILIDAD <span class="muted small">· telemetría en vivo del bridge</span></h3>
+  ${metricsBody(state.metrics)}
+</section>
 <section class="card log">
   <h3>ULTIMOS ERRORES <span class="muted small">· ultimas 5 lineas FAILED de server.log (pueden ser viejas)</span></h3>
   ${errors}
@@ -316,6 +357,10 @@ background-image:linear-gradient(rgba(124,255,155,.035) 1px,transparent 1px),lin
 .tile .state{margin-top:10px;font:600 22px/1.1 var(--mono);color:var(--c)}
 .tile .detail{margin-top:4px;color:var(--mute);font:12px var(--mono);word-break:break-all}
 .tone-ok{--c:var(--ok)}.tone-warn{--c:var(--warn)}.tone-bad{--c:var(--bad)}.tone-idle{--c:var(--idle)}
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:10px}
+.metric-item{background:#0a0e0c;border:1px solid var(--line);border-radius:10px;padding:10px 12px;text-align:center}
+.metric-val{font:700 20px/1.2 var(--mono);color:var(--ink)}
+.metric-lbl{font:11px var(--mono);color:var(--mute);margin-top:4px}
 .grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;margin-top:14px}
 .grid>*,.tiles>*{min-width:0}
 @media (max-width:820px){.grid{grid-template-columns:minmax(0,1fr)}}

@@ -25,6 +25,7 @@ import { classifyWebError } from "./error-taxonomy";
 import { defaultNavigation, loadSession, rememberConversation } from "./sessions";
 import { isWebModel } from "./web-responses";
 import type { AppConfig } from "./config";
+import { recordTurn } from "./metrics";
 import {
   makeContextKey, parseReadCall, readContextSlice, renderReadResult,
   writeContextFile,
@@ -380,6 +381,7 @@ export async function handleChatCompletions(req: Request, config: AppConfig): Pr
   if (!web) {
     return errorJson(400, "not_web_model", "solo modelos chatgpt-web/* con messages no vacios");
   }
+  const t0 = performance.now();
   let turn: ChatTurnResult;
   try {
     // El candado cubre la request entera: las rondas de un flujo no se
@@ -389,13 +391,26 @@ export async function handleChatCompletions(req: Request, config: AppConfig): Pr
         : config.contextMode === "push" ? runContextFileFlow(web, config)
           : runSingleTurn(web, config));
   } catch (error) {
+    const durationMs = performance.now() - t0;
     const message = error instanceof Error ? error.message : String(error);
     const { type, status } = classifyWebError(message);
+    recordTurn({ durationMs, ok: false, errorType: type });
     console.error(
       `[codex-web-http] chat turn FAILED: ${type} context=${config.contextMode} tools=${web.tools.length} deadline_ms=${config.webTurnDeadlineMs} :: ${message}`,
     );
     return errorJson(status, type, message);
   }
+  const durationMs = performance.now() - t0;
+  const promptTokens = estimateTokens(web.prompt);
+  const thoughtTokens = turn.thought ? estimateTokens(turn.thought) : 0;
+  const completionTokens = estimateTokens(turn.text);
+  recordTurn({
+    durationMs,
+    ok: true,
+    promptTokens,
+    completionTokens,
+    reasoningTokens: thoughtTokens,
+  });
   console.error(
     `[codex-web-http] web chat turn ok: model=${web.model} context=${config.contextMode} tool_calls=${turn.toolCalls.length} chars=${turn.text.length}`,
   );

@@ -18,6 +18,7 @@ import { forwardHeaders, NativeWsProxy, upstreamWsUrl } from "./ws-native-proxy"
 import { ChatTurnError, chatStatus, runChatTurn } from "./chat-turn";
 import { publicChat } from "./chats";
 import { finishSettingsWindow, openSettingsWindow, settingsStatus, verifySettings } from "./chatgpt-settings";
+import { formatPrometheusMetrics, getMetrics } from "./metrics";
 
 type Route = { method: "GET" | "POST"; endpoint: NativeEndpoint };
 
@@ -73,11 +74,23 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
     if (url.pathname === "/v1/responses" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
       return new Response("websocket upgrade lo resuelve Bun.serve", { status: 426 });
     }
-    if (url.pathname === "/health") {
+    if (url.pathname === "/metrics" && req.method === "GET") {
+      return new Response(formatPrometheusMetrics(), {
+        headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" },
+      });
+    }
+    if ((url.pathname === "/api/metrics" || url.pathname === "/isymcp/metrics") && req.method === "GET") {
+      return Response.json(getMetrics());
+    }
+    if ((url.pathname === "/api/health" || url.pathname === "/health") && req.method === "GET") {
+      const m = getMetrics();
       return Response.json({
         status: "ok",
+        uptime_seconds: m.uptimeSeconds,
         upstream: config.upstreamBase,
         web_models: config.webModels,
+        memory: m.memory,
+        turns: m.turns,
       });
     }
     // Chat para TUIs tipo opencode (@ai-sdk/openai-compatible habla
