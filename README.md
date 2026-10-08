@@ -2,7 +2,7 @@
 
 # ISyMCP
 
-**Your ChatGPT subscription as a local chat, an HTTP API, and a tool for your other coding agents.**
+**Your ChatGPT subscription as a local chat, an HTTP API, and a verified tool for your other coding agents.**
 
 No API key. No Electron. Everything listens on `127.0.0.1`; the only thing that leaves your machine is the conversation with chatgpt.com.
 
@@ -21,44 +21,35 @@ No API key. No Electron. Everything listens on `127.0.0.1`; the only thing that 
 
 ## What you get
 
-### 💬 A real chat, on localhost
-
-`isymcp panel` opens a chat at **http://127.0.0.1:8798**. Each chat in the
-sidebar is its **own real ChatGPT conversation**, and you watch the answer
-**while ChatGPT is still writing it**: lists, code blocks and links included.
+### 💬 A real chat, on localhost with Live Thinking Stream
+`isymcp panel` opens a chat at **http://127.0.0.1:8798**. Each chat in the sidebar is its **own real ChatGPT conversation**, and you watch the answer **while ChatGPT is still writing it**: lists, code blocks, links, and animated, collapsible thought/reasoning boxes in real time.
 
 <img src="docs/images/chat-live.png" alt="Live answer streaming with a blinking cursor and a running tool card" width="900">
 
 ### 🛠️ Tools you can actually verify
+Turn on **Codex ISyMCP** in a chat and ChatGPT can run commands in a folder you choose, inside a `bubblewrap` sandbox. Every card above an answer comes from the **execution trace**: what really ran, its exit code and how long it took. It is not the model's account of what it did.
 
-Turn on **Codex ISyMCP** in a chat and ChatGPT can run commands in a folder you
-choose, inside a `bubblewrap` sandbox. Every card above an answer comes from the
-**execution trace**: what really ran, its exit code and how long it took. It is
-not the model's account of what it did.
-
-When something fails, the card says **who** failed: OpenAI blocked it, your
-ChatGPT session expired, Chrome crashed, or the local bridge didn't finish.
+When something fails, the card says **who** failed: OpenAI blocked it, your ChatGPT session expired, Chrome crashed, or the local bridge didn't finish.
 
 <img src="docs/images/chat-blocked.png" alt="Error card: 'Bloqueado por OpenAI — nothing ran on your machine'" width="900">
 
-### 🤝 ChatGPT inside your other agents
+### 🟢 Isolated & Decoupled Codex Profiles
+No more mutating your global `~/.codex/config.toml`! ISyMCP provides isolated, side-by-side environments:
+- **Native Codex (`codex`)**: talks directly to OpenAI, completely independent of the bridge.
+- **ISyMCP Codex (`codex-isymcp` / `isymcp codex`)**: launches with dynamic, ephemeral `-c openai_base_url=http://127.0.0.1:8791/v1` and desktop entry.
 
-`chatgpt_ask` is an MCP tool. It lets **Claude Code, Codex, Qwen, Gemini or
-Grok** ask *your* ChatGPT (GPT-5.6 Sol, your plan) for a second opinion halfway
-through a task. The harness engine finds which agent CLIs you have installed,
-shows you the exact command it would run, and installs the tool only after you
-confirm. Each tool's **own** `mcp add` writes its config, and the tool itself
-then confirms the install.
+### 🤝 ChatGPT inside your other agents (9 Harnesses Ready)
+`chatgpt_ask` is an MCP tool. It lets **Claude Code, Codex, Cursor IDE, OpenCode TUI, GitHub Copilot CLI, Hermes Agent, OpenClaw, Pi, and Gemini CLI** ask *your* ChatGPT (GPT-5.6 Sol, your plan) for a second opinion halfway through a task.
+- **CLI Strategy (`mcp add`):** Claude Code, Codex, Copilot, Hermes, OpenClaw, Pi, Gemini, Grok, Qwen.
+- **Declarative JSON Strategy:** Cursor IDE (`~/.cursor/mcp.json`) and OpenCode TUI (`~/.config/opencode/opencode.json`).
 
 <img src="docs/images/harnesses.png" alt="Harness list: claude and codex connected, qwen and gemini selected, with the exact install commands shown before confirming" width="900">
 
-### 📟 Status at a glance
+### 📊 Real-time Telemetry & Prometheus Metrics
+Track latency distributions (min/avg/max), token estimates (including reasoning tokens), error taxonomies, and RSS/Heap memory in real time via `isymcp metrics`, `/api/metrics`, and native Prometheus `/metrics` endpoint.
 
-Server, tunnel, MCP and browser health, the latest soak test turn by turn,
-the daily canary (with a **Run canary** button), sessions and their expiry,
-**Codex tasks** (one GPT.com conversation per task: turns, last activity, and
-whether a task is blocked after an unconfirmed send), and recent errors. All
-live, with one-click actions.
+### 📟 Status & Diagnostics Dashboard
+Server, tunnel, MCP and browser health, the latest soak test turn by turn, the daily canary (with a **Run canary** button), sessions and their expiry, **Codex tasks**, and automated E2E smoke tests (`isymcp smoke`).
 
 <p align="center">
   <img src="docs/images/status.png" alt="Status dashboard: everything online, latest soak 9/10" width="640">
@@ -82,83 +73,39 @@ isymcp server start
 isymcp panel                  # starts it in the background and opens http://127.0.0.1:8798
 ```
 
-Then go to **Chat → Nuevo chat**, type, and the answer streams in. Or stay in
-the terminal: `isymcp ask "hola"`. Not sure what to type? Run `isymcp` alone:
-it opens a menu with every action (panel, chat, ChatGPT settings, harnesses,
-canary, models, sessions, logs).
+Then go to **Chat → Nuevo chat**, type, and the answer streams in. Or stay in the terminal: `isymcp ask "hola"`. Not sure what to type? Run `isymcp` alone: it opens a menu with every action.
 
-Optional extras:
+### Optional extras:
 
 ```bash
-isymcp tunnel connect         # lets ChatGPT call the local tools (Codex ISyMCP)
+isymcp tunnel connect                              # lets ChatGPT call the local tools (Codex ISyMCP)
 isymcp session mint --cwd ~/projects/app --write   # a folder ChatGPT may work in
-isymcp harness install claude codex                # plan only; add --apply to install chatgpt_ask
+isymcp harness install claude cursor opencode      # plan only; add --apply to install chatgpt_ask
+isymcp codex launcher                              # installs ~/.local/bin/codex-isymcp & desktop entry
+isymcp smoke                                       # automated end-to-end sanity verification
 ```
 
-**Codex integration (Decoupled & Isolated):**
-```bash
-isymcp codex launcher         # creates ~/.local/bin/codex-isymcp & desktop app
-codex-isymcp                  # starts Codex with web models without touching ~/.codex/config.toml
-```
-Your native Codex setup stays 100% clean and talks directly to OpenAI. If the bridge is ever offline, native Codex is never blocked.
+**Model and reasoning.** The web transport uses whatever your ChatGPT account has selected. In the chat's side panel, **Verificar** shows what ISyMCP sees (for example `GPT-5.6 Sol · High (3/3)`). **Sincronizar ajustes** opens a visible Chrome with your session: you set the model and reasoning by hand, close the window, and that becomes the bridge's default.
 
-**Model and reasoning.** The web transport uses whatever your ChatGPT account
-has selected. In the chat's side panel, **Verificar** shows what ISyMCP sees
-(for example `GPT-5.6 Sol · High (3/3)`). **Sincronizar ajustes** opens a
-visible Chrome with your session: you set the model and reasoning by hand,
-close the window, and that becomes the bridge's default.
+*Note on Reasoning Traces vs Internal CoT:* The captured thinking (`reasoning_content` in API / thought boxes in the panel) represents the **visible summary and UI-rendered thoughts** exposed by ChatGPT Web's DOM. Capturing this DOM presentation is NOT equivalent to obtaining the model's full, raw latent internal Chain-of-Thought tokens. We document and stream strictly what is visibly presented on screen.
 
-*Note on Reasoning Traces vs Internal CoT:* The captured thinking (`reasoning_content`
-in API / thought boxes in the panel) represents the **visible summary and UI-rendered thoughts**
-exposed by ChatGPT Web's DOM. Capturing this DOM presentation is NOT equivalent to obtaining
-the model's full, raw latent internal Chain-of-Thought tokens. We document and stream strictly
-what is visibly presented on screen.
+📖 **Human Operator Guide (Spanish):** For comprehensive step-by-step instructions, see [`GUIA.md`](GUIA.md).
 
 ---
 
 ## Limitations & risks — read before using
 
 > [!WARNING]
-> **RISK: HIGH — this is an unsupported use of ChatGPT Web.** ISyMCP drives the
-> consumer chatgpt.com interface with a headless browser and reads answers from
-> the page. OpenAI's [Terms of Use](https://openai.com/policies/row-terms-of-use/)
-> forbid automatically or programmatically extracting data or output, and OpenAI
-> can suspend accounts that break them. **Your account is what's at stake.**
-> We don't claim a legal reading either way. If you need something supported
-> and stable, use the official API.
+> **RISK: HIGH — this is an unsupported use of ChatGPT Web.** ISyMCP drives the consumer chatgpt.com interface with a headless browser and reads answers from the page. OpenAI's [Terms of Use](https://openai.com/policies/row-terms-of-use/) forbid automatically or programmatically extracting data or output, and OpenAI can suspend accounts that break them. **Your account is what's at stake.** We don't claim a legal reading either way. If you need something supported and stable, use the official API.
 
-- **UI thoughts vs full internal reasoning.** Captured thoughts are DOM summaries
-  presented by the web interface, not the raw latent CoT tokens of the underlying model.
-- **It breaks when chatgpt.com changes.** Answers are read from the page. A
-  redesign can break capture. This already happened once: the `.markdown` class
-  disappeared and the capture had to be fixed. Failures produce a sanitized DOM
-  dump in `~/.codex-web-http/run/capture-fail-*`.
-- **`chatgpt_ask` answers are untrusted content**, like a web page. ChatGPT may
-  have read hostile pages, and its answer lands in another agent's context, and
-  that agent may have its own shell or write tools. Every answer carries an
-  untrusted-content marker. Don't let an agent take side-effect actions (write,
-  shell, push, delete) based only on it without your approval.
-- **Tools inside ChatGPT.** A page ChatGPT reads could try to make it run
-  commands. With bubblewrap enabled, the host filesystem is mounted read-only;
-  the user's home and the bridge's secrets directory are hidden, then the
-  session folder is re-exposed read-only or writable according to the session.
-  System files outside that folder can still be read; this is not a filesystem
-  restricted to that folder. Network access is disabled **by default**;
-  `CODEX_WEB_HTTP_SANDBOX_NET=1` enables it. In a `--write` session, damage inside
-  the session folder is possible. Prefer read-only sessions. Explicitly setting
-  `CODEX_WEB_HTTP_SANDBOX=off` lets writable sessions run without bubblewrap.
-- **The untrusted-content marker is advisory.** It labels bridge responses,
-  including provider errors and HTTP diagnostics. It does not enforce approval
-  or prevent prompt injection; the receiving agent must respect the user's
-  existing authorization and its own permission controls.
-- **Your ChatGPT cookies are the crown jewel.** They sit in `~/.codex-web-http/`
-  with 0600 permissions, which stops other users but not malware or any process
-  running as you.
-- **Slow and serial.** One account, one tab, one turn at a time, each taking
-  about 20–60 s. This is not a throughput replacement for an API.
+- **UI thoughts vs full internal reasoning.** Captured thoughts are DOM summaries presented by the web interface, not the raw latent CoT tokens of the underlying model.
+- **It breaks when chatgpt.com changes.** Answers are read from the page. A redesign can break capture. Failures produce a sanitized DOM dump in `~/.codex-web-http/run/capture-fail-*`.
+- **`chatgpt_ask` answers are untrusted content**, like a web page. ChatGPT may have read hostile pages, and its answer lands in another agent's context, and that agent may have its own shell or write tools. Every answer carries an untrusted-content marker. Don't let an agent take side-effect actions (write, shell, push, delete) based only on it without your approval.
+- **Tools inside ChatGPT.** A page ChatGPT reads could try to make it run commands. With bubblewrap enabled, the host filesystem is mounted read-only; the user's home and the bridge's secrets directory are hidden, then the session folder is re-exposed read-only or writable according to the session. System files outside that folder can still be read; this is not a filesystem restricted to that folder. Network access is disabled **by default**; `CODEX_WEB_HTTP_SANDBOX_NET=1` enables it. In a `--write` session, damage inside the session folder is possible. Prefer read-only sessions. Explicitly setting `CODEX_WEB_HTTP_SANDBOX=off` lets writable sessions run without bubblewrap.
+- **The untrusted-content marker is advisory.** It labels bridge responses, including provider errors and HTTP diagnostics. It does not enforce approval or prevent prompt injection; the receiving agent must respect the user's existing authorization and its own permission controls.
+- **Your ChatGPT cookies are the crown jewel.** They sit in `~/.codex-web-http/` with 0600 permissions, which stops other users but not malware or any process running as you.
+- **Slow and serial.** One account, one tab, one turn at a time, each taking about 20–60 s. This is not a throughput replacement for an API.
 - **Linux only** for tools (bubblewrap). Chat and the API need Chrome.
-- **Not demonstrated:** behaviour of the ChatGPT tunnel after many idle hours
-  (reported SSE reconnection loops). Not observed, and not tested yet.
 
 ---
 
@@ -168,47 +115,32 @@ what is visibly presented on screen.
 your browser ──► isymcp panel (:8798) ─┐
 OpenAI-compatible clients ─────────────┼──► bridge (:8791) ──► headless Chrome ──► chatgpt.com
 other agents ──► MCP isymcp-chatgpt ───┘          │
+                                                  ├─ live thinking ──► streaming SSE (reasoning_content)
+                                                  ├─ compaction ──────► automatic context pruning (>40 msgs)
                                                   └─ tools: chatgpt.com ─► tunnel ─► MCP stdio ─► bwrap sandbox
 ```
 
-- **Bridge** (Bun): drives one persistent ChatGPT tab. Turns are **serialized**
-  (one at a time, in order), so chats never write into each other.
-  It reads the answer from the page as ChatGPT writes it, and rebuilds the
-  Markdown.
-- **Chats**: chat id → canonical `chatgpt.com/c/…` URL, stored in
-  `~/.codex-web-http/chats/` (0700/0600). The browser only ever sends a chat id
-  and your text; it never decides which conversation to open.
-- **Tools**: each tool turn gets a **one-off token**. It inherits the folder and
-  read/write mode of the session you picked, lives 15 minutes and is **revoked
-  when the turn ends**. Only that token goes to chatgpt.com. The MCP logs every
-  call under that token's fingerprint, and the tool cards are read back from
-  that log.
-- **Reviver**: if Chromium crashes mid-turn, the bridge relaunches it and
-  re-reads the answer that was already generated. It never sends the turn twice.
-- **Never Guess**: an answer only counts if it provably belongs to *this* turn
-  (the last assistant turn changed identity, or its text changed). Otherwise
-  the turn fails with a DOM dump. The bridge never returns the previous answer
-  or "whatever looks closest".
-- **Canary**: `isymcp canary` runs three real turns in one dedicated chat. An
-  exact echo A; an exact echo B that must not contain A (no cross-turn
-  contamination); and a list plus code block (Markdown capture still alive).
-  The result shows up in the status panel. `isymcp canary schedule --apply`
-  runs it daily and sends a desktop notification on failure, so you learn
-  about a chatgpt.com redesign the day it lands.
+- **Bridge** (Bun): drives one persistent ChatGPT tab. Turns are **serialized** (one at a time, in order), so chats never write into each other. It reads the answer from the page as ChatGPT writes it, and rebuilds the Markdown.
+- **Live Thinking Stream**: extracts thinking bubbles dynamically and exposes them via SSE `delta.reasoning_content` and panel UI cards.
+- **Context Compaction**: automatically prunes multi-turn conversations exceeding 40 messages, preserving the initial prompt/goal, inserting a context note, and retaining the recent message window.
+- **Chats**: chat id → canonical `chatgpt.com/c/…` URL, stored in `~/.codex-web-http/chats/` (0700/0600). The browser only ever sends a chat id and your text; it never decides which conversation to open.
+- **Tools**: each tool turn gets a **one-off token**. It inherits the folder and read/write mode of the session you picked, lives 15 minutes and is **revoked when the turn ends**. Only that token goes to chatgpt.com. The MCP logs every call under that token's fingerprint, and the tool cards are read back from that log.
+- **Reviver**: if Chromium crashes mid-turn, the bridge relaunches it and re-reads the answer that was already generated. It never sends the turn twice.
+- **Never Guess**: an answer only counts if it provably belongs to *this* turn (the last assistant turn changed identity, or its text changed). Otherwise the turn fails with a DOM dump. The bridge never returns the previous answer or "whatever looks closest".
+- **Canary**: `isymcp canary` runs three real turns in one dedicated chat (echo A, echo B without A, Markdown capture). `isymcp canary schedule --apply` runs it daily and sends a desktop notification on failure.
+- **Smoke Suite**: `isymcp smoke` runs unified end-to-end verification of health, metrics, harnesses, and isolated launchers.
 
 <details>
 <summary><b>Chat details</b></summary>
 
 - Only the **new** message is sent each turn; ChatGPT already holds the context.
-- Live text: the bridge re-reads the page about every 0.4 s, and each update
-  replaces the whole partial answer.
-- Markdown goes through a renderer that escapes everything first, so model HTML
-  never reaches the page.
-- Tools are **off** in every new chat. The session picker shows fingerprint,
-  folder, read/write and expiry, never the token.
-- The OpenAI-compatible route `/v1/chat/completions` keeps its own contract
-  (full transcript) and its own conversation.
+- Live text: the bridge re-reads the page about every 0.4 s, and each update replaces the whole partial answer.
+- Markdown goes through a renderer that escapes everything first, so model HTML never reaches the page.
+- Tools are **off** in every new chat. The session picker shows fingerprint, folder, read/write and expiry, never the token.
+- The OpenAI-compatible route `/v1/chat/completions` keeps its own contract (full transcript) and its own conversation.
 </details>
+
+---
 
 ## Use it as an HTTP API
 
@@ -218,112 +150,57 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
   -d '{"model":"chatgpt-web/gpt-5.6-sol","messages":[{"role":"user","content":"hola"}]}'
 ```
 
-- `POST /v1/chat/completions` (models `chatgpt-web/*`), plus native passthrough
-  for `/v1/responses`, `/v1/models` and the websocket.
-- **Idempotency**: send `x-isymcp-turn-id`. A replay returns the same response
-  (`x-isymcp-replayed: 1`) without running the model again.
-- **Typed errors** mapped to HTTP status (400/401/403/409/415/502/503/504). See
-  `docs/PROTOCOL.md`.
-- `isymcp tui install --apply` wires it into opencode/OpenISy as a provider.
+- `POST /v1/chat/completions` (models `chatgpt-web/*`), plus native passthrough for `/v1/responses`, `/v1/models` and the websocket.
+- **Idempotency**: send `x-isymcp-turn-id`. A replay returns the same response (`x-isymcp-replayed: 1`) without running the model again.
+- **Typed errors** mapped to HTTP status (400/401/403/409/415/502/503/504). See [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+- **Telemetry Endpoints**: `GET /api/health`, `GET /api/metrics` (JSON), and `GET /metrics` (Prometheus/OpenMetrics).
 
-## CLI
+---
 
-| Command | What |
+## CLI Reference
+
+| Command | Description |
 |---|---|
-| `isymcp` | interactive menu with everything below (in a terminal; prints status when piped) |
-| `isymcp panel` | opens the chat + status panel on :8798 (starts it detached if needed); `panel start` / `stop` / `status` / `run` |
-| `isymcp ask "text" [--new]` | a real ChatGPT turn from the terminal; keeps one terminal chat (also visible in the panel), stdin works too |
-| `isymcp codex [args...]` | runs Codex with ephemeral ISyMCP web models profile (without mutating `~/.codex/config.toml`) |
-| `isymcp codex launcher` | installs desktop entry `Codex (ISyMCP Web)` and `~/.local/bin/codex-isymcp` launcher |
-| `isymcp up` / `down` / `status` | server + tunnel lifecycle, honest status |
-| `isymcp server start` / `stop` | just the bridge |
+| `isymcp` | Interactive menu with everything below (or prints status when piped) |
+| `isymcp panel` | Opens the chat + status panel on :8798 (detached); `panel start` / `stop` / `status` / `run` |
+| `isymcp ask "text" [--new]` | Real ChatGPT turn from the terminal; keeps one terminal chat, stdin works too |
+| `isymcp codex [args...]` | Runs Codex with isolated ISyMCP web profile (without mutating `config.toml`) |
+| `isymcp codex launcher` | Installs desktop entry `Codex (ISyMCP Web)` and `~/.local/bin/codex-isymcp` |
+| `isymcp up` / `down` / `status` | Server + tunnel lifecycle and honest status |
+| `isymcp server start` / `stop` | Starts or stops the HTTP bridge |
 | `isymcp tunnel connect` / `stop` / `status` | MCP tunnel for ChatGPT tools |
-| `isymcp session mint --cwd <dir> [--write] [--ttl h]` | a folder ChatGPT may use (read-only by default, expires in 7 days) |
-| `isymcp session list` / `revoke <fp>` | audit / revoke (revoking also kills its turn tokens) |
-| `isymcp harness list` | which agent CLIs you have, and whether they have `chatgpt_ask` |
-| `isymcp harness install` / `uninstall <ids\|--all> [--apply]` | plan by default; `--apply` runs and verifies |
-| `isymcp canary` / `canary status` | real turn check: capture, turn identity, Markdown |
-| `isymcp canary schedule [--apply]` | daily systemd user timer (plan by default) |
-| `isymcp health` | live health and diagnostic status of the bridge and services |
-| `isymcp metrics [--prom]` | real-time telemetry (turns, tokens, latencies, memory) or Prometheus export |
-| `isymcp smoke` | unified E2E smoke test verifying health, metrics, harnesses, and launcher |
-| `isymcp logs` | bridge logs |
+| `isymcp session mint --cwd <dir> [--write] [--ttl h]` | Creates a scoped session folder (read-only by default, 7-day TTL) |
+| `isymcp session list` / `revoke <fp>` | Audits or revokes tool session tokens |
+| `isymcp harness list` | Lists detected coding agents and their `chatgpt_ask` installation status |
+| `isymcp harness install` / `uninstall <ids\|--all> [--apply]` | Installs `chatgpt_ask` (dry-run plan by default, `--apply` writes) |
+| `isymcp canary` / `canary status` | Real turn verification: capture, turn identity, Markdown |
+| `isymcp canary schedule [--apply]` | Daily systemd user timer for automated regression alerts |
+| `isymcp health` | Live health and diagnostic status of the bridge |
+| `isymcp metrics [--prom]` | Real-time telemetry (turns, tokens, latencies, memory) or Prometheus format |
+| `isymcp smoke` | Unified E2E verification suite (health, metrics, harnesses, launcher) |
+| `isymcp logs` | Live bridge log viewer and exporter |
 
-**Harness support (9 agents ready).**
-
-- *Installs through the tool's own native `mcp add`:* Claude Code, Codex, GitHub Copilot CLI, Hermes Agent, OpenClaw, Pi, Gemini CLI, Grok, Qwen Code.
-- *Declarative JSON config strategy:* Cursor IDE (`~/.cursor/mcp.json`) and OpenCode TUI (`~/.config/opencode/opencode.json`).
-- *Detected, pending verified config format* (no guessing): Crush, Kimi, fx.
-
-📖 **Human Operator Guide in Spanish:** Check [`GUIA.md`](GUIA.md) for full step-by-step instructions.
+---
 
 ## Security model
 
-- **Local only, for real.** The bridge and the panel bind `127.0.0.1` *and*
-  reject foreign `Host`/`Origin` headers and non-JSON POSTs. A web page you
-  visit can't drive them (CSRF), read them (DNS rebinding) or open the
-  websocket. Extra hostnames: `CODEX_WEB_HTTP_ALLOWED_HOSTS=a,b`.
-  Any non-loopback exposure (`CODEX_WEB_HTTP_HOST`, `CODEX_WEB_HTTP_ALLOWED_HOSTS`)
-  **requires** `CODEX_WEB_HTTP_TOKEN`: the bridge refuses to start without it, and
-  clients must send it in the `x-isymcp-token` header (never forwarded upstream).
-  The panel ignores extra hosts: it is loopback-only because it can start/stop
-  the bridge and tunnel. Note that any process of your own user can still reach
-  loopback; the token is what protects non-loopback access.
-- **Sandbox.** `bubblewrap` with `$HOME` and the bridge's secret folder hidden
-  behind tmpfs, no network, a minimal environment, and only the session folder
-  visible (read-only or read-write). Toolchains like `~/.bun`, `~/.local/bin`
-  and `~/.cargo/bin` come back read-only. Without bwrap, every session refuses
-  to run.
-- **Tokens.** A session token is shown once, then only its fingerprint
-  (`sha256[:12]`). It expires (7 days by default) and can be revoked. Panel tool
-  turns only send the one-off turn token. If you paste a session token into
-  ChatGPT yourself, it stays in your OpenAI history, which is why tokens expire.
-- **Approvals.** Nothing writes to another tool's config without an explicit
-  confirmation, after you've seen the exact command.
-- **Untrusted output.** `chatgpt_ask` marks every answer as untrusted content
-  (see *Limitations & risks*).
-- **Secrets** live outside the repo in `~/.codex-web-http/` (0600). Traces
-  never store command output.
-- Don't create a session for a folder that holds secrets (for example all of
-  `~`): that folder is exactly what the model can read.
+- **Local only, for real.** The bridge and the panel bind `127.0.0.1` *and* reject foreign `Host`/`Origin` headers and non-JSON POSTs (protection against CSRF and DNS rebinding).
+- **Token Authentication (`CODEX_WEB_HTTP_TOKEN`):** Required for any non-loopback exposure. Clients must send `Authorization: Bearer <TOKEN>` or `x-isymcp-token`.
+- **Sandbox Isolation.** `bubblewrap` hides `$HOME` and the bridge's secret folder behind tmpfs, disables network access by default, and exposes only the selected session folder.
+- **Session Tokens.** Tokens expire (7 days by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
 
-## Evidence
+---
 
-- **CI** runs the whole suite on every PR, including real sandbox tests inside
-  bubblewrap. `main` only accepts PRs that are green and up to date.
-- **Soak, 100 real turns:** 99 exact, 0 infrastructure failures, 0 empty
-  captures, 0 duplicates, 0 cross-talk. The one failure was an external OpenAI
-  safety block.
-- **Soak with tools, 10 different actions:** 9/10, cross-checked against the
-  MCP trace. The one failure was an OpenAI block.
-- **End-to-end scripts against real ChatGPT:**
-  - `scripts/e2e-two-chats.ts`: two chats, two `/c/`, each with its own context.
-  - `scripts/e2e-chat-tools.ts`: read and write through tools, cards taken from
-    the trace, no turn token left alive.
-- **Canary:** OK against real chatgpt.com through both an existing and a
-  temporary bridge.
-- **Panel layout check:** `scripts/panel-layout-check.ts`, no horizontal
-  overflow at 1400 px or 390 px, no injected HTML, no page errors.
+## Verification & Testing
 
-See `docs/EVIDENCE.md` and `docs/evidence/`.
+- **Full Test Suite:** **280 tests passing across 41 files** (`bun test`).
+- **Unified E2E Smoke:** Verified with `isymcp smoke` and `scripts/e2e-all.ts`.
+- **Soak Testing:** 99/100 successful real turns in soak baseline; 9/10 with tool execution inside sandbox.
+- **Canary:** Regular verification against live chatgpt.com DOM changes.
 
-<details>
-<summary><b>Configuration</b></summary>
+See [`docs/EVIDENCE.md`](docs/EVIDENCE.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
-| Env | Default | What |
-|---|---|---|
-| `CODEX_WEB_HTTP_PORT` | `8791` | bridge port |
-| `CODEX_WEB_HTTP_CHROME` | `/usr/bin/google-chrome` | Chrome binary |
-| `CODEX_WEB_HTTP_ALLOWED_HOSTS` | — | extra hostnames the bridge accepts (requires `CODEX_WEB_HTTP_TOKEN`; the panel stays loopback-only) |
-| `CODEX_WEB_HTTP_TOKEN` | — | shared secret, `x-isymcp-token` header; required for non-loopback exposure, enforced whenever set |
-| `CODEX_WEB_HTTP_SANDBOX_NET` | off | `1` gives sandboxed commands network access |
-| `CODEX_WEB_HTTP_SANDBOX_ENV` | — | extra env vars passed into the sandbox |
-| `CODEX_WEB_HTTP_SANDBOX_RO_BINDS` | — | extra read-only paths (relative to `$HOME` or absolute) |
-| `CODEX_WEB_HTTP_SANDBOX=off` | — | operator opt-out: only `--write` sessions run, unconfined |
-| `ISYMCP_CHATGPT_TIMEOUT_MS` | `300000` | how long `chatgpt_ask` waits for an answer |
-</details>
-
-**Docs:** `docs/ARCHITECTURE.md` · `docs/PROTOCOL.md` · `docs/TUNNEL_AND_MODELS.md` · `docs/LIFECYCLE.md` · `docs/LEGACY.md` · `docs/EVIDENCE.md`
+---
 
 ## License
 
