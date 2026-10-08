@@ -1,7 +1,11 @@
 #!/usr/bin/env bun
-// isymcp — consola del bridge. Se puede cerrar: el server queda detached.
+// isymcp — consola del bridge, y la UNICA entrada: en una terminal, `isymcp`
+// a secas abre el menu con todo (panel, chat, ajustes, harnesses, canario...).
+// Se puede cerrar: server y panel quedan detached.
 //
-//   isymcp                 estado
+//   isymcp                 menu (en TTY) / estado (sin TTY)
+//   isymcp panel           abre el panel (lo levanta en background si hace falta)
+//   isymcp ask "texto"     turno real con ChatGPT desde la terminal
 //   isymcp up              server + tunel, en background
 //   isymcp down            para server y tunel
 //   isymcp server start|stop
@@ -18,10 +22,11 @@ import { join } from "node:path";
 import { bindCookies } from "./sessions";
 import { isExpired, listUserSessions, mintSession, revokeSession } from "./codex-sessions";
 import { startPanel } from "./panel";
+import { createChat, loadChat } from "./chats";
 import { runHook } from "./hooks";
 import { installWebModels } from "../scripts/install-web-models";
 import { defaultExportPath, exportLines, formatLine, parseBound, readAll, selectLines } from "./logs";
-import { MENU, brandHeader, select, visible, visibleLabels } from "./menu";
+import { MENU, brandHeader, findItem, select, visible, visibleLabels } from "./menu";
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
 import { detectTuis, installIntoOpencode } from "./tui";
 
@@ -30,6 +35,11 @@ const RUN = join(homedir(), ".codex-web-http", "run");
 const PID = join(RUN, "server.pid");
 const LOG = join(RUN, "server.log");
 const PORT = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
+const PANEL_PID = join(RUN, "panel.pid");
+const PANEL_LOG = join(RUN, "panel.log");
+const PANEL_PORT = process.env.ISYMCP_PANEL_PORT?.trim() || "8798";
+const PANEL_URL = `http://127.0.0.1:${PANEL_PORT}`;
+const BRIDGE = `http://127.0.0.1:${PORT}`;
 
 function sh(cmd: string[], timeout = 20_000): { code: number; out: string } {
   const proc = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe", timeout });
@@ -45,9 +55,9 @@ function alive(pid: number): boolean {
   }
 }
 
-function readPid(): number | null {
-  if (!existsSync(PID)) return null;
-  const n = Number(readFileSync(PID, "utf8").trim());
+function readPid(file = PID): number | null {
+  if (!existsSync(file)) return null;
+  const n = Number(readFileSync(file, "utf8").trim());
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
@@ -107,6 +117,228 @@ function stopServer(): void {
   } catch {
     /* pid file opcional */
   }
+}
+
+// ── Panel en background ────────────────────────────────────────────────────
+// Mismo patron que el server: proceso detached + pid file. `isymcp panel`
+// lo levanta si hace falta y abre el navegador; cerrar la terminal no lo mata.
+
+async function panelUp(): Promise<boolean> {
+  try {
+    const res = await fetch(`${PANEL_URL}/`, { signal: AbortSignal.timeout(1_500) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function startPanelDetached(): Promise<boolean> {
+  if (await panelUp()) {
+    console.log(`panel ya corre en ${PANEL_URL}`);
+    return true;
+  }
+  mkdirSync(RUN, { recursive: true });
+  const logFd = openSync(PANEL_LOG, "a");
+  const child = spawn("bun", ["run", join(ROOT, "src", "isymcp.ts"), "panel", "run", "--port", PANEL_PORT], {
+    cwd: ROOT,
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+    env: { ...process.env, CODEX_WEB_HTTP_PORT: PORT },
+  });
+  child.unref();
+  writeFileSync(PANEL_PID, `${child.pid}\n`);
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (await panelUp()) {
+      console.log(`panel detached pid=${child.pid} ${PANEL_URL} log=${PANEL_LOG}`);
+      return true;
+    }
+  }
+  console.error(`el panel no respondio en 5 s; mira ${PANEL_LOG}`);
+  return false;
+}
+
+function stopPanel(): void {
+  const pid = readPid(PANEL_PID);
+  if (pid && alive(pid)) {
+    process.kill(pid, "SIGTERM");
+    console.log(`panel parado (pid ${pid})`);
+  } else {
+    console.log("panel no estaba corriendo (o lo levantaste en primer plano: Ctrl+C alli)");
+  }
+  try { writeFileSync(PANEL_PID, ""); } catch { /* pid file opcional */ }
+}
+
+function openInBrowser(url: string): void {
+  try {
+    const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
+    child.on("error", () => console.log(`abre a mano: ${url}`));
+    child.unref();
+    console.log(`abriendo ${url}`);
+  } catch {
+    console.log(`abre a mano: ${url}`);
+  }
+}
+
+async function openPanel(): Promise<void> {
+  if (!(await serverUp())) console.log(`ojo: el server (:${PORT}) esta abajo; el panel abre igual y lo muestra. Levantalo con: isymcp up`);
+  if (await startPanelDetached()) openInBrowser(PANEL_URL);
+}
+
+// ── Chat desde la terminal ─────────────────────────────────────────────────
+// Usa el MISMO camino que el panel (POST /isymcp/chat/turn): un chat local =
+// una conversacion real de chatgpt.com. El chat de la terminal se recuerda en
+// run/cli-chat para que preguntas seguidas tengan contexto; --new empieza otro.
+
+const CLI_CHAT = join(RUN, "cli-chat");
+
+function cliChatId(fresh: boolean, firstMessage: string): string {
+  if (!fresh && existsSync(CLI_CHAT)) {
+    const id = readFileSync(CLI_CHAT, "utf8").trim();
+    if (loadChat(id)) return id;
+  }
+  const chat = createChat(`[terminal] ${firstMessage.replace(/\s+/g, " ").slice(0, 60)}`);
+  mkdirSync(RUN, { recursive: true });
+  writeFileSync(CLI_CHAT, `${chat.id}\n`);
+  return chat.id;
+}
+
+async function askChatGPT(message: string, fresh = false): Promise<boolean> {
+  if (!message.trim()) {
+    console.error("mensaje vacio");
+    return false;
+  }
+  if (!(await serverUp())) {
+    console.error(`el server no responde en ${BRIDGE}. Levantalo con: isymcp up`);
+    return false;
+  }
+  const chatId = cliChatId(fresh, message);
+  const started = Date.now();
+  const tty = !!process.stderr.isTTY;
+  const paint = (code: string, text: string) => (tty && !process.env.NO_COLOR ? `\x1b[${code}m${text}\x1b[0m` : text);
+  let shown = "";
+  let phase = "";
+  // Progreso en vivo (stderr): fase y texto parcial, como en el panel.
+  const poll = setInterval(async () => {
+    try {
+      const st = (await (await fetch(`${BRIDGE}/isymcp/chat/status`, { signal: AbortSignal.timeout(1_500) })).json()) as {
+        phase: string; chat_id: string | null; queued: number; partial?: string;
+      };
+      if (!tty) return;
+      const mine = st.chat_id === chatId;
+      const label = mine ? st.phase : st.queued > 0 ? "en cola (otro turno en curso)" : st.phase;
+      if (label !== phase) {
+        phase = label;
+        process.stderr.write(`${paint("2", `· ${label} (${Math.round((Date.now() - started) / 1000)} s)`)}\n`);
+      }
+      if (mine && st.partial && st.partial.startsWith(shown) && st.partial.length > shown.length) {
+        process.stderr.write(paint("2", st.partial.slice(shown.length)));
+        shown = st.partial;
+      }
+    } catch { /* el poll es cosmetico */ }
+  }, 700);
+  try {
+    const res = await fetch(`${BRIDGE}/isymcp/chat/turn`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message }),
+      signal: AbortSignal.timeout(15 * 60_000),
+    });
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; reply?: { text?: string; meta?: { kind?: string; detail?: string } }; chat?: { conversation_url?: string | null }; error?: { type?: string; message?: string } }
+      | null;
+    clearInterval(poll);
+    if (shown && tty) process.stderr.write(`\n${paint("2", "── respuesta final ──")}\n`);
+    if (!res.ok || !body) {
+      console.error(`error ${res.status}: ${body?.error?.type ?? ""} ${body?.error?.message ?? "respuesta ilegible"}`);
+      return false;
+    }
+    console.log(body.reply?.text ?? "");
+    const secs = ((Date.now() - started) / 1000).toFixed(1);
+    if (!body.ok) console.error(paint("31", `✗ ${body.reply?.meta?.kind ?? "error"} · ${body.reply?.meta?.detail ?? ""}`));
+    console.error(paint("2", `${body.ok ? "✓" : "✗"} ${secs} s · chat ${chatId} · ${body.chat?.conversation_url ?? "sin /c/"} · sigue en el panel`));
+    return body.ok === true;
+  } catch (error) {
+    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  } finally {
+    clearInterval(poll);
+  }
+}
+
+// ── Ajustes de ChatGPT (modelo/reasoning de la cuenta) ─────────────────────
+
+async function bridgeJson(path: string, method = "GET"): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  const res = await fetch(`${BRIDGE}${path}`, {
+    method,
+    headers: method === "POST" ? { "content-type": "application/json" } : {},
+    body: method === "POST" ? "{}" : undefined,
+    signal: AbortSignal.timeout(120_000),
+  });
+  return { status: res.status, body: (await res.json().catch(() => null)) as Record<string, unknown> | null };
+}
+
+function describeSeen(seen: unknown): string {
+  const s = seen as { model?: string | null; effort?: string | null; effortPosition?: number | null; effortSteps?: number | null; at?: string } | null;
+  if (!s) return "(sin lectura todavia)";
+  const pos = s.effortPosition && s.effortSteps ? ` (${s.effortPosition}/${s.effortSteps})` : "";
+  return `${s.model ?? "?"} · ${s.effort ?? "?"}${pos}${s.at ? ` · ${s.at}` : ""}`;
+}
+
+async function settingsVerify(): Promise<void> {
+  if (!(await serverUp())) { console.error("el server esta abajo: isymcp up"); return; }
+  console.log("leyendo el selector del headless (solo lectura, ~10 s)…");
+  const r = await bridgeJson("/isymcp/settings/verify", "POST");
+  if (r.status !== 200) {
+    console.error(`no se pudo verificar: ${JSON.stringify(r.body?.error ?? r.body)}`);
+    return;
+  }
+  console.log(`ChatGPT ve: ${describeSeen(r.body?.seen)}`);
+  const seen = r.body?.seen as { model?: string; effort?: string; effortPosition?: number; effortSteps?: number } | undefined;
+  const ok = /5\.6 Sol/i.test(seen?.model ?? "") && seen?.effortPosition === 3 && seen?.effortSteps === 3;
+  console.log(ok
+    ? "✓ coincide con lo que anuncia el catalogo (GPT-5.6 Sol · High)"
+    : "✗ no es GPT-5.6 Sol · High: Codex con el modelo web fallara cerrado (el chat del panel y `ask` si funcionan). Arreglalo con “Sincronizar a mano”.");
+}
+
+async function settingsSync(): Promise<void> {
+  if (!(await serverUp())) { console.error("el server esta abajo: isymcp up"); return; }
+  const r = await bridgeJson("/isymcp/settings/open", "POST");
+  if (r.status !== 202) {
+    console.error(`no se abrio: ${String(r.body?.reason ?? r.status)}`);
+    return;
+  }
+  console.log("Se abrio un Chrome visible con tu sesion. Elige GPT-5.6 Sol y reasoning High,");
+  console.log("y vuelve aqui. Mientras tanto los turnos esperan en cola.");
+  await ask("Enter cuando termines (guarda y cierra la ventana)… ");
+  const done = await bridgeJson("/isymcp/settings/finish", "POST");
+  const last = done.body?.last as { saved?: boolean; reason?: string } | null | undefined;
+  console.log(last ? `${last.saved ? "✓ guardado" : "✗ no guardado"}: ${last.reason ?? ""}` : "ventana cerrada; el resultado aparece en unos segundos (isymcp → Ajustes → Verificar)");
+}
+
+// ── Confirmaciones del menu ────────────────────────────────────────────────
+
+async function confirm(question: string): Promise<boolean> {
+  return /^(s|si|sí|y|yes)$/i.test(await ask(`${question} [s/N] `));
+}
+
+async function harnessInteractive(sub: "install" | "uninstall"): Promise<void> {
+  const { detect } = await import("./harness");
+  const usable = (await detect()).filter((s) => s.present && s.supported);
+  if (usable.length === 0) { console.log("no hay harnesses instalables detectados"); return; }
+  console.log(`detectados: ${usable.map((s) => `${s.id}${s.installed === true ? " ✓" : ""}`).join(", ")}`);
+  const raw = await ask("¿cuales? (separados por coma, o 'todos'): ");
+  if (!raw) return;
+  const ids = /^(todos|all)$/i.test(raw) ? ["--all"] : raw.split(/[\s,]+/).filter(Boolean);
+  await harnessCommand(sub, ids);
+  if (await confirm("¿Ejecutar este plan?")) await harnessCommand(sub, [...ids, "--apply"]);
+  else console.log("nada escrito");
+}
+
+async function canaryScheduleInteractive(sub: "schedule" | "unschedule"): Promise<void> {
+  await canaryCommand(sub, []);
+  if (await confirm("¿Aplicar?")) await canaryCommand(sub, ["--apply"]);
+  else console.log("nada tocado");
 }
 
 function tunnelBin(): string {
@@ -262,6 +494,24 @@ async function status(): Promise<void> {
   const sessions = listUserSessions();
   const detail = sessions.map((s) => `${s.label}[${s.fp}]${s.writable ? "/rw" : "/ro"}`).join(", ");
   console.log(`  sessions  ${sessions.length}${detail ? ` -> ${detail}` : ""}`);
+  console.log(`  panel    ${(await panelUp()) ? "up" : "down"}  ${PANEL_URL}`);
+  if (up) {
+    try {
+      const st = await bridgeJson("/isymcp/settings");
+      console.log(`  chatgpt  ${describeSeen(st.body?.seen)}`);
+    } catch { /* opcional */ }
+  }
+  try {
+    const { readLatestCanary } = await import("./canary");
+    const c = readLatestCanary();
+    console.log(`  canario  ${c ? `${c.ok ? "OK" : "FALLO"} · ${c.ts}` : "sin correr (isymcp canary)"}`);
+  } catch { /* opcional */ }
+  try {
+    const { listCodexTasks } = await import("./codex-tasks");
+    const tasks = listCodexTasks();
+    const blocked = tasks.filter((t) => t.state === "bloqueada").length;
+    console.log(`  tareas   ${tasks.length} de Codex${blocked ? ` (${blocked} bloqueadas: ver panel)` : ""}`);
+  } catch { /* opcional */ }
 }
 
 async function menuSession(sub: string, rest: string[]): Promise<void> {
@@ -275,8 +525,17 @@ async function menuSession(sub: string, rest: string[]): Promise<void> {
 function help(): void {
   console.log(`isymcp — consola del bridge Codex ISyMCP
 
-  isymcp                     estado
-  isymcp panel [--port 8798] panel visual del bridge (navegador)
+  isymcp                     menu interactivo con todo (en una terminal);
+                             sin terminal (pipe/script) imprime el estado
+  isymcp status              estado: server, tunel, panel, ChatGPT, canario
+  isymcp menu [id]           menu (o una rama/accion: isymcp menu harness)
+
+  isymcp panel               abre el panel :8798 (lo levanta detached si hace falta)
+  isymcp panel start|stop|status
+  isymcp panel run [--port 8798]   panel en primer plano (Ctrl+C)
+  isymcp ask "texto" [--new] turno real con ChatGPT desde la terminal; sigue
+                             el mismo chat (visible en el panel); --new abre otro.
+                             Tambien por stdin: echo hola | isymcp ask
   isymcp up [--no-connector] levanta server (detached) y conecta el tunel;
                              el server deja elegido el connector Codex ISyMCP
   isymcp down                para server y tunel
@@ -309,7 +568,7 @@ function help(): void {
   isymcp logs export --since 2026-10-02T16:00 --until 2026-10-02T17:00
   isymcp logs export --out /tmp/isymcp.log
 
-Cerrar esta terminal no mata el server: up lo deja detached.
+Cerrar esta terminal no mata nada: server y panel quedan detached.
 `);
 }
 
@@ -353,61 +612,91 @@ async function ask(question: string): Promise<string> {
   return answer.trim();
 }
 
-async function runAction(id: string): Promise<void> {
-  await runHook(`before:${id}`);
-  if (id === "up") {
+const reinstall = () => {
+  try { installIntoCodex(true); } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+  }
+};
+
+// Una entrada por hoja visible del menu (tests/menu.test.ts lo exige).
+const ACTIONS: Record<string, () => Promise<void> | void> = {
+  "up": async () => {
     startServer();
     await new Promise((r) => setTimeout(r, 800));
     console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
     tunnel("connect");
     guardarSesion("default");
-    try { installIntoCodex(true); } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-    }
-  } else if (id === "down") {
-    tunnel("stop");
-    stopServer();
-  } else if (id === "restart") {
-    tunnel("stop");
-    stopServer();
-    startServer();
-    tunnel("connect");
-    try { installIntoCodex(true); } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-    }
-  } else if (id === "status") {
-    await status();
-  } else if (id === "server-start") startServer();
-  else if (id === "server-stop") stopServer();
-  else if (id === "tunnel-connect") tunnel("connect");
-  else if (id === "tunnel-stop") tunnel("stop");
-  else if (id === "tunnel-status") tunnel("status");
-  else if (id === "logs-50") logs(["--last", "50"]);
-  else if (id === "logs-20") logs(["--last", "20"]);
-  else if (id === "logs-all") logs(["export", "--all"]);
-  else if (id === "logs-window") {
-    const since = await ask("desde (2026-10-02T16:00): ");
-    const until = await ask("hasta (2026-10-02T17:00): ");
-    logs(["export", "--since", since, "--until", until]);
-  }   else if (id === "models-dry") installIntoCodex(false);
-  else if (id === "models-apply") installIntoCodex(true);
-  else if (id === "models-restore") modelsRestore();
-  else if (id === "session-list") await menuSession("list", []);
-  else if (id === "session-mint") {
-    const cwd = (await ask(`cwd (${process.cwd()}): `)) || process.cwd();
-    const label = await ask("label (ej: codex-web-http-e2e): ");
-    await menuSession("mint", ["--cwd", cwd, ...(label ? ["--label", label] : [])]);
-  }
-  else if (id === "session-revoke") {
-    const target = await ask("token o fingerprint: ");
-    if (target) await menuSession("revoke", [target]);
-  }
-  else if (id === "session-cookies") guardarSesion("default");
-  else if (id === "command") {
+    reinstall();
+  },
+  "down": () => { tunnel("stop"); stopServer(); },
+  "restart": () => { tunnel("stop"); stopServer(); startServer(); tunnel("connect"); reinstall(); },
+  "status": () => status(),
+  "panel-open": () => openPanel(),
+  "panel-start": async () => { await startPanelDetached(); },
+  "panel-stop": () => stopPanel(),
+  "ask": async () => {
+    const text = await ask("pregunta (vacio = cancelar): ");
+    if (!text) return;
+    const fresh = existsSync(CLI_CHAT) ? !(await confirm("¿Seguir en el mismo chat de la terminal?")) : true;
+    await askChatGPT(text, fresh);
+  },
+  "command": async () => {
     const text = await ask("texto de la tarea: ");
     const effort = await ask("effort [high]: ") || "high";
     if (text) command(text, effort);
+  },
+  "settings-verify": () => settingsVerify(),
+  "settings-sync": () => settingsSync(),
+  "harness-list": () => harnessCommand("list", []),
+  "harness-install": () => harnessInteractive("install"),
+  "harness-uninstall": () => harnessInteractive("uninstall"),
+  "canary-run": () => canaryCommand("run", []),
+  "canary-status": () => canaryCommand("status", []),
+  "canary-schedule": () => canaryScheduleInteractive("schedule"),
+  "canary-unschedule": () => canaryScheduleInteractive("unschedule"),
+  "server-start": () => startServer(),
+  "server-stop": () => stopServer(),
+  "tunnel-connect": () => tunnel("connect"),
+  "tunnel-stop": () => tunnel("stop"),
+  "tunnel-status": () => tunnel("status"),
+  "logs-50": () => logs(["--last", "50"]),
+  "logs-20": () => logs(["--last", "20"]),
+  "logs-all": () => logs(["export", "--all"]),
+  "logs-window": async () => {
+    const since = await ask("desde (2026-10-02T16:00): ");
+    const until = await ask("hasta (2026-10-02T17:00): ");
+    logs(["export", "--since", since, "--until", until]);
+  },
+  "models-dry": () => installIntoCodex(false),
+  "models-apply": () => installIntoCodex(true),
+  "models-restore": () => modelsRestore(),
+  "session-list": () => menuSession("list", []),
+  "session-mint": async () => {
+    const cwd = (await ask(`cwd (${process.cwd()}): `)) || process.cwd();
+    const label = await ask("label (ej: mi-proyecto): ");
+    await menuSession("mint", ["--cwd", cwd, ...(label ? ["--label", label] : [])]);
+  },
+  "session-mint-write": async () => {
+    const cwd = (await ask(`cwd (${process.cwd()}): `)) || process.cwd();
+    if (!(await confirm(`ChatGPT podra ESCRIBIR en ${cwd} (sandbox, 7 dias). ¿Seguro?`))) return;
+    const label = await ask("label (ej: mi-proyecto): ");
+    await menuSession("mint", ["--cwd", cwd, "--write", ...(label ? ["--label", label] : [])]);
+  },
+  "session-revoke": async () => {
+    const target = await ask("token o fingerprint: ");
+    if (target) await menuSession("revoke", [target]);
+  },
+  "session-cookies": () => guardarSesion("default"),
+};
+
+async function runAction(id: string): Promise<void> {
+  const action = ACTIONS[id];
+  if (!action) {
+    console.error(`accion sin implementar: ${id}`);
+    return;
   }
+  await runHook(`before:${id}`);
+  await action();
   await runHook(`after:${id}`);
 }
 
@@ -428,7 +717,11 @@ async function openMenu(items = visible(MENU), title = "¿Qué hacemos?"): Promi
       await openMenu(visible(item.children), item.label);
       continue;
     }
-    await runAction(item.id);
+    try {
+      await runAction(item.id);
+    } catch (error) {
+      console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+    }
     console.log("");
   }
 }
@@ -501,9 +794,41 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   }
 } else if (cmd === "panel") {
   const argsAll = [sub, ...rest].filter((a): a is string => Boolean(a));
-  const port = Number(flag("--port", argsAll) ?? "8798");
-  startPanel(port);
-  console.log(`panel en http://127.0.0.1:${port} (Ctrl+C para cerrar)`);
+  if (sub === "run" || argsAll.includes("--foreground")) {
+    // Primer plano (lo usa tambien el modo detached por debajo).
+    const port = Number(flag("--port", argsAll) ?? PANEL_PORT);
+    startPanel(port);
+    console.log(`panel en http://127.0.0.1:${port} (Ctrl+C para cerrar)`);
+  } else if (sub === "start") {
+    if (!(await startPanelDetached())) process.exitCode = 1;
+  } else if (sub === "stop") {
+    stopPanel();
+  } else if (sub === "status") {
+    console.log(`panel ${(await panelUp()) ? "up" : "down"} ${PANEL_URL}`);
+  } else if (!sub || sub === "open") {
+    await openPanel();
+  } else {
+    help();
+    process.exit(2);
+  }
+} else if (cmd === "ask") {
+  const args = [sub, ...rest].filter((a): a is string => Boolean(a));
+  const fresh = args.includes("--new");
+  let text = args.filter((a) => a !== "--new").join(" ");
+  if (!text && !process.stdin.isTTY) text = await Bun.stdin.text();
+  if (!text.trim()) {
+    console.error('uso: isymcp ask "texto" [--new]   (o por stdin: echo hola | isymcp ask)');
+    process.exit(2);
+  }
+  if (!(await askChatGPT(text, fresh))) process.exitCode = 1;
+} else if (cmd === "menu") {
+  console.log(brandHeader());
+  if (sub) {
+    const item = findItem(sub);
+    if (!item) { console.error(`no existe: ${sub}`); process.exit(2); }
+    if (item.children) await openMenu(visible(item.children), item.label);
+    else await runAction(sub);
+  } else await openMenu();
 } else if (cmd === "session") {
   if (sub === "mint" || sub === "list" || sub === "revoke") {
     try {
