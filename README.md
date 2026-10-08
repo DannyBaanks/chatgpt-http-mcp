@@ -95,6 +95,13 @@ isymcp session mint --cwd ~/projects/app --write   # a folder ChatGPT may work i
 isymcp harness install claude codex                # plan only; add --apply to install chatgpt_ask
 ```
 
+**Codex integration (Decoupled & Isolated):**
+```bash
+isymcp codex launcher         # creates ~/.local/bin/codex-isymcp & desktop app
+codex-isymcp                  # starts Codex with web models without touching ~/.codex/config.toml
+```
+Your native Codex setup stays 100% clean and talks directly to OpenAI. If the bridge is ever offline, native Codex is never blocked.
+
 **Model and reasoning.** The web transport uses whatever your ChatGPT account
 has selected. In the chat's side panel, **Verificar** shows what ISyMCP sees
 (for example `GPT-5.6 Sol · High (3/3)`). **Sincronizar ajustes** opens a
@@ -218,6 +225,8 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 | `isymcp` | interactive menu with everything below (in a terminal; prints status when piped) |
 | `isymcp panel` | opens the chat + status panel on :8798 (starts it detached if needed); `panel start` / `stop` / `status` / `run` |
 | `isymcp ask "text" [--new]` | a real ChatGPT turn from the terminal; keeps one terminal chat (also visible in the panel), stdin works too |
+| `isymcp codex [args...]` | runs Codex with ephemeral ISyMCP web models profile (without mutating `~/.codex/config.toml`) |
+| `isymcp codex launcher` | installs desktop entry `Codex (ISyMCP Web)` and `~/.local/bin/codex-isymcp` launcher |
 | `isymcp up` / `down` / `status` | server + tunnel lifecycle, honest status |
 | `isymcp server start` / `stop` | just the bridge |
 | `isymcp tunnel connect` / `stop` / `status` | MCP tunnel for ChatGPT tools |

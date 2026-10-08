@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { buildCodexArgs, installDesktopLauncher, isBridgeAlive, removeDesktopLauncher } from "./codex-launcher";
 // isymcp — consola del bridge, y la UNICA entrada: en una terminal, `isymcp`
 // a secas abre el menu con todo (panel, chat, ajustes, harnesses, canario...).
 // Se puede cerrar: server y panel quedan detached.
@@ -545,6 +546,8 @@ function help(): void {
   isymcp models              dry-run del catalogo en Codex
   isymcp models apply        escribe la ruta (backup). Cierra Codex antes.
   isymcp models restore      vuelve al backup
+  isymcp codex [args...]     ejecuta Codex con perfil ISyMCP aislado (sin mutar config.toml)
+  isymcp codex launcher      instala lanzador ~/.local/bin/codex-isymcp y .desktop
   isymcp command "texto"     texto para pegar en chatgpt.com
   isymcp tui list            TUIs detectadas (config dir y/o binario)
   isymcp tui install         dry-run del parche opencode (provider+MCP)
@@ -759,6 +762,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   stopServer();
 } else if (cmd === "tunnel" && sub) {
   tunnel(sub);
+} else if (cmd === "codex") {
+  await codexCommand(sub, rest);
 } else if (cmd === "models") {
   if (sub === "restore") modelsRestore();
   else if (sub === "apply") installIntoCodex(true);
@@ -944,4 +949,39 @@ async function canaryCommand(sub: string, rest: string[]): Promise<void> {
     sh(["systemctl", "--user", "daemon-reload"]);
     console.log("timer quitado");
   }
+}
+
+async function codexCommand(sub: string | undefined, rest: string[]): Promise<void> {
+  if (sub === "launcher" || sub === "desktop") {
+    if (rest.includes("--remove") || rest.includes("remove") || rest.includes("uninstall")) {
+      const res = removeDesktopLauncher();
+      console.log(`Lanzador removido: bin=${res.removedBin} desktop=${res.removedDesktop}`);
+    } else {
+      const res = installDesktopLauncher();
+      console.log(`Lanzador instalado con éxito:`);
+      console.log(`  CLI Wrapper: [32m${res.binPath}[0m`);
+      console.log(`  Desktop Entry: [32m${res.desktopPath}[0m`);
+      console.log(`Ahora puedes ejecutar 'codex-isymcp' o abrir 'Codex (ISyMCP Web)' desde tu menú.`);
+    }
+    return;
+  }
+
+  // Verificar si el bridge está arriba; si no, levantarlo
+  const alive = await isBridgeAlive(PORT);
+  if (!alive) {
+    console.log(`[isymcp] Bridge local apagado en http://127.0.0.1:${PORT}. Iniciando...`);
+    startServer();
+    // Esperar hasta 3s a que responda
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (await isBridgeAlive(PORT)) break;
+    }
+  }
+
+  const userArgs = [sub, ...rest].filter((p): p is string => Boolean(p));
+  const fullArgs = buildCodexArgs(userArgs, PORT);
+
+  const { spawnSync } = await import("node:child_process");
+  const proc = spawnSync("codex", fullArgs, { stdio: "inherit", env: process.env });
+  process.exit(proc.status ?? 0);
 }
