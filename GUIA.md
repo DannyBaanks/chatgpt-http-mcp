@@ -3,7 +3,7 @@
 Desde la carpeta del proyecto:
 
 ```bash
-/home/danny/.bun/bin/bun run src/isymcp.ts canary status
+bun run src/isymcp.ts canary status
 ```
 
 **Regla de oro:** el aviso resume lo observado; la evidencia conserva el detalle. Un canario OK demuestra esas tres comprobaciones en esa fecha, no garantiza todos los usos del bridge.

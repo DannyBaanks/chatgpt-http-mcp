@@ -24,6 +24,7 @@ import { defaultExportPath, exportLines, formatLine, parseBound, readAll, select
 import { MENU, brandHeader, select, visible, visibleLabels } from "./menu";
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
 import { detectTuis, installIntoOpencode } from "./tui";
+import { bridgeAuthHeaders } from "./local-guard";
 
 const ROOT = join(import.meta.dir, "..");
 const RUN = join(homedir(), ".codex-web-http", "run");
@@ -53,7 +54,7 @@ function readPid(): number | null {
 
 async function serverUp(): Promise<boolean> {
   try {
-    const res = await fetch(`http://127.0.0.1:${PORT}/health`, { signal: AbortSignal.timeout(2_000) });
+    const res = await fetch(`http://127.0.0.1:${PORT}/health`, { headers: bridgeAuthHeaders(), signal: AbortSignal.timeout(2_000) });
     return res.ok;
   } catch {
     return false;

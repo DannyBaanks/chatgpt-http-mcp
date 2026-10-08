@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { desktopNotice, type Notice } from "./notice";
 import { bridgeHome } from "./codex-sessions";
 import { createChat, listChats } from "./chats";
+import { bridgeAuthHeaders } from "./local-guard";
 
 export const CANARY_TITLE = "[canary] ISyMCP";
 
@@ -132,7 +133,7 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
 
   const turn: Turn = opts.turn ?? (async (chatId, message) => {
     const r = await fetch(`${base}/isymcp/chat/turn`, {
-      method: "POST", headers: { "content-type": "application/json" },
+      method: "POST", headers: bridgeAuthHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ chat_id: chatId, message }), signal: AbortSignal.timeout(240_000),
     });
     const data = (await r.json().catch(() => null)) as { ok?: boolean; reply?: { text?: string; meta?: { kind?: string } }; error?: { message?: string } } | null;
@@ -142,7 +143,7 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
   const checks: CanaryCheck[] = [];
   let error: string | undefined;
   try {
-    const up = async (url: string) => fetch(`${url}/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
+    const up = async (url: string) => fetch(`${url}/health`, { headers: bridgeAuthHeaders(), signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
     if (!opts.turn && !(await up(base))) {
       if (opts.spawnBridge === false) {
         const result: CanaryResult = { ts, ok: false, bridge: "unavailable", checks: [], error: `bridge apagado en ${base}` };

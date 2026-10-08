@@ -237,6 +237,12 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
   reject foreign `Host`/`Origin` headers and non-JSON POSTs. A web page you
   visit can't drive them (CSRF), read them (DNS rebinding) or open the
   websocket. Extra hostnames: `CODEX_WEB_HTTP_ALLOWED_HOSTS=a,b`.
+  Any non-loopback exposure (`CODEX_WEB_HTTP_HOST`, `CODEX_WEB_HTTP_ALLOWED_HOSTS`)
+  **requires** `CODEX_WEB_HTTP_TOKEN`: the bridge refuses to start without it, and
+  clients must send it in the `x-isymcp-token` header (never forwarded upstream).
+  The panel ignores extra hosts: it is loopback-only because it can start/stop
+  the bridge and tunnel. Note that any process of your own user can still reach
+  loopback; the token is what protects non-loopback access.
 - **Sandbox.** `bubblewrap` with `$HOME` and the bridge's secret folder hidden
   behind tmpfs, no network, a minimal environment, and only the session folder
   visible (read-only or read-write). Toolchains like `~/.bun`, `~/.local/bin`
@@ -282,7 +288,8 @@ See `docs/EVIDENCE.md` and `docs/evidence/`.
 |---|---|---|
 | `CODEX_WEB_HTTP_PORT` | `8791` | bridge port |
 | `CODEX_WEB_HTTP_CHROME` | `/usr/bin/google-chrome` | Chrome binary |
-| `CODEX_WEB_HTTP_ALLOWED_HOSTS` | — | extra hostnames the bridge and panel accept |
+| `CODEX_WEB_HTTP_ALLOWED_HOSTS` | — | extra hostnames the bridge accepts (requires `CODEX_WEB_HTTP_TOKEN`; the panel stays loopback-only) |
+| `CODEX_WEB_HTTP_TOKEN` | — | shared secret, `x-isymcp-token` header; required for non-loopback exposure, enforced whenever set |
 | `CODEX_WEB_HTTP_SANDBOX_NET` | off | `1` gives sandboxed commands network access |
 | `CODEX_WEB_HTTP_SANDBOX_ENV` | — | extra env vars passed into the sandbox |
 | `CODEX_WEB_HTTP_SANDBOX_RO_BINDS` | — | extra read-only paths (relative to `$HOME` or absolute) |

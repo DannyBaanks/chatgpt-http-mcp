@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isExpired, listUserSessions } from "./codex-sessions";
-import { guardLocalRequest } from "./local-guard";
+import { bridgeAuthHeaders, guardLocalRequest } from "./local-guard";
 import { readLatestCanary, type CanaryResult } from "./canary";
 import { canaryScheduled, listCodexTasks, type CodexTaskView } from "./codex-tasks";
 import { chatPath, createChat, listChats, loadChat, publicChat, saveChat } from "./chats";
@@ -82,7 +82,7 @@ export function readLastSoak(dir = join(ROOT, "docs", "evidence")): PanelSoak | 
 export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> {
   let server: "up" | "down" = "down";
   try {
-    const r = await fetch(`http://127.0.0.1:${bridgePort}/health`, { signal: AbortSignal.timeout(1500) });
+    const r = await fetch(`http://127.0.0.1:${bridgePort}/health`, { headers: bridgeAuthHeaders(), signal: AbortSignal.timeout(1500) });
     if (r.ok) server = "up";
   } catch {
     /* down */
@@ -479,7 +479,7 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
     async fetch(req) {
       // Host/Origin loopback + JSON en POST: sin esto cualquier pagina web
       // podia disparar acciones (CSRF) o leer /api/state (DNS rebinding).
-      const denied = guardLocalRequest(req, { requireJsonBody: true });
+      const denied = guardLocalRequest(req, { requireJsonBody: true, loopbackOnly: true });
       if (denied) return denied;
       const url = new URL(req.url);
       if (url.pathname.startsWith("/api/chat")) return handleChatApi(req, url, bridgePort);
@@ -512,7 +512,7 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
   const bridge = `http://127.0.0.1:${bridgePort}`;
   if (url.pathname === "/api/chat/status" && req.method === "GET") {
     try {
-      const r = await fetch(`${bridge}/isymcp/chat/status`, { signal: AbortSignal.timeout(1500) });
+      const r = await fetch(`${bridge}/isymcp/chat/status`, { headers: bridgeAuthHeaders(), signal: AbortSignal.timeout(1500) });
       return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
     } catch {
       return apiError(503, "bridge_unavailable", "el bridge local no responde");
@@ -558,7 +558,7 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
   try {
     const r = await fetch(`${bridge}/isymcp/chat/turn`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: bridgeAuthHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ chat_id: id, message: body.message }),
       signal: AbortSignal.timeout(300_000),
     });
@@ -583,7 +583,7 @@ export async function handleSettingsApi(req: Request, url: URL, bridgePort: stri
   try {
     const r = await fetch(`http://127.0.0.1:${bridgePort}${route.target}`, {
       method: route.method,
-      headers: route.method === "POST" ? { "content-type": "application/json" } : undefined,
+      headers: route.method === "POST" ? bridgeAuthHeaders({ "content-type": "application/json" }) : bridgeAuthHeaders(),
       body: route.method === "POST" ? "{}" : undefined,
       signal: AbortSignal.timeout(route.timeoutMs),
     });
