@@ -79,10 +79,13 @@ bun run scripts/import-cookies.ts --file /path/to/cookie.txt
 
 # 2. Start the bridge and open the panel
 isymcp server start
-isymcp panel                  # → http://127.0.0.1:8798
+isymcp panel                  # starts it in the background and opens http://127.0.0.1:8798
 ```
 
-Then go to **Chat → Nuevo chat**, type, and the answer streams in.
+Then go to **Chat → Nuevo chat**, type, and the answer streams in. Or stay in
+the terminal: `isymcp ask "hola"`. Not sure what to type? Run `isymcp` alone:
+it opens a menu with every action (panel, chat, ChatGPT settings, harnesses,
+canary, models, sessions, logs).
 
 Optional extras:
 
@@ -212,7 +215,9 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 
 | Command | What |
 |---|---|
-| `isymcp panel` | chat + status panel on :8798 |
+| `isymcp` | interactive menu with everything below (in a terminal; prints status when piped) |
+| `isymcp panel` | opens the chat + status panel on :8798 (starts it detached if needed); `panel start` / `stop` / `status` / `run` |
+| `isymcp ask "text" [--new]` | a real ChatGPT turn from the terminal; keeps one terminal chat (also visible in the panel), stdin works too |
 | `isymcp up` / `down` / `status` | server + tunnel lifecycle, honest status |
 | `isymcp server start` / `stop` | just the bridge |
 | `isymcp tunnel connect` / `stop` / `status` | MCP tunnel for ChatGPT tools |
