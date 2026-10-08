@@ -21,23 +21,17 @@ const SOL_PRO = { solAvailable: true, proAvailable: true } as const;
 const SOL_PRO_XH = { solAvailable: true, proAvailable: true, extraHighAvailable: true } as const;
 const LUNA = { solAvailable: false, proAvailable: false } as const;
 
-test("gating: luna-only, sol, pro y extra high", () => {
-  expect(availableRoutes(LUNA).map((r) => r.slug)).toEqual(["chatgpt-web/gpt-5.6-luna"]);
-  expect(availableRoutes(SOL).map((r) => r.slug)).toEqual([
-    "chatgpt-web/gpt-5.6-sol-instant",
-    "chatgpt-web/gpt-5.6-sol",
-    "chatgpt-web/gpt-6.1-sol",
-  ]);
-  expect(availableRoutes(SOL_PRO).map((r) => r.slug)).toEqual([
-    "chatgpt-web/gpt-5.6-sol-instant",
-    "chatgpt-web/gpt-5.6-sol",
-    "chatgpt-web/gpt-6.1-sol",
-    "chatgpt-web/gpt-5.6-pro",
-    "chatgpt-web/gpt-6-pro",
-  ]);
+test("gating: solo se anuncia lo verificable (Sol 5.6 / High)", () => {
+  // El backend Responses solo sabe verificar GPT-5.6 Sol / High contra el
+  // selector visible de ChatGPT: anunciar mas son filas que siempre fallan.
+  expect(availableRoutes(LUNA).map((r) => r.slug)).toEqual([]);
+  expect(availableRoutes(SOL).map((r) => r.slug)).toEqual(["chatgpt-web/gpt-5.6-sol"]);
+  // Pro: aun no verificable (falta ver el selector de una cuenta Pro).
+  expect(availableRoutes(SOL_PRO).map((r) => r.slug)).toEqual(["chatgpt-web/gpt-5.6-sol"]);
   const sol = availableRoutes(SOL_PRO_XH).find((r) => r.slug === "chatgpt-web/gpt-5.6-sol")!;
-  expect(routeEfforts(sol, SOL_PRO_XH)).toEqual(["medium", "high", "xhigh"]);
-  expect(routeEfforts(sol, SOL)).toEqual(["medium", "high"]);
+  expect(sol.defaultEffort).toBe("high");
+  expect(routeEfforts(sol, SOL_PRO_XH)).toEqual(["high"]);
+  expect(routeEfforts(sol, SOL)).toEqual(["high"]);
 });
 
 test("limits: instant, medium/high, pro max y bigger context", () => {
@@ -56,7 +50,7 @@ test("augment agrega filas Web, preserva nativas y no muta el input", () => {
   const before = JSON.stringify(fixture);
   const merged = augmentCatalog(fixture, SOL_PRO) as { models: Array<Record<string, unknown>> };
   expect(JSON.stringify(fixture)).toBe(before);
-  expect(merged.models).toHaveLength(1 + 5);
+  expect(merged.models).toHaveLength(1 + 1);
   const native = merged.models[0];
   expect(native.slug).toBe("gpt-5.6-sol");
   const web = merged.models.filter((m) => (m.slug as string).startsWith("chatgpt-web/"));
@@ -83,12 +77,13 @@ test("catalogo sin template o sin models falla cerrado", () => {
 
 test("diff de filas detecta faltantes y extras", () => {
   const full = augmentCatalog(fixture, SOL_PRO) as unknown;
-  const partial = { models: [{ slug: "chatgpt-web/gpt-5.6-sol" }] } as unknown;
-  const diffAgainstFull = diffWebRows(partial, full); // faltan las otras filas web
-  expect(diffAgainstFull.missing.length).toBe(4);
+  const empty = { models: [] } as unknown;
+  const diffAgainstFull = diffWebRows(empty, full); // falta la fila verificada
+  expect(diffAgainstFull.missing).toEqual(["chatgpt-web/gpt-5.6-sol"]);
   expect(diffAgainstFull.ok).toBe(false);
-  const diffAgainstPartial = diffWebRows(full, partial); // tenemos extras, no faltantes
-  expect(diffAgainstPartial.missing).toEqual([]);
-  expect(diffAgainstPartial.extra).toContain("chatgpt-web/gpt-5.6-pro");
-  expect(diffAgainstPartial.ok).toBe(true);
+  const withExtra = { models: [{ slug: "chatgpt-web/gpt-5.6-sol" }, { slug: "chatgpt-web/gpt-5.6-pro" }] } as unknown;
+  const diffAgainstExtra = diffWebRows(withExtra, full); // tenemos extras, no faltantes
+  expect(diffAgainstExtra.missing).toEqual([]);
+  expect(diffAgainstExtra.extra).toContain("chatgpt-web/gpt-5.6-pro");
+  expect(diffAgainstExtra.ok).toBe(true);
 });

@@ -123,16 +123,36 @@ const VISIBLE_ROUTES: readonly WebModelRoute[] = [
   GPT6_PRO_ROUTE,
 ];
 
+/**
+ * Lo que se ANUNCIA a Codex (selector de la app, /v1/models): solo rutas y
+ * esfuerzos que el backend sabe verificar contra el selector visible de
+ * ChatGPT antes de enviar (src/responses/selection.ts). Anunciar mas solo
+ * produce filas que siempre fallan (visto 2026-10-07 en Codex App: 5 filas
+ * web y un deslizante de 3 esfuerzos, con solo Sol/High funcionando).
+ *
+ * Pro: falta verificar como luce el selector en una cuenta Pro; cuando se
+ * demuestre, se agrega aqui (y en selection.ts) con requiresPro.
+ */
+export const VERIFIED_WEB_ROUTES: Readonly<Record<string, readonly CodexEffort[]>> = {
+  "chatgpt-web/gpt-5.6-sol": ["high"],
+};
+
 export function availableRoutes(caps: AccountCapabilities): readonly WebModelRoute[] {
   if (!caps.solAvailable) {
-    return VISIBLE_ROUTES.filter((route) => route.lunaOnly === true);
+    return VISIBLE_ROUTES.filter((route) => route.lunaOnly === true && VERIFIED_WEB_ROUTES[route.slug] !== undefined);
   }
-  return VISIBLE_ROUTES.filter(
-    (route) =>
-      !route.lunaOnly &&
-      (!route.requiresPro || caps.proAvailable) &&
-      (!route.requiresExtraHigh || caps.extraHighAvailable === true),
-  );
+  return VISIBLE_ROUTES
+    .filter(
+      (route) =>
+        !route.lunaOnly &&
+        VERIFIED_WEB_ROUTES[route.slug] !== undefined &&
+        (!route.requiresPro || caps.proAvailable) &&
+        (!route.requiresExtraHigh || caps.extraHighAvailable === true),
+    )
+    .map((route) => {
+      const efforts = VERIFIED_WEB_ROUTES[route.slug]!;
+      return { ...route, supportedEfforts: efforts, defaultEffort: efforts.includes(route.defaultEffort) ? route.defaultEffort : efforts[0]! };
+    });
 }
 
 export function routeEfforts(route: WebModelRoute, caps: AccountCapabilities): readonly CodexEffort[] {
