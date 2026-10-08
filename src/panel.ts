@@ -41,6 +41,8 @@ export interface PanelSoak {
 export interface PanelState {
   ts: string;
   server: "up" | "down";
+  /** El bridge responde 401: exige CODEX_WEB_HTTP_TOKEN y el panel no lo tiene. */
+  serverAuth?: "ok" | "token_required";
   serverPort: string;
   tunnel: "ready" | "stopped";
   mcp: "up" | "down";
@@ -81,9 +83,12 @@ export function readLastSoak(dir = join(ROOT, "docs", "evidence")): PanelSoak | 
 
 export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> {
   let server: "up" | "down" = "down";
+  let serverAuth: "ok" | "token_required" = "ok";
   try {
     const r = await fetch(`http://127.0.0.1:${bridgePort}/health`, { headers: bridgeAuthHeaders(), signal: AbortSignal.timeout(1500) });
     if (r.ok) server = "up";
+    // Un 401 prueba que el bridge esta vivo: no es "apagado", es token ausente/malo.
+    else if (r.status === 401) { server = "up"; serverAuth = "token_required"; }
   } catch {
     /* down */
   }
@@ -116,6 +121,7 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
   return {
     ts: new Date().toISOString(),
     server,
+    serverAuth,
     serverPort: bridgePort,
     tunnel: pgrep("tunnel-client run") ? "ready" : "stopped",
     mcp: pgrep("mcp/main.ts --contract native --broker") ? "up" : "down",
@@ -192,7 +198,7 @@ function canaryLine(c: CanaryResult | null, now: number): string {
 /** El <main> del panel: lo re-pide el navegador cada pocos segundos. */
 export function renderMain(state: PanelState): string {
   const now = Date.parse(state.ts) || Date.now();
-  const checks = [state.server === "up", state.tunnel === "ready", state.mcp === "up", state.browser === "ok"];
+  const checks = [state.server === "up" && state.serverAuth !== "token_required", state.tunnel === "ready", state.mcp === "up", state.browser === "ok"];
   const down = checks.filter((ok) => !ok).length;
   const health = down === 0
     ? `<span class="pill tone-ok">todo en linea</span>`
@@ -200,9 +206,12 @@ export function renderMain(state: PanelState): string {
 
   const tiles = [
     tile({
-      title: "SERVER", tone: state.server === "up" ? "ok" : "bad",
-      state: state.server === "up" ? "en linea" : "apagado",
-      detail: `http://127.0.0.1:${escapeHtml(state.serverPort)}`,
+      title: "SERVER",
+      tone: state.serverAuth === "token_required" ? "warn" : state.server === "up" ? "ok" : "bad",
+      state: state.serverAuth === "token_required" ? "token requerido" : state.server === "up" ? "en linea" : "apagado",
+      detail: state.serverAuth === "token_required"
+        ? `http://127.0.0.1:${escapeHtml(state.serverPort)} · inicia el panel con el mismo CODEX_WEB_HTTP_TOKEN del bridge`
+        : `http://127.0.0.1:${escapeHtml(state.serverPort)}`,
       actions: button("server-start", "Encender", "go") + button("server-stop", "Apagar", "stop"),
     }),
     tile({
@@ -499,6 +508,15 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
   return server;
 }
 
+/** 401 del bridge = el panel no tiene (o tiene mal) CODEX_WEB_HTTP_TOKEN: decirlo claro. */
+export const BRIDGE_AUTH_HINT = "el bridge exige CODEX_WEB_HTTP_TOKEN y el panel no lo tiene o no coincide; inicia el panel con la misma variable";
+
+/** Reenvia la respuesta del bridge; un 401 se traduce a un error accionable. */
+async function relayBridge(r: Response): Promise<Response> {
+  if (r.status === 401) return apiError(502, "bridge_unauthorized", BRIDGE_AUTH_HINT);
+  return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+}
+
 function apiError(status: number, type: string, message: string): Response {
   return Response.json({ error: { type, message } }, { status });
 }
@@ -513,7 +531,7 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
   if (url.pathname === "/api/chat/status" && req.method === "GET") {
     try {
       const r = await fetch(`${bridge}/isymcp/chat/status`, { headers: bridgeAuthHeaders(), signal: AbortSignal.timeout(1500) });
-      return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+      return relayBridge(r);
     } catch {
       return apiError(503, "bridge_unavailable", "el bridge local no responde");
     }
@@ -562,7 +580,7 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
       body: JSON.stringify({ chat_id: id, message: body.message }),
       signal: AbortSignal.timeout(300_000),
     });
-    return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+    return relayBridge(r);
   } catch (error) {
     return apiError(503, "bridge_unavailable", `el bridge local no responde (${bridge}): ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -587,7 +605,7 @@ export async function handleSettingsApi(req: Request, url: URL, bridgePort: stri
       body: route.method === "POST" ? "{}" : undefined,
       signal: AbortSignal.timeout(route.timeoutMs),
     });
-    return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+    return relayBridge(r);
   } catch {
     return apiError(503, "bridge_unavailable", "el bridge local no responde");
   }

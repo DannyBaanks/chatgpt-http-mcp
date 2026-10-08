@@ -93,6 +93,9 @@ server.registerTool(
     const data = (await res.json().catch(() => null)) as
       | { ok?: boolean; reply?: { text?: string; meta?: { kind?: string; url?: string | null } }; error?: { message?: string } }
       | null;
+    if (res.status === 401) {
+      return text("El bridge exige CODEX_WEB_HTTP_TOKEN y este MCP no lo tiene o no coincide: defínelo con el mismo valor en el entorno del MCP.", true);
+    }
     if (!res.ok || !data?.reply) {
       return untrustedText(`El bridge respondio HTTP ${res.status}: ${data?.error?.message ?? "sin detalle"}`, true);
     }
