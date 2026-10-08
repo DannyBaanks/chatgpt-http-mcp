@@ -14,6 +14,7 @@ import { handleChatCompletions } from "./chat-completions";
 import { runIdempotent } from "./turn-idempotency";
 import { parseWsTurn, toJsonl, wsFrames } from "./ws-responses";
 import { guardLocalRequest } from "./local-guard";
+import { forwardHeaders, NativeWsProxy, upstreamWsUrl } from "./ws-native-proxy";
 import { ChatTurnError, chatStatus, runChatTurn } from "./chat-turn";
 import { publicChat } from "./chats";
 import { finishSettingsWindow, openSettingsWindow, settingsStatus, verifySettings } from "./chatgpt-settings";
@@ -168,12 +169,15 @@ export function startServer(config: AppConfig = loadConfig()) {
         // abierta podria hablar con el bridge (CSWSH).
         const denied = guardLocalRequest(req);
         if (denied) return denied;
-        if (bun.upgrade(req, { data: { headers: Object.fromEntries(req.headers) } })) return undefined;
+        if (bun.upgrade(req, { data: { headers: Object.fromEntries(req.headers), native: null as NativeWsProxy | null } })) return undefined;
         return new Response("websocket requerido", { status: 426 });
       }
       return handler(req);
     },
     websocket: {
+      close(ws) {
+        ws.data.native?.close();
+      },
       async message(ws, message) {
         const raw = typeof message === "string" ? message : new TextDecoder().decode(message);
         let turn;
@@ -185,7 +189,14 @@ export function startServer(config: AppConfig = loadConfig()) {
           return;
         }
         if (!turn?.web) {
-          ws.send(JSON.stringify({ type: "error", error: { message: "solo modelos chatgpt-web/* por este websocket" } }));
+          // Nativo (o un evento sin modelo de una conexion ya nativa): se
+          // reenvia tal cual al upstream de Codex con la auth de la app.
+          if (!turn && !ws.data.native?.active) {
+            ws.send(JSON.stringify({ type: "error", error: { type: "ws_bad_request", message: "mensaje sin modelo" } }));
+            return;
+          }
+          ws.data.native ??= new NativeWsProxy(ws, upstreamWsUrl(config.upstreamBase), forwardHeaders(ws.data.headers));
+          ws.data.native.send(message);
           return;
         }
         try {
