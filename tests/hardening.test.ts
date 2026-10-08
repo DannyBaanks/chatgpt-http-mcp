@@ -13,6 +13,7 @@ import {
 } from "../src/codex-sessions";
 import { withWebLock } from "../src/web-turn";
 import { sanitizeEvidenceText } from "../src/sanitize";
+import { assertSafeExposure, guardLocalRequest } from "../src/local-guard";
 
 let home: string;
 let workspace: string;
@@ -232,5 +233,44 @@ describe("T6 markdown del chat: sin HTML del modelo", () => {
     const browserFn = new Function(`return (${renderMarkdown.toString()})`)() as (s: string) => string;
     const sample = "**a** `b` [c](https://d.e) <i>x</i>\n- f\n```js\n<g>\n```";
     expect(browserFn(sample)).toBe(renderMarkdown(sample));
+  });
+});
+
+describe("token del bridge (auditoria 2026-10-07)", () => {
+  const cfg = { CODEX_WEB_HTTP_WEB_MODELS: "on", CODEX_WEB_HTTP_UPSTREAM: "http://127.0.0.1:9" };
+  test("con CODEX_WEB_HTTP_TOKEN, sin token 401 y con token pasa", async () => {
+    process.env.CODEX_WEB_HTTP_TOKEN = "s3cret-token";
+    try {
+      const handler = createHandler(loadConfig(cfg));
+      const no = await handler(new Request("http://127.0.0.1:8791/health"));
+      expect(no.status).toBe(401);
+      const bad = await handler(new Request("http://127.0.0.1:8791/health", { headers: { "x-isymcp-token": "nope" } }));
+      expect(bad.status).toBe(401);
+      const ok = await handler(new Request("http://127.0.0.1:8791/health", { headers: { "x-isymcp-token": "s3cret-token" } }));
+      expect(ok.status).toBe(200);
+    } finally {
+      delete process.env.CODEX_WEB_HTTP_TOKEN;
+    }
+  });
+  test("sin token configurado no cambia nada", async () => {
+    const handler = createHandler(loadConfig(cfg));
+    expect((await handler(new Request("http://127.0.0.1:8791/health"))).status).toBe(200);
+  });
+  test("exposicion no loopback sin token se niega a arrancar", () => {
+    expect(() => assertSafeExposure("0.0.0.0", {})).toThrow(/CODEX_WEB_HTTP_TOKEN/);
+    expect(() => assertSafeExposure("127.0.0.1", { CODEX_WEB_HTTP_ALLOWED_HOSTS: "x.trycloudflare.com" })).toThrow();
+    expect(() => assertSafeExposure("127.0.0.1", {})).not.toThrow();
+    expect(() => assertSafeExposure("0.0.0.0", { CODEX_WEB_HTTP_TOKEN: "t" })).not.toThrow();
+  });
+  test("el panel ignora ALLOWED_HOSTS (solo loopback)", () => {
+    process.env.CODEX_WEB_HTTP_ALLOWED_HOSTS = "evil.example";
+    try {
+      const denied = guardLocalRequest(new Request("http://evil.example/api/action", { method: "POST", headers: { "content-type": "application/json" } }), { loopbackOnly: true });
+      expect(denied?.status).toBe(403);
+      const allowed = guardLocalRequest(new Request("http://evil.example/x"), {});
+      expect(allowed).toBeNull();
+    } finally {
+      delete process.env.CODEX_WEB_HTTP_ALLOWED_HOSTS;
+    }
   });
 });

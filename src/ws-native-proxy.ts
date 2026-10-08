@@ -16,6 +16,7 @@
 const DROP = new Set([
   "host", "connection", "upgrade", "content-length", "origin",
   "sec-websocket-key", "sec-websocket-version", "sec-websocket-extensions", "sec-websocket-accept",
+  "x-isymcp-token",
 ]);
 
 export function upstreamWsUrl(upstreamBase: string): string {

@@ -37,6 +37,50 @@ function forbidden(type: string, message: string): Response {
 export interface GuardOptions {
   /** POST con body: exigir content-type application/json. */
   requireJsonBody?: boolean;
+  /**
+   * Solo loopback: ignora CODEX_WEB_HTTP_ALLOWED_HOSTS. Para superficies que
+   * disparan acciones locales (panel) y no deben alcanzarse por un tunel.
+   */
+  loopbackOnly?: boolean;
+  /** Exigir el token del bridge (CODEX_WEB_HTTP_TOKEN) si esta definido. */
+  requireToken?: boolean;
+}
+
+/** Cabecera con el token del bridge (no usa Authorization: esa viaja al upstream). */
+export const TOKEN_HEADER = "x-isymcp-token";
+
+export function bridgeToken(env: Record<string, string | undefined> = process.env): string | null {
+  const t = env.CODEX_WEB_HTTP_TOKEN?.trim();
+  return t ? t : null;
+}
+
+/** Cabeceras para que un cliente interno (panel, canario, MCP) hable con el bridge. */
+export function bridgeAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const t = bridgeToken();
+  return t ? { ...extra, [TOKEN_HEADER]: t } : extra;
+}
+
+function tokenMatches(given: string | null, expected: string): boolean {
+  if (given === null) return false;
+  const a = new TextEncoder().encode(given);
+  const b = new TextEncoder().encode(expected);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < b.length; i++) diff |= (a[i] ?? 0) ^ b[i]!;
+  return diff === 0;
+}
+
+/**
+ * Un host no loopback (bind o ALLOWED_HOSTS) sin token dejaria la sesion de
+ * ChatGPT abierta a quien llegue al puerto: se niega a arrancar.
+ */
+export function assertSafeExposure(hostname: string, env: Record<string, string | undefined> = process.env): void {
+  const extra = (env.CODEX_WEB_HTTP_ALLOWED_HOSTS ?? "").split(",").some((h) => h.trim());
+  const bindsLoopback = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(hostname.trim().toLowerCase());
+  if ((extra || !bindsLoopback) && !bridgeToken(env)) {
+    throw new Error(
+      "exposicion no loopback (CODEX_WEB_HTTP_HOST/CODEX_WEB_HTTP_ALLOWED_HOSTS) requiere CODEX_WEB_HTTP_TOKEN",
+    );
+  }
 }
 
 /**
@@ -44,7 +88,7 @@ export interface GuardOptions {
  * legitimo; null si puede seguir.
  */
 export function guardLocalRequest(req: Request, options: GuardOptions = {}): Response | null {
-  const allowed = allowedHosts();
+  const allowed = options.loopbackOnly ? LOOPBACK_HOSTS : allowedHosts();
   const hostHeader = req.headers.get("host") ?? new URL(req.url).host;
   const host = hostnameOf(hostHeader);
   if (!host || !allowed.has(host)) {
@@ -61,6 +105,13 @@ export function guardLocalRequest(req: Request, options: GuardOptions = {}): Res
     if (!originHost || !allowed.has(originHost)) {
       return forbidden("forbidden_origin", `Origin no permitido: ${origin}`);
     }
+  }
+  const token = options.requireToken ? bridgeToken() : null;
+  if (token && !tokenMatches(req.headers.get(TOKEN_HEADER), token)) {
+    return Response.json(
+      { error: { type: "unauthorized", message: `falta o es invalido ${TOKEN_HEADER} (CODEX_WEB_HTTP_TOKEN)` } },
+      { status: 401 },
+    );
   }
   if (options.requireJsonBody && req.method === "POST") {
     const type = (req.headers.get("content-type") ?? "").toLowerCase();

@@ -67,7 +67,7 @@ async function modelsWithWeb(req: Request, config: AppConfig): Promise<Response>
 
 export function createHandler(config: AppConfig): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
-    const denied = guardLocalRequest(req, { requireJsonBody: true });
+    const denied = guardLocalRequest(req, { requireJsonBody: true, requireToken: true });
     if (denied) return denied;
     const url = new URL(req.url);
     if (url.pathname === "/v1/responses" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
@@ -167,7 +167,7 @@ export function startServer(config: AppConfig = loadConfig()) {
       if (url.pathname === "/v1/responses" && (req.method === "GET" || req.headers.get("upgrade"))) {
         // Los websockets no tienen CORS: sin esta guarda cualquier pagina
         // abierta podria hablar con el bridge (CSWSH).
-        const denied = guardLocalRequest(req);
+        const denied = guardLocalRequest(req, { requireToken: true });
         if (denied) return denied;
         if (bun.upgrade(req, { data: { headers: Object.fromEntries(req.headers), native: null as NativeWsProxy | null } })) return undefined;
         return new Response("websocket requerido", { status: 426 });

@@ -15,6 +15,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { CHAT_ID_RE, createChat, loadChat } from "../chats";
+import { bridgeAuthHeaders } from "../local-guard";
 
 const BRIDGE = `http://127.0.0.1:${process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791"}`;
 const MAX_PROMPT = 100_000;
@@ -79,7 +80,7 @@ server.registerTool(
     try {
       res = await fetch(`${BRIDGE}/isymcp/chat/turn`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: bridgeAuthHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({ chat_id: chatId, message: input.prompt }),
         signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
       });

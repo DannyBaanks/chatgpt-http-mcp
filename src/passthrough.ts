@@ -20,6 +20,8 @@ const HOP_BY_HOP = new Set([
   "content-length",
   // Bun fetch descomprime solo; reenviar accept-encoding rompe el passthrough.
   "accept-encoding",
+  // Token del bridge: nunca debe llegar al upstream.
+  "x-isymcp-token",
 ]);
 
 export function filterHeaders(source: Headers): Headers {
