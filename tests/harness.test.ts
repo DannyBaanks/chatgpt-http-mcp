@@ -25,7 +25,7 @@ name=""; for a in "$@"; do case "$a" in ${MCP_NAME}) name="$a";; esac; done
 st="$FAKE_STATE.$(basename "$0")"
 case "$sub" in
   add) echo "$name" >> "$st"; echo "Added $name";;
-  remove) [ -f "$st" ] && grep -v "^$name$" "$st" > "$st.tmp"; mv "$st.tmp" "$st" 2>/dev/null; echo "Removed $name";;
+  remove|unset) [ -f "$st" ] && grep -v "^$name$" "$st" > "$st.tmp"; mv "$st.tmp" "$st" 2>/dev/null; echo "Removed $name";;
   list) [ -f "$st" ] && cat "$st"; echo "(fin)";;
   get) [ -f "$st" ] && grep -q "^$name$" "$st" && { echo "$name: stdio"; exit 0; }; echo "No MCP server found"; exit 1;;
 esac
@@ -36,7 +36,7 @@ beforeAll(() => {
   bin = join(dir, "bin");
   mkdirSync(bin);
   state = join(dir, "state");
-  for (const name of ["claude", "codex", "qwen", "gemini", "grok", "kimi"]) {
+  for (const name of ["claude", "codex", "qwen", "gemini", "grok", "copilot", "hermes", "openclaw", "pi", "kimi"]) {
     writeFileSync(join(bin, name), FAKE, { mode: 0o755 });
   }
   writeFileSync(join(bin, "noexec"), "#!/bin/sh\n", { mode: 0o644 });
@@ -56,7 +56,9 @@ describe("deteccion", () => {
     const all = await detect();
     expect(all.map((s) => s.id)).toEqual(CATALOG.map((d) => d.id));
     const by = Object.fromEntries(all.map((s) => [s.id, s]));
-    for (const id of ["claude", "codex", "qwen", "gemini", "grok"]) expect(by[id]).toMatchObject({ present: true, supported: true, installed: false });
+    for (const id of ["claude", "codex", "qwen", "gemini", "grok", "copilot", "hermes", "openclaw", "pi"]) {
+      expect(by[id]).toMatchObject({ present: true, supported: true, installed: false });
+    }
     expect(by.kimi).toMatchObject({ present: true, supported: false, installed: null });
     expect(by.opencode).toMatchObject({ present: false });
   });
@@ -65,9 +67,13 @@ describe("deteccion", () => {
 describe("plan / apply / verify", () => {
   test("el plan no escribe nada y muestra el comando exacto", async () => {
     const before = existsSync(process.env.FAKE_LOG!) ? readFileSync(process.env.FAKE_LOG!, "utf8") : "";
-    const steps = await plan("install", ["claude", "gemini", "kimi", "nope"]);
+    const steps = await plan("install", ["claude", "gemini", "hermes", "openclaw", "copilot", "pi", "kimi", "nope"]);
     expect(steps.find((s) => s.id === "claude")!.argv).toEqual([join(bin, "claude"), "mcp", "add", "--scope", "user", MCP_NAME, "--", launcherPath()]);
     expect(steps.find((s) => s.id === "gemini")!.argv).toContain("--scope");
+    expect(steps.find((s) => s.id === "hermes")!.argv).toEqual([join(bin, "hermes"), "mcp", "add", MCP_NAME, "--command", launcherPath()]);
+    expect(steps.find((s) => s.id === "openclaw")!.argv).toEqual([join(bin, "openclaw"), "mcp", "add", MCP_NAME, "--command", launcherPath(), "--no-probe"]);
+    expect(steps.find((s) => s.id === "copilot")!.argv).toEqual([join(bin, "copilot"), "mcp", "add", MCP_NAME, "--", launcherPath()]);
+    expect(steps.find((s) => s.id === "pi")!.argv).toEqual([join(bin, "pi"), "mcp", "add", MCP_NAME, "--", launcherPath()]);
     expect(steps.find((s) => s.id === "kimi")!.argv).toBeNull();
     expect(steps.find((s) => s.id === "nope")!.reason).toBe("harness desconocido");
     const after = readFileSync(process.env.FAKE_LOG!, "utf8").slice(before.length);
@@ -81,7 +87,7 @@ describe("plan / apply / verify", () => {
   });
 
   test("instala, verifica con la herramienta, es idempotente y se quita", async () => {
-    const ids = ["claude", "codex", "qwen", "gemini", "grok"];
+    const ids = ["claude", "codex", "qwen", "gemini", "grok", "copilot", "hermes", "openclaw", "pi"];
     const installed = await apply("install", ids, true);
     expect(installed.every((r) => r.ran && r.ok && r.verified === true)).toBe(true);
     expect(existsSync(launcherPath())).toBe(true);

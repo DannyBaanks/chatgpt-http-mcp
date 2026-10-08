@@ -65,15 +65,31 @@ export const CATALOG: HarnessDef[] = [
     remove: (exe) => [exe, "mcp", "remove", "--scope", "user", MCP_NAME],
     list: (exe) => [exe, "mcp", "list"],
   }) },
+  { id: "copilot", label: "Copilot CLI", executables: ["copilot"], strategy: cli({
+    add: (exe, l) => [exe, "mcp", "add", MCP_NAME, "--", l],
+    remove: (exe) => [exe, "mcp", "remove", MCP_NAME],
+    list: (exe) => [exe, "mcp", "list"],
+  }) },
+  { id: "hermes", label: "Hermes", executables: ["hermes"], strategy: cli({
+    add: (exe, l) => [exe, "mcp", "add", MCP_NAME, "--command", l],
+    remove: (exe) => [exe, "mcp", "remove", MCP_NAME],
+    list: (exe) => [exe, "mcp", "list"],
+  }) },
+  { id: "openclaw", label: "OpenClaw", executables: ["openclaw"], strategy: cli({
+    add: (exe, l) => [exe, "mcp", "add", MCP_NAME, "--command", l, "--no-probe"],
+    remove: (exe) => [exe, "mcp", "unset", MCP_NAME],
+    list: (exe) => [exe, "mcp", "list"],
+  }) },
+  { id: "pi", label: "Pi", executables: ["pi"], strategy: cli({
+    add: (exe, l) => [exe, "mcp", "add", MCP_NAME, "--", l],
+    remove: (exe) => [exe, "mcp", "remove", MCP_NAME],
+    list: (exe) => [exe, "mcp", "list"],
+  }) },
   { id: "opencode", label: "opencode", executables: ["opencode"], strategy: null, pending: "su `mcp add` es interactivo: falta la edicion verificada de opencode.json" },
   { id: "crush", label: "Crush", executables: ["crush"], strategy: null, pending: "sin subcomando mcp: falta la edicion verificada de crush.json" },
   { id: "cursor", label: "Cursor Agent", executables: ["cursor-agent", "cursor"], strategy: null, pending: "falta la edicion verificada de ~/.cursor/mcp.json" },
-  { id: "copilot", label: "Copilot CLI", executables: ["copilot"], strategy: null, pending: "falta verificar su formato de config MCP" },
-  { id: "kimi", label: "Kimi", executables: ["kimi"], strategy: null, pending: "formato de config MCP desconocido" },
-  { id: "hermes", label: "Hermes", executables: ["hermes"], strategy: null, pending: "formato de config MCP desconocido" },
-  { id: "openclaw", label: "OpenClaw", executables: ["openclaw"], strategy: null, pending: "formato de config MCP desconocido" },
-  { id: "pi", label: "Pi", executables: ["pi"], strategy: null, pending: "formato de config MCP desconocido" },
-  { id: "fx", label: "fx", executables: ["fx"], strategy: null, pending: "formato de config MCP desconocido" },
+  { id: "kimi", label: "Kimi", executables: ["kimi"], strategy: null, pending: "CLI sin subcomando mcp nativo" },
+  { id: "fx", label: "fx", executables: ["fx"], strategy: null, pending: "CLI sin subcomando mcp nativo" },
 ];
 
 /** Ejecutable por PATH, resuelto y verificado (regular + ejecutable). */

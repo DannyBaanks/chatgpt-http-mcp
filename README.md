@@ -240,10 +240,10 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 
 **Harness support.**
 
-- *Installs through the tool's own `mcp add`:* Claude Code, Codex, Qwen Code,
-  Gemini CLI, Grok.
-- *Detected, not supported yet* (no verified config format, so nothing is
-  guessed): opencode, Crush, Cursor, Copilot, Kimi, Hermes, OpenClaw, Pi, fx.
+- *Installs through the tool's own native `mcp add`:* Claude Code, Codex, Qwen Code,
+  Gemini CLI, Grok, Copilot CLI, Hermes, OpenClaw, Pi.
+- *Detected, pending verified config format* (no guessing): opencode, Crush,
+  Cursor Agent, Kimi, fx.
 
 ## Security model
 
