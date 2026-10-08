@@ -46,6 +46,11 @@ export const CHAT_STYLE = `
 .errcard details{margin-top:8px;font:11px var(--mono);color:var(--mute)}
 .errcard details pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0}
 .errcard .btn{margin-top:10px}
+.thought-box{margin:0 0 10px;border:1px solid var(--line);border-radius:10px;background:#090c0a;overflow:hidden}
+.thought-box[open]{border-color:#2f3a34}
+.thought-summary{font:600 11.5px var(--mono);color:#8ca595;padding:7px 10px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;background:#0f1411}
+.thought-summary:hover{color:var(--ok)}
+.thought-body{font:12px/1.55 var(--sans);color:#aabfb1;padding:8px 12px;white-space:pre-wrap;overflow-wrap:anywhere;border-top:1px solid var(--line);background:#070908}
 .thinking{display:flex;align-items:center;gap:10px;color:var(--mute);font:13px var(--mono)}
 .live-body{margin-bottom:8px}
 .live-body>:last-child::after{content:'▍';color:var(--ok);margin-left:2px;animation:pulse 1s infinite}
@@ -157,7 +162,9 @@ function toolCardsNode(cards){const box=el('div','tools');for(const c of cards){
 function toolsBlock(meta){if(!meta||!meta.tools_enabled)return null;if(meta.tools&&meta.tools.length)return toolCardsNode(meta.tools);return el('div','tools-none','tools activas · ninguna ejecución registrada en este turno');}
 function renderMessage(m,url){const box=el('div','msg '+(m.role==='user'?'user':'assistant'));
   if(m.role==='user'){box.appendChild(el('div','bubble',m.text));return box;}
-  if(m.role==='assistant'){const tb=toolsBlock(m.meta);if(tb)box.appendChild(tb);const body=el('div','body');body.innerHTML=md(m.text);addCopy(body);box.appendChild(body);box.appendChild(metaLine(m.meta,url));return box;}
+  if(m.role==='assistant'){
+    if(m.meta&&m.meta.thought){const d=el('details','thought-box');const s=el('summary','thought-summary','🧠 Razonamiento');d.appendChild(s);d.appendChild(el('div','thought-body',m.meta.thought));box.appendChild(d);}
+    const tb=toolsBlock(m.meta);if(tb)box.appendChild(tb);const body=el('div','body');body.innerHTML=md(m.text);addCopy(body);box.appendChild(body);box.appendChild(metaLine(m.meta,url));return box;}
   {const tb=toolsBlock(m.meta);if(tb)box.appendChild(tb);}
   const kind=(m.meta&&m.meta.kind)||'bridge';const [tone,title,expl]=KIND[kind]||KIND.bridge;
   const card=el('div','errcard tone-'+tone);const h=el('div','h');h.appendChild(el('span','','⚠'));h.appendChild(el('span','',title));card.appendChild(h);
@@ -206,12 +213,15 @@ async function send(text){
   m.appendChild(renderMessage({role:'user',text}));
   const node=el('div','msg assistant');const th=el('div','thinking');th.appendChild(el('i'));const label=el('span','','Enviando…');th.appendChild(label);node.appendChild(th);m.appendChild(node);scrollEnd();
   const t0=Date.now();chat.pending={chat:id,node};setBusy(true);renderList();
-  let phase='queued';let shown='';let liveBody=null;let liveTools=null;
-  const tick=()=>{const secs=Math.round((Date.now()-t0)/1000);label.textContent=(shown?'Escribiendo':PHASE[phase])+'… '+secs+' s';};
+  let phase='queued';let shown='';let shownThought='';let liveBody=null;let liveTools=null;let liveThought=null;
+  const tick=()=>{const secs=Math.round((Date.now()-t0)/1000);label.textContent=(shown?'Escribiendo':(shownThought?'Pensando':PHASE[phase]))+'… '+secs+' s';};
   chat.timer=setInterval(async()=>{tick();
     try{const s=await api('/api/chat/status');if(s.ok&&s.json){const mine=s.json.chat_id===id;phase=(mine||s.json.phase==='queued')?s.json.phase:'queued';
       // Texto en vivo: cada sondeo trae la respuesta COMPLETA hasta ahora (se reemplaza, no se concatena).
       if(mine&&s.json.tools){const nt=toolCardsNode(s.json.tools);if(liveTools)liveTools.replaceWith(nt);else node.insertBefore(nt,node.firstChild);liveTools=nt;}
+      if(mine&&s.json.thought&&s.json.thought!==shownThought){shownThought=s.json.thought;
+        if(!liveThought){liveThought=el('details','thought-box');liveThought.open=true;liveThought.appendChild(el('summary','thought-summary','🧠 Razonando…'));liveThought.appendChild(el('div','thought-body',shownThought));node.insertBefore(liveThought,liveBody||th);}
+        else{const tb=liveThought.querySelector('.thought-body');if(tb)tb.textContent=shownThought;}}
       if(mine&&s.json.partial&&s.json.partial!==shown){shown=s.json.partial;
         if(!liveBody){liveBody=el('div','body live-body');node.insertBefore(liveBody,th);}
         const nearEnd=$('msgs').scrollHeight-$('msgs').scrollTop-$('msgs').clientHeight<80;

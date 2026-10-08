@@ -14,6 +14,11 @@ import { domToMarkdown, markdownMatchesText } from "./dom-markdown";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+export interface WebTurnProgressInfo {
+  thought?: string;
+  markdown?: string;
+}
+
 export interface WebTurnResult {
   text: string;
   ms: number;
@@ -25,6 +30,10 @@ export interface WebTurnResult {
    * `text`). Presentacion para el chat local; `text` no cambia.
    */
   markdown?: string;
+  /**
+   * Razonamiento o cadena de pensamiento capturada del bloque colapsable (o1, o3, Sol High).
+   */
+  thought?: string;
 }
 
 export interface WebTurnOptions {
@@ -58,7 +67,7 @@ export interface WebTurnOptions {
    * Cada llamada trae la respuesta completa hasta ese momento (reemplaza, no
    * concatena): no hay fragmentos que duplicar. Solo lo usa el chat local.
    */
-  onProgress?: (partial: string) => void;
+  onProgress?: (partial: string, info?: WebTurnProgressInfo) => void;
 }
 
 export type WebNavigation = { to: "new" } | { to: "conversation"; url: string };
@@ -306,12 +315,35 @@ const ASSISTANT_FALLBACK_SELECTOR = '[data-message-author-role="assistant"]';
 
 /** Texto e identidad del MISMO ultimo contenedor en una sola lectura DOM.
  * Un turno nuevo vacio nunca hereda el markdown del turno anterior. */
-async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text: string }> {
+async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text: string; thought?: string }> {
   const snapshot = await page.evaluate(([primary, fallback]) => {
     const primaryTurns = Array.from(document.querySelectorAll(primary));
     const turns = (primaryTurns.length > 0 ? primaryTurns : Array.from(document.querySelectorAll(fallback))) as HTMLElement[];
     const last = turns[turns.length - 1];
-    if (!last) return { id: "", text: "" };
+    if (!last) return { id: "", text: "", thought: "" };
+
+    // Captura de razonamiento / pensamiento colapsable
+    let thought = "";
+    if (typeof last.querySelectorAll === "function") {
+      const thoughtEls = Array.from(last.querySelectorAll('[data-testid="thought-content"], [data-testid="reasoning-content"], details.thought, .thought-content')) as HTMLElement[];
+      for (const el of thoughtEls) {
+        if (el.getAttribute?.("data-markdown-text-style") !== "assistant-message" && !el.classList?.contains("markdown")) {
+          thought = (el.innerText ?? "").trim();
+          if (thought) break;
+        }
+      }
+      if (!thought) {
+        const details = Array.from(last.querySelectorAll("details, [data-testid*='thought']")) as HTMLElement[];
+        for (const d of details) {
+          const t = (d.innerText ?? "").trim();
+          if (/pensó|thought|reasoning|thinking/i.test(t) && d.getAttribute?.("data-markdown-text-style") !== "assistant-message") {
+            thought = t;
+            break;
+          }
+        }
+      }
+    }
+
     const marks = last.querySelectorAll('[data-markdown-text-style="assistant-message"], .markdown');
     const text = (marks.length ? (marks[marks.length - 1] as HTMLElement).innerText : last.innerText) ?? "";
     const id = last.getAttribute("data-turn-id")
@@ -319,10 +351,15 @@ async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text
       ?? last.getAttribute("data-turn-key")
       ?? last.getAttribute("data-testid")
       ?? "";
-    return { id, text: text.trim() };
+    if (thought === text.trim()) thought = "";
+    return { id, text: text.trim(), thought: thought.trim() };
   }, [ASSISTANT_PRIMARY_SELECTOR, ASSISTANT_FALLBACK_SELECTOR] as const);
   const extracted = extractResponse(snapshot.text);
-  return { id: snapshot.id, text: extracted || (/^(Tú dijiste|You said):/.test(snapshot.text) ? "" : snapshot.text) };
+  return {
+    id: snapshot.id,
+    text: extracted || (/^(Tú dijiste|You said):/.test(snapshot.text) ? "" : snapshot.text),
+    thought: snapshot.thought || undefined,
+  };
 }
 
 async function lastAssistantIdentity(page: Page): Promise<string> {
@@ -556,6 +593,7 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
     .first();
   let sawBusy = false;
   let lastProgress = "";
+  let lastProgressThought: string | undefined = undefined;
   const graceUntil = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const busy = (await stopButton.count().catch(() => 0)) > 0;
@@ -563,12 +601,15 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
     if (sawBusy && !busy) break;
     if (!sawBusy && Date.now() > graceUntil) break;
     if (busy && options.onProgress) {
-      const current = await readLastAssistant(page).catch(() => "");
-      // El turno viejo sigue siendo "el ultimo" hasta que aparece el nuevo.
-      if (current && current !== beforeText && current !== lastProgress) {
+      const snap = await readLastAssistantSnapshot(page).catch(() => ({ id: "", text: "", thought: undefined }));
+      const current = snap.text;
+      const thought = snap.thought;
+      // El turno viejo sigue siendo "el ultimo" hasta que aparece el nuevo o emite pensamiento.
+      if ((current && current !== beforeText && current !== lastProgress) || (thought && thought !== lastProgressThought)) {
         lastProgress = current;
-        const md = await readLastAssistantMarkdown(page, current);
-        try { options.onProgress(md ?? current); } catch { /* la UI nunca rompe el turno */ }
+        lastProgressThought = thought;
+        const md = current ? await readLastAssistantMarkdown(page, current) : undefined;
+        try { options.onProgress(md ?? current, { thought, markdown: md }); } catch { /* la UI nunca rompe el turno */ }
       }
     }
     await page.waitForTimeout(400);
@@ -599,6 +640,7 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   if (!proven) text = "";
   if (!text.trim()) await dumpCaptureFailure(page);
   const markdown = text.trim() ? await readLastAssistantMarkdown(page, text) : undefined;
+  const finalSnapshot = await readLastAssistantSnapshot(page).catch(() => ({ id: "", text: "", thought: undefined }));
   return {
     text: text.trim(),
     ms: Math.round(performance.now() - t0),
@@ -606,6 +648,7 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
     reused,
     url: page.url(),
     ...(markdown ? { markdown } : {}),
+    ...(finalSnapshot.thought ? { thought: finalSnapshot.thought } : {}),
   };
   } catch (err) {
     if (options.submitOnce || !isCrashError(err)) throw err;
