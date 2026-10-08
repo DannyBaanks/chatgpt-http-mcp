@@ -566,6 +566,9 @@ function help(): void {
   isymcp harness install <ids|--all> [--apply]
                              instala el MCP isymcp-chatgpt (sin --apply: solo el plan)
   isymcp harness uninstall <ids|--all> [--apply]
+  isymcp health              diagnóstico de salud en vivo del bridge y servicios
+  isymcp metrics             telemetría en vivo (turnos, tokens, latencias, memoria)
+  isymcp metrics --prom      métricas en formato Prometheus / OpenMetrics
   isymcp logs                ultimos 50
   isymcp logs --last 20
   isymcp logs export         guarda TODOS en ~/.codex-web-http/logs/
@@ -850,11 +853,73 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await canaryCommand(sub ?? "run", rest);
 } else if (cmd === "harness") {
   await harnessCommand(sub ?? "list", rest);
+} else if (cmd === "metrics") {
+  await metricsCommand(sub, rest);
+} else if (cmd === "health") {
+  await healthCommand(sub, rest);
 } else if (cmd === "logs") {
   logs([sub, ...rest].filter((part): part is string => Boolean(part)));
 } else {
   help();
   process.exit(2);
+}
+
+async function metricsCommand(sub?: string, rest: string[] = []): Promise<void> {
+  const json = sub === "--json" || rest.includes("--json");
+  const prometheus = sub === "--prom" || sub === "--prometheus" || rest.includes("--prom") || rest.includes("--prometheus");
+  const port = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
+  const { bridgeAuthHeaders } = await import("./local-guard");
+  try {
+    if (prometheus) {
+      const r = await fetch(`http://127.0.0.1:${port}/metrics`, { headers: bridgeAuthHeaders() });
+      if (!r.ok) throw new Error(`bridge devolvio HTTP ${r.status}`);
+      console.log(await r.text());
+      return;
+    }
+    const r = await fetch(`http://127.0.0.1:${port}/api/metrics`, { headers: bridgeAuthHeaders() });
+    if (!r.ok) throw new Error(`bridge devolvio HTTP ${r.status}`);
+    const data = await r.json();
+    if (json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    const { getMetrics } = await import("./metrics");
+    const m = data as ReturnType<typeof getMetrics>;
+    console.log(`ISyMCP Telemetría en Vivo (Uptime: ${m.uptimeSeconds}s)`);
+    console.log(`  Turnos:       ${m.turns.total} total (${m.turns.success} ok, ${m.turns.failed} err, ${m.turns.reasoning_turns} con pensamiento)`);
+    console.log(`  Latencia:     avg ${m.latency_ms.avg} ms · min ${m.latency_ms.min} ms · max ${m.latency_ms.max} ms`);
+    console.log(`  Tokens est.:  ${m.tokens.total_tokens_estimated.toLocaleString()} total (${m.tokens.prompt_tokens_estimated} prompt, ${m.tokens.completion_tokens_estimated} compl, ${m.tokens.reasoning_tokens_estimated} reasoning)`);
+    console.log(`  Memoria:      ${(m.memory.rss_bytes / (1024 * 1024)).toFixed(1)} MB RSS · ${(m.memory.heap_used_bytes / (1024 * 1024)).toFixed(1)} MB Heap`);
+    if (Object.keys(m.errors_by_type).length > 0) {
+      console.log(`  Errores:      ${Object.entries(m.errors_by_type).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+    }
+  } catch (err) {
+    console.error(`Error obteniendo métricas (¿el bridge está encendido en :${port}?): ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
+}
+
+async function healthCommand(sub?: string, rest: string[] = []): Promise<void> {
+  const json = sub === "--json" || rest.includes("--json");
+  const port = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
+  const { bridgeAuthHeaders } = await import("./local-guard");
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/health`, { headers: bridgeAuthHeaders() });
+    if (!r.ok) throw new Error(`bridge devolvio HTTP ${r.status}`);
+    const data = await r.json() as { status: string; uptime_seconds: number; web_models: string; upstream: string; turns?: { total: number; success: number } };
+    if (json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    console.log(`ISyMCP Estado de Salud: ${data.status.toUpperCase()} ✓`);
+    console.log(`  Uptime:       ${data.uptime_seconds}s`);
+    console.log(`  Modelos Web:  ${data.web_models}`);
+    console.log(`  Upstream:     ${data.upstream}`);
+    console.log(`  Turnos:       ${data.turns?.total ?? 0} procesados (${data.turns?.success ?? 0} exitosos)`);
+  } catch (err) {
+    console.error(`Bridge no disponible en :${port}: ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
 }
 
 // harness list|install|uninstall — MCP isymcp-chatgpt en otras CLIs/TUIs.

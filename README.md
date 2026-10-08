@@ -244,6 +244,8 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 | `isymcp harness install` / `uninstall <ids\|--all> [--apply]` | plan by default; `--apply` runs and verifies |
 | `isymcp canary` / `canary status` | real turn check: capture, turn identity, Markdown |
 | `isymcp canary schedule [--apply]` | daily systemd user timer (plan by default) |
+| `isymcp health` | live health and diagnostic status of the bridge and services |
+| `isymcp metrics [--prom]` | real-time telemetry (turns, tokens, latencies, memory) or Prometheus export |
 | `isymcp logs` | bridge logs |
 
 **Harness support.**
