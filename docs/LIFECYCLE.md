@@ -1,37 +1,36 @@
-# codex-web-http — Lifecycle (M12, 2026-10-06)
+# codex-web-http — Lifecycle y Ciclo de Vida
 
-## Conversación (session affinity)
+## 1. Conversación (Session Affinity)
 
-- **REUSE por defecto**: `~/.codex-web-http/sessions/default.json` guarda la URL
-  `/c/` y cada turno la reutiliza ("casarse con un link"). Verificado E2E.
-- **Rotación**: manual (borrar/cambiar el `conversationUrl` o `isymcp session default`).
-  Automática = OPTIONAL sin evidencia de necesidad (stale-tab = DESTROYED en el
-  incidente real).
-- **EPHEMERAL**: sólo si el caller no tiene sesión guardada (primer turno abre chat).
-- **Limpieza**: manual en la UI de ChatGPT. Borrar no rompe evidencia local
-  (traza + closures quedan), pero sí la continuidad de esa conversación.
-- **PERSISTENT**: la traza (`mcp-trace.log`) y `turns/` sobreviven a la conversación.
+- **REUSE por defecto**: `~/.codex-web-http/sessions/default.json` guarda la URL `/c/` y cada turno la reutiliza.
+- **Rotación**: Manual (`isymcp session default` o creando un nuevo chat desde el panel).
+- **Compactación y Poda**: Conversaciones que exceden los 40 mensajes ejecutan `compactChat`, conservando el objetivo inicial de la sesión y agregando una nota de contexto antes de la ventana reciente.
 
-## Token de sesión MCP
+---
+
+## 2. Token de Sesión MCP
 
 | Operación | Comando |
 |---|---|
-| issue | `isymcp session mint --cwd <dir> [--label x] [--write]` |
-| list | `isymcp session list` (sólo fingerprint) |
-| rotate | mint nuevo + `revoke` del viejo (no hay epoch en este path) |
-| revoke | `isymcp session revoke <token|fp>` |
-| expire | no automático hoy; revocación explícita |
+| Crear sesión | `isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas]` |
+| Listar sesiones | `isymcp session list` (sólo huella digital / fingerprint) |
+| Revocar sesión | `isymcp session revoke <token|fp>` |
+| Expiración | Por defecto a los 7 días; `--ttl 0` para sesiones persistentes sin expiración |
 
-Regla: el token completo sólo al mintearlo; artefactos/logs usan fingerprint
-(sanitizer M8).
+Regla: El token completo sólo se muestra en stdout al emitirlo; los logs y trazas usan exclusivamente el fingerprint sanitizado.
 
-## Restart
+---
 
-| Qué | Sobrevive |
-|---|---|
-| server HTTP | NO (se arranca con `isymcp up`) |
-| browser/pestaña | NO (se relanza por proceso; storage-state.json conserva cookies) |
-| conversación (URL) | SÍ (`sessions/default.json`) |
-| sesiones MCP | SÍ (`codex-sessions.json`) |
-| túnel | NO siempre (reconectar con `bun run tunnel:connect`; stop real cierra tmux) |
-| idempotencia (turnos) | SÍ (`turns/`) |
+## 3. Estado y Persistencia ante Reinicio
+
+| Componente | Sobrevive al Reinicio | Mecanismo |
+|---|---|---|
+| **Servidor HTTP Bridge** | NO | Proceso background detached (`isymcp server start`) |
+| **Panel Web** | NO | Proceso background detached (`isymcp panel start`) |
+| **Cookies / Sesión ChatGPT** | SÍ | `storage-state.json` (0600) |
+| **Conversación casada (URL)** | SÍ | `sessions/default.json` |
+| **Historial de Chats locales** | SÍ | `~/.codex-web-http/chats/<chat_id>.json` |
+| **Tokens de sesión MCP** | SÍ | `~/.codex-web-http/codex-sessions.json` |
+| **Telemetría y Métricas** | NO (en memoria por proceso) | Exportable vía `/metrics` a Prometheus |
+| **Lanzador de Codex** | SÍ | `~/.local/bin/codex-isymcp` y `.desktop` |
+| **Canario diario** | SÍ | Systemd timer `isymcp-canary.timer` |

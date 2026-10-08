@@ -569,6 +569,7 @@ function help(): void {
   isymcp health              diagnóstico de salud en vivo del bridge y servicios
   isymcp metrics             telemetría en vivo (turnos, tokens, latencias, memoria)
   isymcp metrics --prom      métricas en formato Prometheus / OpenMetrics
+  isymcp smoke               batería de pruebas E2E automatizada (health, métricas, harnesses, launcher)
   isymcp logs                ultimos 50
   isymcp logs --last 20
   isymcp logs export         guarda TODOS en ~/.codex-web-http/logs/
@@ -857,11 +858,23 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await metricsCommand(sub, rest);
 } else if (cmd === "health") {
   await healthCommand(sub, rest);
+} else if (cmd === "smoke" || cmd === "e2e") {
+  await smokeCommand(sub, rest);
 } else if (cmd === "logs") {
   logs([sub, ...rest].filter((part): part is string => Boolean(part)));
 } else {
   help();
   process.exit(2);
+}
+
+async function smokeCommand(sub?: string, rest: string[] = []): Promise<void> {
+  const json = sub === "--json" || rest.includes("--json");
+  const { runE2EAll } = await import("../scripts/e2e-all");
+  const result = await runE2EAll({ quiet: json });
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+  }
+  if (!result.ok) process.exit(1);
 }
 
 async function metricsCommand(sub?: string, rest: string[] = []): Promise<void> {

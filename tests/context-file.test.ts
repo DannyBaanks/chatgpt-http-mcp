@@ -58,3 +58,17 @@ test("contract and result carry the essentials", () => {
   expect(result).toContain("next=1");
   expect(result).toContain("total=2");
 });
+
+test("compactContextText poda el cuerpo intermedio en textos gigantes", async () => {
+  const { compactContextText } = await import("../src/context-file");
+  const hugeText = Array.from({ length: 600 }, (_, i) => `Línea de log/código ${i + 1}`).join("\n");
+  const result = compactContextText(hugeText, { maxLines: 200, keepHeadLines: 20, keepTailLines: 50 });
+
+  expect(result.compacted).toBe(true);
+  expect(result.originalLines).toBe(600);
+  expect(result.finalLines).toBe(71);
+  expect(result.text).toContain("Contexto podado");
+  expect(result.text.startsWith("Línea de log/código 1\n")).toBe(true);
+  expect(result.text.endsWith("Línea de log/código 600")).toBe(true);
+});
+

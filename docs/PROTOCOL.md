@@ -1,107 +1,54 @@
-# codex-web-http — Protocolo (M0)
+# codex-web-http — Protocolo
 
-Estado: M0 (inventario) + M2 (passthrough nativo) implementados y testeados.
-Fuente de comportamiento: `codex-web-gpt-http-cli` @ `324c52c75f1d87c65ee4b94ee71efd2dce1b4ebf`
-(MIT). Este documento describe el contrato que nuestro server replica y las
-incognitas que resuelven M1/M3/M4.
+Estado: CURRENT verificado operativamente.
 
-## Superficie local (nuestro server)
+## 1. Superficie HTTP Local
 
-| Metodo | Ruta | Upstream |
+| Método | Ruta | Función / Destino |
 |---|---|---|
-| GET | `/v1/models` | `chatgpt.com/backend-api/codex/models` |
-| POST | `/v1/responses` | `chatgpt.com/backend-api/codex/responses` |
-| POST | `/v1/responses/compact` | `chatgpt.com/backend-api/codex/responses/compact` |
-| POST | `/v1/chat/completions` | ninguno (turno web local, solo `chatgpt-web/*`) |
-| GET | `/health` | — (local) |
+| GET | `/v1/models` | Catálogo de modelos OpenAI passthrough + augmentados con `chatgpt-web/*` |
+| POST | `/v1/responses` | Reenvío nativo SSE/JSON a `chatgpt.com/backend-api/codex/responses` |
+| POST | `/v1/responses/compact` | Reenvío nativo a `chatgpt.com/backend-api/codex/responses/compact` |
+| POST | `/v1/chat/completions` | Turno web local compatible con OpenAI para modelos `chatgpt-web/*` |
+| GET | `/health` | Chequeo de salud del bridge |
+| GET | `/api/health` | Estado de salud estructurado JSON (uptime, upstream, estado) |
+| GET | `/api/metrics` | Métricas operativas en vivo (JSON) |
+| GET | `/metrics` | Métricas en formato estándar Prometheus / OpenMetrics |
+| POST | `/api/action` | Acciones administrativas del panel (confinado a Loopback) |
 
-Implementacion: `codex-web-http/src/server.ts:1` y
-`codex-web-http/src/passthrough.ts:1`.
+---
 
-## Reenvio nativo
+## 2. Streaming y Deltas de Pensamiento
 
-- Se reenvian metodo, query, cabeceras y body. Cabeceras hop-by-hop
-  (`connection`, `transfer-encoding`, `host`, `content-length`, ...) y
-  `accept-encoding` se eliminan; Bun fetch descomprime solo.
-- El status y el stream del upstream se devuelven tal cual (SSE incluido).
-- Error de red del upstream: `502 upstream_unreachable` (JSON nombrado).
-- La auth **no** la gestiona este server: el llamador (Codex) trae su
-  `authorization` y `chatgpt-account-id`, que se reenvian. Esto es lo que
-  permite el camino sin navegador (plan, `.opencode/plans/codex-web-http.md:117`).
+- En endpoints de streaming SSE (`/v1/chat/completions` con `stream: true`), el contenido de pensamiento en vivo emitido por el modelo se transmite mediante deltas con el campo `delta.reasoning_content`.
+- Al finalizar el turno de respuesta, se emite `[DONE]`.
 
-## Integracion con Codex
-- `scripts/install-codex.ts` escribe `openai_base_url` top-level en
-  `~/.codex/config.toml` (o `CODEX_HOME`), con:
-  - default dry-run (no escribe);
-  - `--apply` con backup fechado en `codex-web-http/backups/` + journal
-    `latest.json`;
-  - `--restore` restaura el backup mas reciente.
-- Nunca toca `~/.codex/auth.json`.
+---
 
-## Integracion con TUIs (opencode/OpenISy)
+## 3. Autenticación y Local Guard
 
-opencode consume providers OpenAI-compatibles (`@ai-sdk/openai-compatible`,
-que habla `/chat/completions`), asi que el bridge expone
-`POST /v1/chat/completions` solo para modelos `chatgpt-web/*` (implementacion
-en `src/chat-completions.ts`). Otro modelo falla cerrado con `not_web_model`;
-no se reenvia al upstream Codex porque la forma chat no es la suya.
+- **Loopback Enforcement:** Todas las rutas administrativas y del panel rechazan cualquier solicitud con `Host` u `Origin` que no pertenezca a `127.0.0.1` o `localhost` (protección contra DNS Rebinding y CSRF).
+- **Token de Autenticación (`CODEX_WEB_HTTP_TOKEN`):** Cuando esta variable de entorno está definida, todas las solicitudes HTTP requieren la cabecera `Authorization: Bearer <TOKEN>`. Solicitudes no autenticadas devuelven `401 Unauthorized` con detalles accionables en JSON.
 
-- `isymcp tui list` inventaria TUIs por config dir y/o binario (solo opencode
-  es instalable; el resto es inventario).
-- `isymcp tui install [--apply|--restore]` escribe `provider.isyco-web`
-  (baseURL al loopback, modelos `chatgpt-web/*` con su context window) y
-  `mcp.isyco-web-http` (comando local `bun …/src/mcp/main.ts`) en
-  `~/.config/opencode/opencode.json`, con backup en `backups/tui/`.
-- Verificado 2026-10-04: `opencode models isyco-web` lista 3 filas;
-  `opencode run -m isyco-web/chatgpt-web/gpt-5.6-sol-instant` responde;
-  `opencode mcp list` muestra `isyco-web-http connected`.
-- `limit.output` es techo (= context), no medido por fila: opencode lo exige.
-- Empaquetar el MCP para `npx` requiere publicar el paquete: NOT_DEMONSTRATED;
-  se usa comando local `bun`.
+---
 
-## Incognitas (resueltas, 2026-10-06)
+## 4. Clasificación y Taxonomía de Errores
 
-- M1/M4: transporte elegido por evidencia -> Chrome headless + Playwright con
-  pestana persistente; captura HTTP DEMONSTRATED (nonce real). Ver
-  `docs/ARCHITECTURE.md`.
-- M3: catalogo Web clonado -> `src/web-models.ts` + `/v1/models` en forma OpenAI.
-- Error taxonomy e idempotencia: ver la seccion de abajo.
-- Cabeceras derivadas que la referencia sintetiza (p. ej. `client_version`
-  para `/models`) quedan **fuera** de M2: el cliente actual ya las envia.
-
-## Evidencia de referencia (formato no-cita)
-
-Preferencias del comportamiento observadas en la referencia (commit arriba),
-con archivo y numero de linea en prosa, sin sintaxis de cita para no
-confundir al cite-check de ISyCo:
-
-- endpoint nativo: `src/native-passthrough.ts` L10;
-- rutas locales: `src/server.ts` L1012, L1068, L1082;
-- integracion: `src/codex-integration.ts` L284;
-- laboratorio de contrato HTTP Web: `src/adapters/chatgpt-web/http-contract-probe.ts` L6.
-
-## Verificacion
-
-```bash
-cd codex-web-http
-bun test
-```
-
-## Error taxonomy (M6, 2026-10-06)
-
-El tipo viaja como prefijo del mensaje (`<type>: detalle`) y mapea a status:
-
-| tipo | status | significado |
+| Tipo de Error | Status HTTP | Significado |
 |---|---|---|
-| `chat_invalid_json` / `not_web_model` / `web_empty_prompt` | 400 | request invalido |
-| `forbidden_host` / `forbidden_origin` | 403 | Host u Origin no loopback (CSRF / DNS rebinding); ver `src/local-guard.ts` |
-| `unsupported_media_type` | 415 | POST sin `content-type: application/json` |
-| `web_session_missing` / `web_session_expired` | 401 | sesion/cookies |
-| `web_connector_unavailable` | 409 | connector no seleccionable (estado) |
-| `web_turn_submit_failed` | 502 | el turno NUNCA se envio |
-| `web_capture_empty` / `web_no_response` | 504 | el turno corrio pero no se capturo |
-| `web_browser_missing` | 503 | browser no disponible |
-| `web_turn_failed` (default) | 500 | interno |
+| `chat_invalid_json` / `not_web_model` / `web_empty_prompt` | 400 | Solicitud malformada o modelo no soportado |
+| `forbidden_host` / `forbidden_origin` | 403 | Host u Origin fuera de loopback |
+| `unsupported_media_type` | 415 | Petición POST sin `content-type: application/json` |
+| `web_session_missing` / `web_session_expired` | 401 | Sesión de chatgpt.com no configurada o expirada |
+| `upstream_unreachable` | 502 | Servidor de OpenAI inalcanzable |
+| `upstream_reset_mid_stream` | 502 | Upstream cortó el flujo antes de enviar la señal `[DONE]` |
+| `web_timeout` | 504 | Tiempo de espera agotado en la respuesta del navegador |
 
-Idempotencia (M5): header `x-isymcp-turn-id` — replay devuelve la misma
-respuesta con `x-isymcp-replayed: 1` sin re-ejecutar; 5xx no se cachea.
+---
+
+## 5. Integración con Harnesses y TUIs
+
+- **Codex CLI:** Perfil aislado `codex-isymcp` vía `buildCodexArgs(["-c", "openai_base_url=..."])`.
+- **Cursor IDE:** Configuración declarativa en `~/.cursor/mcp.json`.
+- **OpenCode TUI:** Configuración declarativa en `~/.config/opencode/opencode.json`.
+- **Harnesses CLI (Claude, Copilot, Hermes, OpenClaw, Pi, Gemini):** Invocación mediante `mcp add` nativo de cada herramienta.

@@ -44,10 +44,13 @@ beforeAll(() => {
   process.env.FAKE_STATE = state;
   process.env.FAKE_LOG = join(dir, "log");
   process.env.CODEX_WEB_HTTP_HOME = join(dir, "home");
+  process.env.CURSOR_HOME = join(dir, "empty_cursor");
+  process.env.OPENCODE_HOME = join(dir, "empty_opencode");
 });
 afterAll(() => {
   process.env.PATH = savedPath;
   delete process.env.FAKE_STATE; delete process.env.FAKE_LOG; delete process.env.CODEX_WEB_HTTP_HOME;
+  delete process.env.CURSOR_HOME; delete process.env.OPENCODE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -60,7 +63,8 @@ describe("deteccion", () => {
       expect(by[id]).toMatchObject({ present: true, supported: true, installed: false });
     }
     expect(by.kimi).toMatchObject({ present: true, supported: false, installed: null });
-    expect(by.opencode).toMatchObject({ present: false });
+    expect(by.opencode).toMatchObject({ present: false, supported: true, installed: null });
+    expect(by.crush).toMatchObject({ present: false, supported: false });
   });
 });
 
@@ -98,6 +102,46 @@ describe("plan / apply / verify", () => {
     const removed = await apply("uninstall", ids, true);
     expect(removed.every((r) => r.ran && r.ok && r.verified === true)).toBe(true);
     expect((await detect(ids)).every((s) => s.installed === false)).toBe(true);
+  });
+
+  test("estrategia JSON: cursor (~/.cursor/mcp.json) y opencode (opencode.json) se configuran y verifican", async () => {
+    const cursorHome = join(dir, "cursor_home");
+    const opencodeHome = join(dir, "opencode_home");
+    mkdirSync(join(cursorHome, ".cursor"), { recursive: true });
+    mkdirSync(join(opencodeHome, ".config", "opencode"), { recursive: true });
+
+    process.env.CURSOR_HOME = cursorHome;
+    process.env.OPENCODE_HOME = opencodeHome;
+
+    const detected = await detect(["cursor", "opencode"]);
+    expect(detected.every((s) => s.present && s.supported && s.installed === false)).toBe(true);
+
+    const steps = await plan("install", ["cursor", "opencode"]);
+    expect(steps.find((s) => s.id === "cursor")!.reason).toContain(".cursor/mcp.json");
+    expect(steps.find((s) => s.id === "opencode")!.reason).toContain("opencode.json");
+
+    const installed = await apply("install", ["cursor", "opencode"], true);
+    expect(installed.every((r) => r.ran && r.ok && r.verified === true)).toBe(true);
+
+    // Verificar contenido de archivos
+    const cursorMcp = JSON.parse(readFileSync(join(cursorHome, ".cursor", "mcp.json"), "utf8")) as { mcpServers: Record<string, { command: string }> };
+    expect(cursorMcp.mcpServers[MCP_NAME]?.command).toContain("isymcp-chatgpt-mcp");
+
+    const opencodeMcp = JSON.parse(readFileSync(join(opencodeHome, ".config", "opencode", "opencode.json"), "utf8")) as { mcp: Record<string, { command: string[] }> };
+    expect(opencodeMcp.mcp[MCP_NAME]?.command[0]).toContain("isymcp-chatgpt-mcp");
+
+    const detectedAfter = await detect(["cursor", "opencode"]);
+    expect(detectedAfter.every((s) => s.installed === true)).toBe(true);
+
+    // Desinstalación
+    const removed = await apply("uninstall", ["cursor", "opencode"], true);
+    expect(removed.every((r) => r.ran && r.ok && r.verified === true)).toBe(true);
+
+    const detectedFinal = await detect(["cursor", "opencode"]);
+    expect(detectedFinal.every((s) => s.installed === false)).toBe(true);
+
+    delete process.env.CURSOR_HOME;
+    delete process.env.OPENCODE_HOME;
   });
 });
 
