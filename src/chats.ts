@@ -133,3 +133,43 @@ export function publicChat(chat: ChatRecord, withMessages: boolean) {
     ...(withMessages ? { messages: chat.messages } : {}),
   };
 }
+
+/** Poda y compacta el historial de mensajes de un chat para mantener la eficiencia de contexto. */
+export function pruneMessages(messages: ChatMessage[], maxMessages = 40): ChatMessage[] {
+  if (messages.length <= maxMessages) return [...messages];
+  const initial = messages[0];
+  const tailCount = Math.max(1, maxMessages - 2);
+  const tail = messages.slice(-tailCount);
+  const prunedCount = messages.length - 1 - tail.length;
+
+  const note: ChatMessage = {
+    role: "assistant",
+    text: `[Contexto compactado: se podaron ${prunedCount} mensajes intermedios para optimizar la ventana de contexto]`,
+    ts: new Date().toISOString(),
+  };
+
+  return initial ? [initial, note, ...tail] : [note, ...tail];
+}
+
+/** Compacta un ChatRecord persistido o en memoria. */
+export function compactChat(chat: ChatRecord, maxMessages = 40): { compacted: boolean; prunedCount: number; chat: ChatRecord } {
+  if (chat.messages.length <= maxMessages) {
+    return { compacted: false, prunedCount: 0, chat };
+  }
+  const originalCount = chat.messages.length;
+  const compactedMessages = pruneMessages(chat.messages, maxMessages);
+  const prunedCount = originalCount - compactedMessages.length;
+
+  const updatedChat: ChatRecord = {
+    ...chat,
+    messages: compactedMessages,
+    updated_at: new Date().toISOString(),
+  };
+
+  return {
+    compacted: true,
+    prunedCount,
+    chat: updatedChat,
+  };
+}
+

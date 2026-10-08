@@ -293,4 +293,27 @@ describe("autoridad y compatibilidad", () => {
     // Sin navigate: comportamiento historico (no navega).
     expect(navigationTarget("https://chatgpt.com/c/9999ffff-0000-0000-0000-000000000000", undefined)).toBeNull();
   });
+
+  test("compactChat poda mensajes largos preservando el mensaje inicial y el resumen", async () => {
+    const { compactChat, pruneMessages } = await import("../src/chats");
+    const chat = createChat("Chat largo");
+    chat.messages = Array.from({ length: 60 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      text: `Mensaje ${i + 1}`,
+      ts: new Date().toISOString(),
+    }));
+
+    const result = compactChat(chat, 30);
+    expect(result.compacted).toBe(true);
+    expect(result.prunedCount).toBeGreaterThan(0);
+    expect(result.chat.messages.length).toBeLessThanOrEqual(31);
+    expect(result.chat.messages[0].text).toBe("Mensaje 1");
+    expect(result.chat.messages[1].text).toContain("Contexto compactado");
+    expect(result.chat.messages.at(-1)?.text).toBe("Mensaje 60");
+
+    // Si ya es corto, no se compacta
+    const shortResult = compactChat(createChat("Corto"), 30);
+    expect(shortResult.compacted).toBe(false);
+    expect(shortResult.prunedCount).toBe(0);
+  });
 });

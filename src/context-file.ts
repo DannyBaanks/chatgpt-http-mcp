@@ -120,3 +120,36 @@ export function renderReadResult(slice: ReadSlice): string {
     slice.content,
   ].join("\n");
 }
+
+/** Compacta y poda texto de contexto excesivamente largo antes de serializar o escribir. */
+export function compactContextText(
+  text: string,
+  options: { maxLines?: number; keepHeadLines?: number; keepTailLines?: number } = {},
+): { text: string; compacted: boolean; originalLines: number; finalLines: number } {
+  const maxLines = options.maxLines ?? 500;
+  const keepHead = options.keepHeadLines ?? 50;
+  const keepTail = options.keepTailLines ?? 200;
+
+  const lines = text.split("\n");
+  if (lines.length <= maxLines) {
+    return { text, compacted: false, originalLines: lines.length, finalLines: lines.length };
+  }
+
+  const head = lines.slice(0, keepHead);
+  const tail = lines.slice(-keepTail);
+  const omitted = lines.length - head.length - tail.length;
+
+  const compactedText = [
+    ...head,
+    `\n[... Contexto podado: se omitieron ${omitted} líneas intermedias para preservar ventana de contexto ...]\n`,
+    ...tail,
+  ].join("\n");
+
+  return {
+    text: compactedText,
+    compacted: true,
+    originalLines: lines.length,
+    finalLines: head.length + 1 + tail.length,
+  };
+}
+

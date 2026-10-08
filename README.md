@@ -246,14 +246,16 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 | `isymcp canary schedule [--apply]` | daily systemd user timer (plan by default) |
 | `isymcp health` | live health and diagnostic status of the bridge and services |
 | `isymcp metrics [--prom]` | real-time telemetry (turns, tokens, latencies, memory) or Prometheus export |
+| `isymcp smoke` | unified E2E smoke test verifying health, metrics, harnesses, and launcher |
 | `isymcp logs` | bridge logs |
 
-**Harness support.**
+**Harness support (9 agents ready).**
 
-- *Installs through the tool's own native `mcp add`:* Claude Code, Codex, Qwen Code,
-  Gemini CLI, Grok, Copilot CLI, Hermes, OpenClaw, Pi.
-- *Detected, pending verified config format* (no guessing): opencode, Crush,
-  Cursor Agent, Kimi, fx.
+- *Installs through the tool's own native `mcp add`:* Claude Code, Codex, GitHub Copilot CLI, Hermes Agent, OpenClaw, Pi, Gemini CLI, Grok, Qwen Code.
+- *Declarative JSON config strategy:* Cursor IDE (`~/.cursor/mcp.json`) and OpenCode TUI (`~/.config/opencode/opencode.json`).
+- *Detected, pending verified config format* (no guessing): Crush, Kimi, fx.
+
+📖 **Human Operator Guide in Spanish:** Check [`GUIA.md`](GUIA.md) for full step-by-step instructions.
 
 ## Security model
 
