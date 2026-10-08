@@ -29,13 +29,14 @@ export const MAX_CHAT_MESSAGE_CHARS = 100_000;
 
 export type ChatPhase = "idle" | "queued" | "navigating" | "thinking";
 // Estado para la UI: el turno activo (dentro del candado) y cuantos esperan.
-let active: { chat_id: string; phase: Exclude<ChatPhase, "idle" | "queued">; since: string; partial?: string; tools?: ToolCard[] } | null = null;
+let active: { chat_id: string; phase: Exclude<ChatPhase, "idle" | "queued">; since: string; partial?: string; thought?: string; tools?: ToolCard[] } | null = null;
 let queued = 0;
-export function chatStatus(): { phase: ChatPhase; chat_id: string | null; queued: number; since: string | null; partial?: string; tools?: ToolCard[] } {
+export function chatStatus(): { phase: ChatPhase; chat_id: string | null; queued: number; since: string | null; partial?: string; thought?: string; tools?: ToolCard[] } {
   if (active) {
     return {
       phase: active.phase, chat_id: active.chat_id, queued, since: active.since,
       ...(active.partial ? { partial: active.partial } : {}),
+      ...(active.thought ? { thought: active.thought } : {}),
       ...(active.tools?.length ? { tools: active.tools } : {}),
     };
   }
@@ -111,9 +112,16 @@ export async function runChatTurn(
       try {
         return await turnInsideLock(chatId, message, config, deps, (phase) => {
           active = { chat_id: chatId, phase, since: new Date().toISOString() };
-        }, (partial) => {
-          // Texto en vivo para la UI: la respuesta completa hasta ahora.
-          if (active?.chat_id === chatId) active = { ...active, phase: "thinking", partial };
+        }, (partial, info) => {
+          // Texto en vivo para la UI: la respuesta completa hasta ahora y pensamiento si hay.
+          if (active?.chat_id === chatId) {
+            active = {
+              ...active,
+              phase: "thinking",
+              partial,
+              ...(info?.thought ? { thought: info.thought } : {}),
+            };
+          }
         }, (tools) => {
           // Tarjetas en vivo, desde la traza del MCP (evidencia).
           if (active?.chat_id === chatId) active = { ...active, tools };
@@ -134,7 +142,7 @@ async function turnInsideLock(
   config: AppConfig,
   deps: ChatTurnDeps,
   onPhase: (phase: "navigating" | "thinking") => void,
-  onProgress: (partial: string) => void = () => {},
+  onProgress: (partial: string, info?: { thought?: string }) => void = () => {},
   onTools: (cards: ToolCard[]) => void = () => {},
 ): Promise<ChatTurnOutcome> {
   // Releer DENTRO del candado: el turno anterior pudo fijar la /c/.
@@ -238,7 +246,12 @@ async function turnInsideLock(
     const reply: ChatMessage = {
       // Markdown reconstruido si el bridge lo trae (listas, codigo); si no, texto plano.
       role: "assistant", text: result.markdown?.trim() || result.text, ts: new Date().toISOString(),
-      meta: { ms: Date.now() - started, url: chat.conversation_url, ...toolsMeta() },
+      meta: {
+        ms: Date.now() - started,
+        url: chat.conversation_url,
+        ...(result.thought ? { thought: result.thought } : {}),
+        ...toolsMeta(),
+      },
     };
     chat.messages.push(reply);
     chat.updated_at = reply.ts;

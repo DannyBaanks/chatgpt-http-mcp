@@ -29,6 +29,7 @@ export interface ChatMessage {
   /** Solo respuestas/errores. */
   meta?: {
     ms?: number; url?: string | null; kind?: ChatErrorKind; detail?: string;
+    thought?: string;
     /** Turno con tools: tarjetas sacadas de mcp-trace (evidencia), no del modelo. */
     tools_enabled?: boolean;
     tools?: ToolCard[];
