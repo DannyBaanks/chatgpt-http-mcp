@@ -16,6 +16,10 @@ export function registerMediaTools(server:McpServer, service=new MediaService())
   description:'Lista solo archivos de audio/video registrados explícitamente por el usuario. No requiere turn_token ni explora el disco. Devuelve IDs para las herramientas de medios.',
   inputSchema:{offset:z.number().int().min(0).optional()},annotations,
  },async input=>service.call('media_list',input));
+ server.registerTool('media_lookup',{
+  description:'Busca una URL pública de YouTube/Shorts entre medios registrados y preparados localmente. Es de solo lectura: nunca descarga ni analiza. Devuelve manifiesto y audio_scan completos; con sheet_index devuelve como máximo una hoja JPEG guardada. Si no está preparado, informa not_prepared para que el usuario use isymcp media prepare <url>. No expone rutas locales.',
+  inputSchema:{url:z.string().url().max(2048),sheet_index:z.number().int().min(0).optional()},annotations,
+ },async input=>service.call('media_lookup',input));
  server.registerTool('media_info',{
   description:'Inspecciona duración y streams de un medio local registrado. No requiere turn_token.',
   inputSchema:{asset_id},annotations,

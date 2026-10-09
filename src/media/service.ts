@@ -4,6 +4,8 @@ import { withinDeadline } from './deadline';
 import { MediaCatalog } from './catalog';
 import { probe, analyzeAudio, audioSegments, audioScan, windowRange } from './audio';
 import { videoFrame } from './video-vision';
+import { youtubeSource } from './importer';
+import { MediaPreparationStore } from './preparation-store';
 export class MediaService {
  private busy=false;
  private importer:MediaImporter;
@@ -26,6 +28,7 @@ export class MediaService {
     return {content:[{type:'text' as const,text:JSON.stringify({assets,next_offset:offset+assets.length<all.length?offset+assets.length:null})}]};
    } catch(error) {return {isError:true,content:[{type:'text' as const,text:'Media catalog unavailable or invalid offset'}]};}
   }
+  if(name==='media_lookup') return this.lookup(args);
   if(this.busy||this.importer.active) return {isError:true,content:[{type:'text' as const,text:'Media worker busy; retry after current query finishes'}]};
   this.busy=true;
   try {
@@ -47,5 +50,45 @@ export class MediaService {
     return {content:[{type:'text' as const,text:JSON.stringify({asset_id:asset.id,sha256:asset.sha256,source_url:asset.sourceUrl,window,method,version:'isymcp-media/1',result,limitations:name==='audio_analyze'?'Waveform and spectrum are acoustic measurements, not native listening or sound identification.':undefined})},...images]};
    }),name==='audio_scan'?300000:60000,()=>{this.busy=false;});
   } catch(error) { return {isError:true,content:[{type:'text' as const,text:String(error instanceof Error?error.message:error).replaceAll(this.catalog.home,'[media-state]')}]}; }
+ }
+
+ private async lookup(args:any) {
+  const text=(value:unknown)=>({content:[{type:'text' as const,text:JSON.stringify(value)}]});
+  try {
+   const sourceUrl=youtubeSource(String(args.url??''));
+   if(args.sheet_index!==undefined&&(!Number.isInteger(args.sheet_index)||args.sheet_index<0))throw Error('Invalid sheet_index');
+   const asset=this.catalog.findBySourceUrl(sourceUrl);
+   if(!asset)return text({found:false,status:'not_found'});
+   const verified=await this.catalog.resolve(asset.id);
+   if(verified.sourceUrl!==sourceUrl)throw Error('Registered media source mismatch');
+   const store=new MediaPreparationStore(this.catalog.home),manifest=store.current(asset.id);
+   if(!manifest)return text({found:true,status:'not_prepared',asset_id:verified.id,source_url:sourceUrl,source_sha256:verified.sha256});
+   if(manifest.source_sha256!==verified.sha256||manifest.source_url!==sourceUrl)throw Error('Prepared media source mismatch');
+   const audioArtifact=manifest.artifacts.find(item=>item.kind==='audio_scan');
+   const audio=audioArtifact?JSON.parse(store.readArtifact(asset.id,manifest.generation_id,audioArtifact.id).toString()):undefined;
+   if(!manifest.unavailable_modalities?.includes('audio')&&!audio)throw Error('Prepared audio result missing');
+   const sheets=manifest.artifacts.filter(item=>item.kind==='contact_sheet').sort((a,b)=>a.id.localeCompare(b.id)).map((item,index)=>{
+    if(item.id!==`sheet-${String(index).padStart(3,'0')}`)throw Error('Prepared contact-sheet index invalid');
+    const parameters=item.parameters as {samples?:unknown[]};
+    return {index,time_range:item.time_range,samples:parameters?.samples??[]};
+   });
+   let selectedSheet:unknown;
+   const images=[];
+   if(args.sheet_index!==undefined) {
+    if(args.sheet_index>=sheets.length)throw Error('sheet_index is out of range');
+    const item=manifest.artifacts.find(artifact=>artifact.id===`sheet-${String(args.sheet_index).padStart(3,'0')}`)!;
+    const data=store.readArtifact(asset.id,manifest.generation_id,item.id);
+    selectedSheet={index:args.sheet_index,time_range:item.time_range,samples:(item.parameters as {samples?:unknown[]})?.samples??[]};
+    images.push({type:'image' as const,mimeType:'image/jpeg',data:data.toString('base64')});
+   }
+   const result={found:true,status:'ready',asset_id:verified.id,source_url:sourceUrl,source_sha256:verified.sha256,bytes:verified.bytes,
+    generation_id:manifest.generation_id,prepared_at:manifest.prepared_at,duration_seconds:manifest.duration_seconds,streams:manifest.streams,
+    unavailable_modalities:manifest.unavailable_modalities??[],pipeline_versions:manifest.pipeline_versions??{},audio_scan:audio??null,
+    sheets,...(selectedSheet?{selected_sheet:selectedSheet}:{})};
+   return {content:[{type:'text' as const,text:JSON.stringify(result)},...images]};
+  } catch(error) {
+   const message=String(error instanceof Error?error.message:'Media lookup failed').replaceAll(this.catalog.home,'[media-state]');
+   return {isError:true,content:[{type:'text' as const,text:message}]};
+  }
  }
 }
