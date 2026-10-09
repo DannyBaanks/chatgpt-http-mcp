@@ -23,20 +23,21 @@ jobs:
         with:
           bun-version: 1.4.2
 
-      # Los tests del MCP ejecutan comandos de verdad dentro de bwrap (sandbox
-      # read-only, sin red, $HOME tapado): no se simulan. Ubuntu 24.04 bloquea
-      # los user namespaces sin privilegios via AppArmor; bwrap los necesita.
-      - name: Install bubblewrap (bounded)
+      # Los tests ejecutan bwrap y generan/analizan medios con FFmpeg de verdad;
+      # estas dependencias deben estar presentes en el runner, no se simulan.
+      # Ubuntu 24.04 bloquea user namespaces sin privilegios vía AppArmor;
+      # bwrap los necesita.
+      - name: Install bubblewrap and FFmpeg (bounded)
         timeout-minutes: 5
         run: |
-          if ! command -v bwrap >/dev/null; then
+          if ! command -v bwrap >/dev/null || ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
             # Runner images already carry apt indexes. Avoid refreshing every
             # unrelated repository unless installing from those indexes fails.
             apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15)
-            if ! sudo timeout 45s apt-get "${apt_options[@]}" install -y bubblewrap; then
+            if ! sudo timeout 45s apt-get "${apt_options[@]}" install -y bubblewrap ffmpeg; then
               echo "Initial install failed; refreshing apt indexes (60 s maximum)."
               sudo timeout 60s apt-get "${apt_options[@]}" update || true
-              if ! sudo timeout 45s apt-get "${apt_options[@]}" install -y bubblewrap; then
+              if ! sudo timeout 45s apt-get "${apt_options[@]}" install -y bubblewrap ffmpeg; then
                 # The runner's Azure mirror (via /etc/apt/apt-mirrors.txt) has hung
                 # mid-download several times (exit 124). Fall back to the official
                 # Ubuntu archive, still bounded.
@@ -46,11 +47,13 @@ jobs:
                 fi
                 sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
                 sudo timeout 90s apt-get "${apt_options[@]}" update || true
-                sudo timeout 60s apt-get "${apt_options[@]}" install -y bubblewrap
+                sudo timeout 60s apt-get "${apt_options[@]}" install -y bubblewrap ffmpeg
               fi
             fi
           fi
           bwrap --version
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
 
       - name: Verify sandbox (bubblewrap)
         timeout-minutes: 1
