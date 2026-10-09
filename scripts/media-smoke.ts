@@ -3,7 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const client=new Client({name:'isymcp-media-smoke',version:'1'});
-const transport=new StdioClientTransport({command:process.execPath,args:[join(import.meta.dir,'../src/mcp/media.ts')],env:process.env as Record<string,string>});
+const transport=new StdioClientTransport({command:process.execPath,args:[process.env.ISYMCP_MEDIA_MCP_ENTRY || join(import.meta.dir,'../src/mcp/media.ts')],env:process.env as Record<string,string>});
 try {
  await client.connect(transport);
  const ids=process.argv.slice(2); if(ids.length!==2) throw Error('Usage: bun scripts/media-smoke.ts <video_id> <audio_id>');

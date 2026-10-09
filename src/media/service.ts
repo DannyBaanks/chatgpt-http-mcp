@@ -6,6 +6,15 @@ export class MediaService {
  private busy=false;
  constructor(public catalog=new MediaCatalog()){}
  async call(name:string,args:any) {
+  if(name==='media_list') {
+   try {
+    const offset=args.offset??0;
+    if(!Number.isInteger(offset)||offset<0) throw Error('Invalid list offset');
+    const all=this.catalog.list().sort((a,b)=>a.id.localeCompare(b.id));
+    const assets=all.slice(offset,offset+20);
+    return {content:[{type:'text' as const,text:JSON.stringify({assets,next_offset:offset+assets.length<all.length?offset+assets.length:null})}]};
+   } catch(error) {return {isError:true,content:[{type:'text' as const,text:'Media catalog unavailable or invalid offset'}]};}
+  }
   if(this.busy) return {isError:true,content:[{type:'text' as const,text:'Media worker busy; retry after current query finishes'}]};
   this.busy=true;
   try {

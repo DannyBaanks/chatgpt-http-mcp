@@ -1,0 +1,419 @@
+bun test v1.4.2 (744846f84)
+
+tests/mcp-session.test.ts:
+(pass) MCP con session tokens (vivo) > token desconocido conserva el stub de compat [76.42ms]
+(pass) MCP con session tokens (vivo) > read-only ejecuta y NO puede escribir [171.91ms]
+(pass) MCP con session tokens (vivo) > apply_patch: writable aplica, rechaza escape y read-only [233.28ms]
+(pass) MCP con session tokens (vivo) > sandbox off: read-only falla cerrado, writable ejecuta sin sandbox [151.12ms]
+(pass) MCP con session tokens (vivo) > timeout de exec: kill + timed_out [877.90ms]
+(pass) MCP con session tokens (vivo) > writable escribe solo dentro del workspace [248.81ms]
+
+tests/ws-responses.test.ts:
+(pass) websocket de Codex > acepta el body de response.create [0.13ms]
+(pass) websocket de Codex > un slug nativo no se manda al browser [0.02ms]
+(pass) websocket de Codex > jsonl es una linea por evento, sin mandar el slug a la cuenta [0.20ms]
+(pass) websocket de Codex > secuencia Responses completa (la que el Codex CLI acepta) [0.06ms]
+(pass) websocket de Codex > el delta llega DESPUES de anunciar su item y con el mismo item_id (gate M8) [0.13ms]
+(pass) real WebSocket uses task identity preflight instead of the default session [4.49ms]
+(pass) Web compaction is rejected before native forwarding [3.29ms]
+
+tests/media-catalog.test.ts:
+(pass) media registration rejects changed, revoked and redirected assets [2.47ms]
+
+tests/media-mcp.test.ts:
+(pass) provider rejects semantic errors, oversize and fake images [0.69ms]
+(pass) snapshot enforces revocation during work; service rejects overlap [119.32ms]
+(pass) real MCP stdio returns info and two inline audio images [386.50ms]
+(pass) one deadline cancels a subprocess after earlier stages spent time [90.55ms]
+(pass) provider buffer refuses oversized bytes before JSON parsing [0.09ms]
+(pass) video provider must be explicitly configured [0.44ms]
+
+tests/media-unified.test.ts:
+(pass) Codex ISyMCP combines original tools with token-free registered media [340.46ms]
+
+tests/context-file.test.ts:
+(pass) context key is stable and conversation-specific [0.10ms]
+(pass) write + read slice by lines with byte cap [1.99ms]
+(pass) read refuses paths outside the context dir [0.13ms]
+(pass) parseReadCall accepts direct, fenced and object arguments [0.16ms]
+(pass) parseReadCall rejects non-read replies and junk [0.02ms]
+(pass) contract and result carry the essentials [0.06ms]
+(pass) compactContextText poda el cuerpo intermedio en textos gigantes [0.29ms]
+
+tests/e2e-all.test.ts:
+(pass) Unified E2E Smoke Suite > ejecuta la suite e2e completa y pasa todas las verificaciones [2178.48ms]
+
+tests/harness.test.ts:
+(pass) deteccion > presente segun PATH; soportado solo con estrategia verificada; nada instalado al inicio [5.90ms]
+(pass) plan / apply / verify > el plan no escribe nada y muestra el comando exacto [4.02ms]
+(pass) plan / apply / verify > apply exige aprobacion literal [0.34ms]
+(pass) plan / apply / verify > instala, verifica con la herramienta, es idempotente y se quita [154.28ms]
+(pass) plan / apply / verify > estrategia JSON: cursor (~/.cursor/mcp.json) y opencode (opencode.json) se configuran y verifican [1.20ms]
+(pass) API del panel > aplicar sin confirm:true se rechaza; acciones invalidas tambien [19.43ms]
+(pass) MCP isymcp-chatgpt (bridge falso) > HTTP error diagnostics from the bridge remain untrusted [71.86ms]
+(pass) MCP isymcp-chatgpt (bridge falso) > pregunta, devuelve thread_id, continua el hilo y clasifica errores [329.69ms]
+
+tests/web-selection.test.ts:
+(pass) assertWebSelection > acepta High y su etiqueta localizada (Alta) solo en 3/3 [0.09ms]
+(pass) assertWebSelection > rechaza posicion desconocida, otro nivel u otro modelo (fail closed) [0.09ms]
+(pass) assertWebSelection > solo Sol/high esta soportado en esta entrega [0.03ms]
+
+tests/panel-token.test.ts:
+(pass) panel sin / con token del bridge > sin token: estado 'token requerido', no 'apagado' [57.59ms]
+(pass) panel sin / con token del bridge > con token correcto: en linea [50.16ms]
+(pass) panel sin / con token del bridge > bridge realmente apagado sigue siendo 'apagado' [48.69ms]
+(pass) panel sin / con token del bridge > /api/chat/status sin token da un error accionable [1.83ms]
+(pass) panel sin / con token del bridge > /api/chat/status con token pasa tal cual [0.80ms]
+
+tests/settings.test.ts:
+(pass) storage-state > looksLoggedIn exige cookie de sesion de chatgpt.com con valor [0.11ms]
+(pass) storage-state > replaceStorageState respalda el anterior (0600) y conserva solo 5 backups propios [1.21ms]
+(pass) ventana de ajustes > sin pantalla se niega (no lanza Chrome a ciegas) [0.28ms]
+
+tests/turn-idempotency.test.ts:
+(pass) M5: idempotencia por turno > sin turn id: no cachea ni cambia el comportamiento [0.32ms]
+(pass) M5: idempotencia por turno > mismo id dos veces: UNA sola ejecucion y misma respuesta [0.55ms]
+(pass) M5: idempotencia por turno > duplicado EN VUELO: una sola ejecucion (promesa compartida) [50.69ms]
+(pass) M5: idempotencia por turno > id con traversal: el archivo queda en turns/ con hash y 0600 [0.58ms]
+(pass) M5: idempotencia por turno > 5xx NO se cachea (ambiguo: retry permitido) [0.18ms]
+(pass) M5: idempotencia por turno > 4xx SI se cachea (resultado definitivo) [0.26ms]
+
+tests/never-guess-canary.test.ts:
+(pass) Never Guess: isNewAssistantTurn > misma identidad y mismo texto = respuesta ANTERIOR -> se rechaza [0.03ms]
+(pass) Never Guess: isNewAssistantTurn > identidad nueva aunque el texto se repita (OK dos veces) -> se acepta
+(pass) Never Guess: isNewAssistantTurn > misma identidad pero texto distinto (renderizando la nueva) -> se acepta
+(pass) Never Guess: isNewAssistantTurn > sin turno previo (chat nuevo) -> cualquier texto es nuevo; vacio nunca
+(pass) canario: juicio de respuestas > eco exacto, contaminado y markdown [0.14ms]
+(pass) canario: corrida con turnos falsos > todo bien -> OK, un solo chat reutilizado, latest.json guardado [1.00ms]
+(pass) canario: corrida con turnos falsos > contaminacion: el turno B devuelve la respuesta de A -> FALLA [0.26ms]
+(pass) canario: corrida con turnos falsos > markdown roto (DOM cambio) -> FALLA en markdown [0.20ms]
+(pass) canario: corrida con turnos falsos > bridge apagado sin permiso de levantar uno -> unavailable, guardado [0.50ms]
+(pass) canario: puerto del bridge temporal > freePort devuelve un puerto que de verdad se puede abrir [0.26ms]
+
+tests/chat-tools.test.ts:
+(pass) readTools extrae tools OpenAI y descarta basura [0.13ms]
+(pass) renderToolContract incluye protocolo y esquemas [0.05ms]
+(pass) parseToolCalls acepta directo, cerca y argumentos objeto; rechaza desconocidas [0.14ms]
+(pass) readAssistantToolCalls serializa solo lo valido [0.05ms]
+(pass) parseToolCalls repara arguments con comillas sin escapar [0.18ms]
+
+tests/logs.test.ts:
+(pass) parseTime > saca time del JSON del tunnel [0.04ms]
+(pass) parseTime > linea sin hora queda null [0.02ms]
+(pass) selectLines > ultimos N [0.06ms]
+(pass) selectLines > ventana de fecha excluye las sin hora [0.04ms]
+(pass) selectLines > sin filtro incluye las sin hora [0.01ms]
+
+tests/codex-sessions.test.ts:
+(pass) codex-sessions registry > mint crea registro 0600 con token opaco y fingerprint estable [0.51ms]
+(pass) codex-sessions registry > findSessionByToken encuentra solo el token exacto [0.42ms]
+(pass) codex-sessions registry > revoke por prefijo y por fp elimina la sesion [0.64ms]
+(pass) codex-sessions registry > mint rechaza cwd relativo o inexistente [0.15ms]
+(pass) confinamiento de paths > resolveWithin permite adentro y niega escapes [0.21ms]
+(pass) confinamiento de paths > patchPaths extrae diff unificado y detecta formato Codex [0.25ms]
+
+tests/metrics.test.ts:
+(pass) motor de métricas y telemetría (src/metrics.ts) > registra turnos exitosos, fallidos, tokens y latencias [0.13ms]
+(pass) motor de métricas y telemetría (src/metrics.ts) > formatea métricas en formato Prometheus / OpenMetrics [0.07ms]
+(pass) endpoints de telemetría y salud en el bridge (server.ts) > GET /metrics devuelve OpenMetrics en texto plano [0.19ms]
+(pass) endpoints de telemetría y salud en el bridge (server.ts) > GET /api/metrics devuelve JSON estructurado [0.13ms]
+(pass) endpoints de telemetría y salud en el bridge (server.ts) > GET /api/health y /health devuelven estado de salud completo [0.11ms]
+(pass) renderizado de métricas en el panel visual (panel.ts) > renderMain incluye la tarjeta de métricas con telemetría [1.52ms]
+
+tests/thinking-stream.test.ts:
+(pass) captura y streaming de razonamiento / pensamiento (thinking stream) > buildChatCompletion incluye reasoning_content y tokens de razonamiento cuando hay thought [0.12ms]
+(pass) captura y streaming de razonamiento / pensamiento (thinking stream) > buildChatStream emite chunk con reasoning_content antes del contenido final [0.21ms]
+(pass) captura y streaming de razonamiento / pensamiento (thinking stream) > chatStatus devuelve thought cuando el estado activo lo contiene [0.04ms]
+(pass) captura y streaming de razonamiento / pensamiento (thinking stream) > extraccion DOM de thought: ignora elementos markdown y assistant-message con getAttribute y classList completos [0.09ms]
+
+tests/sanitization.test.ts:
+(pass) M8: sanitizer > redacta turn_token, bearer, sk- y cookies; no toca texto benigno [0.19ms]
+(pass) M8: sanitizer > la evidencia versionada no contiene secretos (scan real) [0.44ms]
+
+tests/chat.test.ts:
+(pass) registro de chats > T8 chat_id arbitrario no escapa del registro [0.33ms]
+(pass) registro de chats > T12 recarga: el listado se reconstruye del disco, privado y sin secretos [0.27ms]
+(pass) turnos de chat (FakeChatGPT) > T1/T2 cada chat nuevo crea su propia conversacion remota y se persiste [1.94ms]
+(pass) turnos de chat (FakeChatGPT) > T3 A -> B -> A conserva el contexto remoto de cada uno [1.25ms]
+(pass) turnos de chat (FakeChatGPT) > T4 solo se envia el mensaje nuevo (sin transcript) [0.63ms]
+(pass) turnos de chat (FakeChatGPT) > T9 cambiar de chat no puede tocar la pestana durante un turno activo [245.01ms]
+(pass) turnos de chat (FakeChatGPT) > T10 bloqueo de OpenAI se clasifica como provider y el siguiente turno funciona [1.64ms]
+(pass) turnos de chat (FakeChatGPT) > fallo del bridge se clasifica distinto al bloqueo del provider [1.40ms]
+(pass) turnos de chat (FakeChatGPT) > captura canonica: sin /c/ o /c/ ajena no se persiste [2.21ms]
+(pass) texto en vivo > el estado expone la respuesta parcial del chat activo y la limpia al terminar [16.49ms]
+(pass) autoridad y compatibilidad > T7 el navegador no puede imponer una /c/: el panel solo reenvia chat_id + message [2.84ms]
+(pass) autoridad y compatibilidad > bridge apagado -> 503 bridge_unavailable (no un 500 generico) [0.47ms]
+(pass) autoridad y compatibilidad > T5 /v1/chat/completions conserva su contrato (transcript completo) [0.23ms]
+(pass) autoridad y compatibilidad > la ruta OpenAI vuelve a SU conversacion casada aunque el panel movio la pestana [0.07ms]
+(pass) autoridad y compatibilidad > compactChat poda mensajes largos preservando el mensaje inicial y el resumen [0.53ms]
+
+tests/menu.test.ts:
+(pass) menu > el arbol tiene ramas hijo [0.05ms]
+(pass) menu > la puerta de entrada cubre panel, chat, ajustes, harnesses y canario [0.14ms]
+(pass) menu > cada hoja visible tiene accion en isymcp.ts (nada que no haga nada) [0.43ms]
+(pass) menu > los hooks existen y no se ven [0.10ms]
+
+tests/identity.test.ts:
+(pass) identidad del connector > el nombre es exactamente el pedido
+(pass) identidad del connector > el token @ es el pedido
+(pass) identidad del connector > son 8 tools, iguales a las del Codex GPT MCP [0.02ms]
+(pass) instructions > nombran el app y el token, yolkSIEMCP no es obligatorio que este pegado [0.05ms]
+(pass) instructions > el contrato determina la clave del turno
+(pass) instructions > el flujo texto -> @ -> ACK queda escrito
+(pass) buildChatGPTCommand > el texto va primero y el comando @ al final [0.03ms]
+(pass) buildChatGPTCommand > con turn_token lo incluye y rotula segun el prefijo [0.02ms]
+(pass) buildChatGPTCommand > pide explicitamente ejecutar aunque parezca texto plano [0.01ms]
+
+tests/ws-native-proxy.test.ts:
+(pass) utilidades > url del upstream y cabeceras reenviadas [0.09ms]
+(pass) WebSocket nativo a traves del bridge > reenvia con la auth de la app, devuelve las respuestas y cierra en cadena [102.54ms]
+(pass) WebSocket nativo a traves del bridge > un evento sin modelo en una conexion nueva se rechaza (no abre upstream) [1.90ms]
+
+tests/install-codex.test.ts:
+(pass) setTopLevelTomlString reemplaza o inserta antes de las tablas [0.17ms]
+(pass) dry-run no escribe; apply hace backup; restore vuelve al original [0.40ms]
+
+tests/web-task-turn.test.ts:
+(pass) Web Responses cannot submit without explicit Codex task identity [0.20ms]
+(pass) identity uses observed thread/turn and rejects conflicts [0.15ms]
+(pass) only an exactly observed Sol High state is accepted [0.08ms]
+(pass) A/B/A/B keeps distinct conversations and sends only the new input [4.26ms]
+(pass) durable replay returns the exact response and mismatched same-turn input is rejected [0.64ms]
+(pass) changed history is rejected instead of silently re-sending context [0.54ms]
+(pass) model mismatch fails before submission [0.29ms]
+(pass) ambiguous submit blocks retry and subsequent turns, including a new backend instance [0.58ms]
+(pass) private state stays private; corrupt state and stale crash leases fail closed [1.11ms]
+(pass) an absent observed model state is never accepted [0.03ms]
+(pass) concurrent identical requests share the committed response without duplicate submit [0.62ms]
+
+tests/capture-canary-regression.test.ts:
+(pass) new empty assistant container cannot borrow previous markdown [0.47ms]
+(pass) identical OK replies from distinct containers are accepted [0.10ms]
+(pass) missing identity is not evidence that the old answer is new [0.01ms]
+(pass) missing previous identity does not make unchanged previous text new
+(pass) deadline rejects a changing partial response without stable proof [0.21ms]
+(pass) completed stable new answer is returned [0.03ms]
+(pass) temporary bridge startup failure is saved [731.23ms]
+(pass) temporary bridge startup failure is saved with systemd PATH [723.40ms]
+(pass) desktop notice identifies origin and action without dumping the stack [753.66ms]
+
+tests/no-electron-dep.test.ts:
+(pass) M2: Electron fuera de este path > package.json no declara electron en ninguna seccion de dependencias [0.23ms]
+(pass) M2: Electron fuera de este path > src/ y scripts/ no importan ni spawnean electron (comentarios historicos permitidos) [4.26ms]
+(pass) M2: Electron fuera de este path > control positivo: el web adapter real es Playwright (no Electron) [0.12ms]
+
+tests/tui.test.ts:
+(pass) detectTuis > inventario con home sintetico [0.33ms]
+(pass) detectTuis > el host real detecta opencode como presente [0.07ms]
+(pass) buildOpencodePatch > provider openai-compatible con filas web y MCP local [0.20ms]
+(pass) installIntoOpencode > dry-run no escribe; apply con backup; restore vuelve [0.35ms]
+(pass) installIntoOpencode > preserva claves ajenas del config existente [0.23ms]
+
+tests/authority-boundary.test.ts:
+(pass) M4: boundary de autoridad (vivo) > token falso con contexto local presente: NO ejecuta y no muta [69.40ms]
+(pass) M4: boundary de autoridad (vivo) > token de otra sesion: DENY cruzado, cero mutacion en el workspace ajeno [166.00ms]
+(pass) M4: boundary de autoridad (vivo) > token revocado: DENY (sin ejecucion) aunque el registro exista [81.53ms]
+(pass) M4: boundary de autoridad (vivo) > parametros extra (p.ej. url de conversacion) no participan de la autoridad [87.76ms]
+
+tests/responses-input.test.ts:
+(pass) user-only Responses preserves the new instruction [0.14ms]
+(pass) instructions precede text and structured roles retain order [0.05ms]
+(pass) malformed input fails without losing content: undefined [0.06ms]
+(pass) malformed input fails without losing content: null [0.02ms]
+(pass) malformed input fails without losing content: 7 [0.02ms]
+(pass) malformed input fails without losing content: {}
+(pass) malformed input fails without losing content: [null]
+(pass) malformed input fails without losing content: [{"type":"message","role":"user","content":[{"type":"input_text","text":"ok"},{"type":"input_text","text":7}]}] [0.01ms]
+(pass) malformed input fails without losing content: [{"type":"message","role":"user","content":7}]
+(pass) unsupported item is explicit: message [0.03ms]
+(pass) unsupported item is explicit: future_item
+(pass) unsupported item is explicit: function_call_output
+(pass) unsupported item is explicit: custom_tool_call_output
+(pass) empty input stays an honest typed error: "" [0.03ms]
+(pass) empty input stays an honest typed error: "  "
+(pass) empty input stays an honest typed error: [] [0.01ms]
+(pass) empty input stays an honest typed error: [{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}]
+(pass) observed additional_tools namespace/custom declarations stay separate and ordered [0.19ms]
+(pass) real HTTP handler rejects unsupported/malformed input before browser submission [0.29ms]
+(pass) real HTTP handler rejects unsupported/malformed input before browser submission [0.04ms]
+(pass) HTTP native input stays untouched even when Web parser cannot handle it [2.27ms]
+(pass) WebSocket structured user input preserves text and declarations [0.08ms]
+(pass) real WebSocket returns typed validation error without launching a browser [1.20ms]
+
+tests/error-taxonomy.test.ts:
+(pass) M6: error taxonomy > not_web_model -> 400 [0.02ms]
+(pass) M6: error taxonomy > chat_invalid_json -> 400
+(pass) M6: error taxonomy > web_empty_prompt -> 400
+(pass) M6: error taxonomy > web_session_missing -> 401
+(pass) M6: error taxonomy > web_session_expired -> 401
+(pass) M6: error taxonomy > web_connector_unavailable -> 409
+(pass) M6: error taxonomy > web_turn_submit_failed -> 502
+(pass) M6: error taxonomy > web_capture_empty -> 504
+(pass) M6: error taxonomy > web_browser_missing -> 503
+(pass) M6: error taxonomy > web_page_crashed -> 503
+(pass) M6: error taxonomy > web_turn_failed -> 500
+(pass) M6: error taxonomy > mensaje sin tipo conocido -> web_turn_failed/500 [0.01ms]
+
+tests/web-turn-extract.test.ts:
+(pass) extractResponse sobre el dump real > extrae el nonce del contenedor que incluye el turno del usuario [0.06ms]
+(pass) extractResponse sobre el dump real > contenedor sin marcador del asistente devuelve vacio
+(pass) extractResponse sobre el dump real > sin respuesta no hay falso PASS [0.01ms]
+
+tests/web-responses.test.ts:
+(pass) isWebModel > solo el prefijo chatgpt-web/ es web [0.03ms]
+(pass) extractPrompt > input como string [0.01ms]
+(pass) extractPrompt > instructions se antepone [0.02ms]
+(pass) extractPrompt > items de mensaje conservan usuario, asistente y orden [0.03ms]
+(pass) extractPrompt > input_text plano sin content [0.01ms]
+(pass) buildResponseBody > contrato object/status [0.01ms]
+(pass) buildResponseBody > output[0] es message assistant con output_text [0.02ms]
+(pass) buildResponseBody > usage cuadra (estimado, pero consistente) [0.02ms]
+(pass) buildResponseBody > cada respuesta tiene id propio [0.01ms]
+(pass) buildWebStream > emite created, delta, done, completed y [DONE] en orden [0.24ms]
+(pass) buildWebStream > el delta lleva el texto completo (fuente no incremental) [0.10ms]
+(pass) mergeWebRows > agrega filas web y conserva las nativas [0.31ms]
+(pass) mergeWebRows > idempotente: dos merges no duplican filas web [0.09ms]
+(pass) mergeWebRows > no toca filas nativas existentes (mismo objeto) [0.04ms]
+(pass) mergeWebRows > sin cache no tira: la ruta se instala igual [0.05ms]
+(pass) mergeWebRows > saca las filas web viejas antes de agregar las nuevas [0.06ms]
+
+tests/chat-phase2-tools.test.ts:
+(pass) tokens de turno > heredan cwd/modo, caducan en minutos y no aparecen en los listados [22.46ms]
+(pass) tokens de turno > mueren con su sesion padre (revoke en cascada / padre caducado) [6.16ms]
+(pass) tokens de turno > un token de turno no puede acuñar otro ni hacerse pasar por sesion [0.55ms]
+(pass) traza -> tarjetas > solo el fp del turno, solo desde su offset; running -> ok/failed; sin contabilidad [0.74ms]
+(pass) turno de chat con tools > token efimero en el prompt, conector seleccionado, tarjetas de la traza, token revocado al final [1003.09ms]
+(pass) turno de chat con tools > sesion borrada -> error tools_session sin enviar nada a ChatGPT [2.26ms]
+(pass) turno de chat con tools > tools apagadas -> mensaje plano y sin conector [0.46ms]
+(pass) API del panel > encender exige sesion vigente; el chat nuevo nace apagado; nada de tokens [50.70ms]
+(pass) MCP real: tool.result por turno > codex_exec con token de turno deja tool.result con turn_id y sin stdout [87.44ms]
+
+tests/media-video.test.ts:
+(pass) installed Video Vision returns a real local frame [348.34ms]
+
+tests/panel.test.ts:
+(pass) M13a panel read-only > estado con server caido (puerto cerrado) es honesto [48.85ms]
+(pass) M13a panel read-only > accion desconocida falla cerrado; session-list ejecuta el CLI [219.91ms]
+(pass) M13a panel read-only > render incluye cards y el estado [48.90ms]
+(pass) panel visual > lee la ultima prueba de soak y la pinta turno por turno [49.33ms]
+
+tests/passthrough.test.ts:
+(pass) GET /v1/models reenvia auth, quita hop-by-hop y conserva status/headers [2.37ms]
+(pass) POST /v1/responses hace streaming SSE y conserva el body [0.62ms]
+(pass) status de error del upstream se propaga [0.21ms]
+(pass) rutas y metodos invalidos fallan con JSON nombrado [0.30ms]
+(pass) upstream inalcanzable devuelve 502 nombrado, no excepcion [0.24ms]
+(pass) /health responde sin tocar el upstream [0.18ms]
+
+tests/media-audio.test.ts:
+(pass) local audio distinguishes silence, tone and pulse and returns real PNGs [759.12ms]
+(pass) graphs include only the requested audio window [485.39ms]
+
+tests/catalog.test.ts:
+(pass) gating: solo se anuncia lo verificable (Sol 5.6 / High) [0.16ms]
+(pass) limits: instant, medium/high, pro max y bigger context [0.07ms]
+(pass) augment agrega filas Web, preserva nativas y no muta el input [0.24ms]
+(pass) catalogo sin template o sin models falla cerrado [0.04ms]
+(pass) diff de filas detecta faltantes y extras [0.16ms]
+
+tests/parity.test.ts:
+(pass) caso 1 — texto: SSE identico byte a byte y con [DONE] [1.86ms]
+(pass) caso 2 — multiples eventos/ids: sin reescritura [0.29ms]
+27 |   const stream = new ReadableStream<Uint8Array>({
+28 |     start(controller) {
+29 |       controller.enqueue(enc.encode(text));
+30 |       setTimeout(() => {
+31 |         try {
+32 |           controller.error(new Error("ECONNRESET"));
+                                    ^
+error: ECONNRESET
+      at <anonymous> (/home/danny/Development/ISyCo Git/chatgpt-http-mcp/tests/parity.test.ts:32:32)
+(pass) caso 3 — reset despues de [DONE]: cierra normal, no trunca [20.82ms]
+27 |   const stream = new ReadableStream<Uint8Array>({
+28 |     start(controller) {
+29 |       controller.enqueue(enc.encode(text));
+30 |       setTimeout(() => {
+31 |         try {
+32 |           controller.error(new Error("ECONNRESET"));
+                                    ^
+error: ECONNRESET
+      at <anonymous> (/home/danny/Development/ISyCo Git/chatgpt-http-mcp/tests/parity.test.ts:32:32)
+42 |       } catch (error) {
+43 |         if (completed) {
+44 |           controller.close();
+45 |           return;
+46 |         }
+47 |         controller.error(new UpstreamStreamError(bytes, error));
+                              ^
+UpstreamStreamError: upstream corto el stream tras 63 bytes: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()
+ bytes: 63,
+  type: "upstream_reset_mid_stream",
+
+      at pull (/home/danny/Development/ISyCo Git/chatgpt-http-mcp/src/responses/stream.ts:47:26)
+(pass) caso 4 — reset antes de [DONE]: nunca se presenta como turno completo [21.25ms]
+(pass) wrapper unit — reset tras [DONE] cierra normal [5.32ms]
+(pass) wrapper unit — reset antes de [DONE] propaga UpstreamStreamError [5.20ms]
+(pass) caso 5 — error de sesion: status y body del upstream se propagan [0.80ms]
+(pass) caso 6 — timeout de headers: 504 nombrado, no excepcion [200.83ms]
+(pass) caso extra — cancelacion del cliente: el stream corta y el server sigue vivo [1.30ms]
+
+tests/panel-integrations.test.ts:
+(pass) tareas de Codex en el panel > estados: lista, bloqueada (pending), en curso (lease), ilegible [0.35ms]
+(pass) tareas de Codex en el panel > el panel muestra metadatos y la nota de bloqueo, NUNCA el transcript [54.01ms]
+(pass) tareas de Codex en el panel > canario: boton de correr y estado de programacion [54.27ms]
+
+tests/hardening.test.ts:
+(pass) bridge :8791 — solo clientes locales > CSRF: text/plain (peticion simple del navegador) -> 415 [0.15ms]
+(pass) bridge :8791 — solo clientes locales > Origin ajeno -> 403 aunque el body sea JSON [0.11ms]
+(pass) bridge :8791 — solo clientes locales > DNS rebinding: Host ajeno -> 403 tambien en GET [0.10ms]
+(pass) bridge :8791 — solo clientes locales > Origin 'null' (iframe sandbox / file://) -> 403 [0.07ms]
+(pass) bridge :8791 — solo clientes locales > cliente local legitimo (sin Origin, JSON) sigue pasando [0.44ms]
+(pass) bridge :8791 — solo clientes locales > CODEX_WEB_HTTP_ALLOWED_HOSTS habilita un host extra [0.16ms]
+(pass) panel :8798 — CSRF/rebinding/XSS > POST /api/action text/plain desde otra web -> rechazado, no ejecuta [1.60ms]
+(pass) panel :8798 — CSRF/rebinding/XSS > POST sin Origin pero text/plain -> 415 [0.13ms]
+(pass) panel :8798 — CSRF/rebinding/XSS > el propio panel (Origin loopback + JSON) sigue funcionando [0.16ms]
+(pass) panel :8798 — CSRF/rebinding/XSS > render escapa logs, URL y labels [0.29ms]
+(pass) session tokens — caducidad y revoke > token caducado no autoriza; --ttl 0 no caduca [5.70ms]
+(pass) session tokens — caducidad y revoke > sesion v0.3 sin expiresAt sigue valida (compat) [0.20ms]
+(pass) session tokens — caducidad y revoke > revoke: prefijo corto o ambiguo se rechaza en vez de borrar de mas [0.54ms]
+(pass) confinamiento con symlinks > un symlink del workspace que apunta afuera se niega [0.35ms]
+(pass) candado de turnos web > dos turnos concurrentes no se solapan [60.60ms]
+(pass) candado de turnos web > reentrante: un flujo multi-ronda no se bloquea a si mismo [0.35ms]
+(pass) candado de turnos web > un turno que falla no deja el candado tomado [0.16ms]
+(pass) sanitizado de evidencia > ids de conversacion de chatgpt.com se redactan [0.05ms]
+(pass) T6 markdown del chat: sin HTML del modelo > script, img, handlers y javascript: quedan inertes [0.83ms]
+(pass) T6 markdown del chat: sin HTML del modelo > lo que se manda al navegador (toString) es el mismo renderizador [0.51ms]
+(pass) token del bridge (auditoria 2026-10-07) > con CODEX_WEB_HTTP_TOKEN, sin token 401 y con token pasa [0.46ms]
+(pass) token del bridge (auditoria 2026-10-07) > sin token configurado no cambia nada [0.10ms]
+(pass) token del bridge (auditoria 2026-10-07) > exposicion no loopback sin token se niega a arrancar [0.15ms]
+(pass) token del bridge (auditoria 2026-10-07) > el panel ignora ALLOWED_HOSTS (solo loopback) [0.07ms]
+
+tests/dom-markdown.test.ts:
+(pass) domToMarkdown > respuesta tipica de ChatGPT: parrafo, lista, bloque de codigo con su cabecera [0.98ms]
+(pass) domToMarkdown > markdownMatchesText evita usar un markdown de otro turno [0.14ms]
+(pass) domToMarkdown > corre igual tras toString (asi va a la pagina) [0.52ms]
+(pass) UI de ChatGPT 2026-10 (DOM real volcado) > lista con spans + CodeBlock con cabecera 'Bash' y pre sin clase [0.20ms]
+
+tests/sandbox-isolation.test.ts:
+(pass) sandbox: aislamiento de secretos > toolchains bajo $HOME siguen en PATH (ro) aunque $HOME este tapado [91.63ms]
+(pass) sandbox: aislamiento de secretos > read-only no lee $HOME ni el registro de tokens [82.28ms]
+(pass) sandbox: aislamiento de secretos > el env del bridge no llega al comando; HOME apunta al tmpfs [99.52ms]
+(pass) sandbox: aislamiento de secretos > sin red por defecto (solo loopback en el namespace) [89.57ms]
+(pass) sandbox: aislamiento de secretos > workspace que contiene el home del bridge: el registro sigue tapado [86.28ms]
+
+tests/chat-completions.test.ts:
+(pass) chatBodyToWebRequest > system va al frente y user/assistant como transcript [0.12ms]
+(pass) chatBodyToWebRequest > stream se propaga y content por partes se une [0.07ms]
+(pass) chatBodyToWebRequest > modelo ajeno o sin texto falla cerrado [0.03ms]
+(pass) buildChatCompletion > contrato chat.completion con usage estimado [0.06ms]
+(pass) buildChatStream > un delta con el texto y luego [DONE] [0.12ms]
+
+tests/codex-launcher.test.ts:
+(pass) codex-launcher (perfil aislado sin tocar config.toml) > buildCodexArgs construye los argumentos con -c openai_base_url de forma efímera [0.03ms]
+(pass) codex-launcher (perfil aislado sin tocar config.toml) > isBridgeAlive detecta el bridge activo en el puerto dado [1.35ms]
+(pass) codex-launcher (perfil aislado sin tocar config.toml) > installDesktopLauncher y removeDesktopLauncher instalan y limpian lanzadores aislados [0.31ms]
+
+ 291 pass
+ 0 fail
+ 1074 expect() calls
+Ran 291 tests across 46 files. [13.05s]

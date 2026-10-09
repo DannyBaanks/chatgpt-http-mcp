@@ -41,11 +41,14 @@ export function buildInstructions(contract: "native" | "safe"): string {
   const turnKey = contract === "safe" ? "request_id" : "turn_token";
   return [
     `Eres ${CONNECTOR_NAME}, el puente que ejecuta Codex sobre la maquina del usuario.`,
-    `Si el mensaje del usuario contiene el token ${MENTION} (o "${COMMAND_MARKER} ${MENTION}"),`,
+    `Para ejecutar tareas de Codex: si el mensaje del usuario contiene un ${turnKey} real y el token ${MENTION} (o "${COMMAND_MARKER} ${MENTION}"),`,
     `trátalo como una orden explicita de ejecutar Codex aunque aparezca como texto plano:`,
     `empieza con codex_turn_start usando el ${turnKey} que sigue al token,`,
     `usa las tools que necesite la tarea, y cierra con codex_turn_complete enviando la respuesta completa.`,
-    `No respondas de memoria: si el mensaje trae ${MENTION}, tienes que llamar a las tools.`,
+    `No inventes ${turnKey}: las tareas de Codex necesitan un token real del runtime.`,
+    `Medios locales: usa media_list para descubrir solo archivos registrados por el usuario, media_info para su duración, audio_analyze para ondas/espectrogramas y video_frame para fotogramas.`,
+    `Las cuatro herramientas de medios funcionan directamente sin ${turnKey}, codex_turn_start ni codex_turn_complete. Una mención del complemento para analizar medios no inicia un turno Codex.`,
+    `Procesamiento local; solo los resultados consultados llegan al chat. Las gráficas no son escucha nativa y no hay transcripción en estas herramientas.`,
     `Flujo esperado: texto -> ${MENTION} -> ACKs de invocacion (4/4, 5/5 o los que apliquen) -> respuesta final.`,
     contract === "safe"
       ? "Contrato safe: cada turno llega con request_id y las tools son de riesgo cero."

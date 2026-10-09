@@ -33,6 +33,7 @@ import {
   type CodexSession,
 } from "../codex-sessions";
 import { buildInstructions } from "./identity";
+import { registerMediaTools } from "../media/register";
 
 const args = process.argv.slice(2);
 function option(name: string, fallback: string): string {
@@ -456,6 +457,8 @@ server.registerTool(
     });
   },
 );
+
+registerMediaTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

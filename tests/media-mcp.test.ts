@@ -24,7 +24,7 @@ test('real MCP stdio returns info and two inline audio images',async()=>{
  await run('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=1000:duration=1',file]);
  const home=join(root,'state');const a=await new MediaCatalog(home).add(file);
  const client=new Client({name:'media-smoke',version:'1'});const transport=new StdioClientTransport({command:process.execPath,args:[join(import.meta.dir,'../src/mcp/media.ts')],env:{...process.env,ISYMCP_MEDIA_HOME:home} as Record<string,string>});
- try {await client.connect(transport);expect((await client.listTools()).tools.length).toBe(3);
+ try {await client.connect(transport);expect((await client.listTools()).tools.map(t=>t.name)).toContain('media_list');
  const info:any=await client.callTool({name:'media_info',arguments:{asset_id:a.id}});expect(info.isError).not.toBe(true);
  const audio:any=await client.callTool({name:'audio_analyze',arguments:{asset_id:a.id,start_seconds:0,end_seconds:1}});expect(audio.isError).not.toBe(true);expect(audio.content.filter((c:any)=>c.type==='image').length).toBe(2);
  } finally {await client.close();}

@@ -257,3 +257,23 @@ En ChatGPT, actualiza/reconecta el complemento Video Vision para descubrir estas
 Límites: 500 MiB por archivo, una consulta simultánea, plazo total de 60 segundos, hasta dos imágenes de 1 MiB cada una. WAV/FLAC/MP3/M4A/MP4/MOV/WebM. La consulta utiliza una copia privada verificada y temporal; no expone rutas arbitrarias al modelo. Espectrogramas de audio mono a 16 kHz: frecuencias superiores a 8 kHz quedan fuera del análisis. Silencio: umbral -50 dBFS, ventanas de 0.1 segundos; no es detección de voz. No incluye transcripción en este entry point ni importación de URLs. El Whisper reparado sigue instalado en Video Vision; este MCP dedicado expone solo los gráficos, estadísticas y fotogramas.
 
 Trampas: el MP4 de prueba de 18 segundos es **solo video**; consultar su audio falla correctamente. Tener el túnel listo no prueba una consulta desde ChatGPT. Si el complemento conserva herramientas antiguas, reconéctalo; no le pidas herramientas que no aparecen. Mantén el equipo encendido mientras uses el túnel.
+
+## Usarlo desde Codex ISyMCP (herramientas unificadas)
+
+Selecciona **Codex ISyMCP** y escribe:
+
+> Lista mis medios registrados con media_list. Busca angel-engine-test.mp4 y audio.wav. Analiza los primeros 10 segundos del audio con audio_analyze y muéstrame el fotograma del video en el segundo 5 con video_frame. Distingue mediciones e interpretaciones.
+
+El servidor principal ahora conserva las ocho herramientas `codex_*` y añade `media_list`, `media_info`, `audio_analyze` y `video_frame`. Las de medios no requieren token de turno. `media_list` entrega hasta 20 archivos registrados por página; sigue `next_offset` si existe. No devuelve rutas locales ni explora archivos no registrados. Para autorizar otro archivo usa `media add` como se describe arriba; para retirarlo, `media revoke`.
+
+El túnel habitual de Codex ISyMCP mantiene su ID y apunta a `src/mcp/main.ts`, con el proveedor Video Vision configurado mediante variables de entorno. No se creó otro complemento ni se modificaron permisos de la cuenta. Actualiza/reconecta el complemento en ChatGPT si todavía muestra solo las herramientas `codex_*`; volver a abrir un chat puede ser necesario para cargar su nueva lista. Prueba remota con la lista unificada: **NOT_DEMONSTRATED** hasta que ChatGPT realmente llame a una herramienta de medios.
+
+Prueba local ejecutada sobre el entry point principal:
+
+```bash
+ISYMCP_MEDIA_MCP_ENTRY='/home/danny/Development/ISyCo Git/chatgpt-http-mcp/src/mcp/main.ts' ISYMCP_VIDEO_VISION_ENTRY=/home/danny/Development/video-vision-runtime/dist/index.js ISYMCP_VIDEO_VISION_NODE=/home/danny/.local/bin/node bun scripts/media-smoke.ts media_b4f26f12-51f0-41ac-832f-af1a2d676184 media_e60fbdfd-85ce-477b-82f3-daa9d2970117
+```
+
+Salida íntegra: `docs/evidence/unified-media-20261009-smoke.json`. La prueba recibió un JPEG y dos PNG por MCP; la prueba automatizada también verificó que las herramientas de Codex siguen exigiendo su token. La suite completa inicial tuvo un timeout en el E2E existente de 5 segundos; al ejecutarla con `bun test --timeout 15000`, terminó con 291 pruebas correctas y cero fallos. Se conservaron ambos logs.
+
+Si ejecutas de nuevo el script genérico `connect-tunnel.ts` con su comando predeterminado, no conserva automáticamente la configuración de Video Vision: usa un `--mcp-command` que incluya `ISYMCP_VIDEO_VISION_ENTRY` y `ISYMCP_VIDEO_VISION_NODE`, igual que el perfil desplegado. Audio funciona sin el proveedor; video requiere esa configuración.

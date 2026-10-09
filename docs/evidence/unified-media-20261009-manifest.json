@@ -1,0 +1,23 @@
+{
+  "timestamp_utc": "2026-10-09T07:27:22.575113+00:00",
+  "scope": "Codex ISyMCP media integration",
+  "tests": "bun test --timeout 15000: 291 pass, zero fail, exit 0",
+  "remote_chatgpt": "NOT_DEMONSTRATED",
+  "files": {
+    "GUIA.md": "60b95d2dcae02fdb653bbbd7eae34a6efa1b4c1bff1c6707bbac3709f333082c",
+    "README.md": "52501156ef102366aa3802563bb296db158d783b76ed4650c5393016a7a44ab5",
+    "docs/evidence/unified-media-20261009-final-tests.txt": "59d7d66e8dcf55904e8045c38b3f37b90d24c8e27443dfd68005e1ecbd768726",
+    "docs/evidence/unified-media-20261009-notes.md": "94653b54385b6c94dde45bfa333121a55f6c3dcb2b8a2a7dcf87d53dcfa6176e",
+    "docs/evidence/unified-media-20261009-smoke.json": "4d600c770c1e6d6c93f608dfd7778f1fa87e27bbf4880ad1c8c161ff0efecad2",
+    "docs/evidence/unified-media-20261009-tests.txt": "52494acf139321368de6d20291a323e5940c3f173554023f370450b40834e7e2",
+    "docs/evidence/unified-media-20261009-tunnel.json": "b5e27f7d7799e9c4a5f2df8065b299d0f8593456e65afcb8ad95ab0b5c4b354b",
+    "scripts/media-smoke.ts": "90ee6668fc1796d67a8bda3edbc6b04a1b64282fbb3403a7aac25abe78ef1d94",
+    "src/mcp/identity.ts": "f136df8d4e1a90221729d7249e262d0c1efa90ebe129f63662f10a090906984c",
+    "src/mcp/main.ts": "69e002ada9ce553f38e54d40e0f7f7880b0989e96743603240d60eed8a77c2ff",
+    "src/mcp/media.ts": "009d481da8536a7f6ba739412c6c61d0efb9544c9882ec56b095663224ae9b38",
+    "src/media/register.ts": "133c41eab6c547c4c1ee19f424f9fdaab7fc9cf302f8b6ff0e1cf47ea890584a",
+    "src/media/service.ts": "cd503e644e35bafc669b3d40da437498e44383b91ba95ef2b81f371914018b3d",
+    "tests/media-mcp.test.ts": "4a66c55cf6d2abd74628408db5fb58e599d35adfde59ecfff9f177dbd297f2b1",
+    "tests/media-unified.test.ts": "2a233136682fd332f745ffd59cbabb66330190add197ae056483d02465bf73c7"
+  }
+}
