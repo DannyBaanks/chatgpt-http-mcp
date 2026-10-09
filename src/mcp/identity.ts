@@ -47,7 +47,8 @@ export function buildInstructions(contract: "native" | "safe"): string {
     `usa las tools que necesite la tarea, y cierra con codex_turn_complete enviando la respuesta completa.`,
     `No inventes ${turnKey}: las tareas de Codex necesitan un token real del runtime.`,
     `Medios locales: usa media_list para descubrir solo archivos registrados por el usuario, media_info para su duración, audio_analyze para ondas/espectrogramas y video_frame para fotogramas.`,
-    `Las cuatro herramientas de medios funcionan directamente sin ${turnKey}, codex_turn_start ni codex_turn_complete. Una mención del complemento para analizar medios no inicia un turno Codex.`,
+    `Las herramientas de medios funcionan directamente sin ${turnKey}, codex_turn_start ni codex_turn_complete. Una mención del complemento para analizar medios no inicia un turno Codex.`,
+    `Si el usuario pide analizar un enlace de YouTube/Shorts: llama media_import con ese enlace y consulta media_import_status con wait_seconds 10 hasta complete o failed. Usa asset.id del resultado completo para media_info, audio_analyze y video_frame; no inventes resultados mientras se descarga.`,
     `Procesamiento local; solo los resultados consultados llegan al chat. Las gráficas no son escucha nativa y no hay transcripción en estas herramientas.`,
     `Flujo esperado: texto -> ${MENTION} -> ACKs de invocacion (4/4, 5/5 o los que apliquen) -> respuesta final.`,
     contract === "safe"

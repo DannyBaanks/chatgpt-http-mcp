@@ -2,6 +2,14 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { MediaService } from './service';
 export function registerMediaTools(server:McpServer, service=new MediaService()) {
+ server.registerTool('media_import',{
+  description:'Descarga un video público de YouTube/Shorts en la PC del usuario y lo registra para análisis local. Solo úsala cuando el usuario solicite importar/analizar ese enlace. Devuelve job_id rápidamente: consulta media_import_status hasta complete antes de usar asset.id. Sin cookies; máximo 500 MiB, 30 minutos, plazo 180 segundos.',
+  inputSchema:{url:z.string().url().max(2048)},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+ },async input=>service.call('media_import',input));
+ server.registerTool('media_import_status',{
+  description:'Consulta un trabajo de descarga local. wait_seconds permite esperar hasta 10 segundos por progreso. Cuando state es complete, usa asset.id con media_info, audio_analyze o video_frame. Si failed, informa el error; no supongas que se analizó el video.',
+  inputSchema:{job_id:z.string().regex(/^import_[a-f0-9-]{36}$/),wait_seconds:z.number().int().min(0).max(10).optional()},annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+ },async input=>service.call('media_import_status',input));
  const asset_id=z.string().regex(/^media_[a-f0-9-]{36}$/).describe('ID devuelto por media_list o isymcp media add; nunca una ruta');
  const annotations={readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false};
  server.registerTool('media_list',{

@@ -28,3 +28,9 @@ Local media provider (installed separately, not vendored):
 - FFmpeg/ffprobe are system executables; no FFmpeg binaries or source are
   distributed here. Their license depends on the system build (see ffmpeg -L).
 - No source from zachswift615/audio-analysis-mcp was copied.
+
+- yt-dlp (installed separately), Unlicense with third-party components under
+  their respective licenses; see https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE
+  and THIRD_PARTY_LICENSES.txt. Used through its CLI, not vendored. The downloader
+  design follows the same yt-dlp dependency used by Video Vision; no upstream
+  downloader source was copied into this project.

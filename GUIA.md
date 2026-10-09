@@ -254,7 +254,7 @@ En ChatGPT, actualiza/reconecta el complemento Video Vision para descubrir estas
 | Configure ISYMCP_VIDEO_VISION_ENTRY | Falta configurar el proveedor de fotogramas |
 | timed out / exceeds limit | Reduce el intervalo o usa un archivo más pequeño |
 
-Límites: 500 MiB por archivo, una consulta simultánea, plazo total de 60 segundos, hasta dos imágenes de 1 MiB cada una. WAV/FLAC/MP3/M4A/MP4/MOV/WebM. La consulta utiliza una copia privada verificada y temporal; no expone rutas arbitrarias al modelo. Espectrogramas de audio mono a 16 kHz: frecuencias superiores a 8 kHz quedan fuera del análisis. Silencio: umbral -50 dBFS, ventanas de 0.1 segundos; no es detección de voz. No incluye transcripción en este entry point ni importación de URLs. El Whisper reparado sigue instalado en Video Vision; este MCP dedicado expone solo los gráficos, estadísticas y fotogramas.
+Límites: 500 MiB por archivo, una consulta simultánea, plazo total de 60 segundos, hasta dos imágenes de 1 MiB cada una. WAV/FLAC/MP3/M4A/MP4/MOV/WebM. La consulta utiliza una copia privada verificada y temporal; no expone rutas arbitrarias al modelo. Espectrogramas de audio mono a 16 kHz: frecuencias superiores a 8 kHz quedan fuera del análisis. Silencio: umbral -50 dBFS, ventanas de 0.1 segundos; no es detección de voz. No incluye transcripción en este entry point. La importación de YouTube se describe en la sección final. El Whisper reparado sigue instalado en Video Vision; este MCP dedicado expone solo los gráficos, estadísticas y fotogramas.
 
 Trampas: el MP4 de prueba de 18 segundos es **solo video**; consultar su audio falla correctamente. Tener el túnel listo no prueba una consulta desde ChatGPT. Si el complemento conserva herramientas antiguas, reconéctalo; no le pidas herramientas que no aparecen. Mantén el equipo encendido mientras uses el túnel.
 
@@ -264,7 +264,7 @@ Selecciona **Codex ISyMCP** y escribe:
 
 > Lista mis medios registrados con media_list. Busca angel-engine-test.mp4 y audio.wav. Analiza los primeros 10 segundos del audio con audio_analyze y muéstrame el fotograma del video en el segundo 5 con video_frame. Distingue mediciones e interpretaciones.
 
-El servidor principal ahora conserva las ocho herramientas `codex_*` y añade `media_list`, `media_info`, `audio_analyze` y `video_frame`. Las de medios no requieren token de turno. `media_list` entrega hasta 20 archivos registrados por página; sigue `next_offset` si existe. No devuelve rutas locales ni explora archivos no registrados. Para autorizar otro archivo usa `media add` como se describe arriba; para retirarlo, `media revoke`.
+El servidor principal ahora conserva las ocho herramientas `codex_*` y añade `media_list`, `media_info`, `audio_analyze`, `video_frame`, `media_import` y `media_import_status`. Las de medios no requieren token de turno. `media_list` entrega hasta 20 archivos registrados por página; sigue `next_offset` si existe. No devuelve rutas locales ni explora archivos no registrados. Para autorizar otro archivo usa `media add` como se describe arriba; para retirarlo, `media revoke`.
 
 El túnel habitual de Codex ISyMCP mantiene su ID y apunta a `src/mcp/main.ts`, con el proveedor Video Vision configurado mediante variables de entorno. No se creó otro complemento ni se modificaron permisos de la cuenta. Actualiza/reconecta el complemento en ChatGPT si todavía muestra solo las herramientas `codex_*`; volver a abrir un chat puede ser necesario para cargar su nueva lista. Prueba remota con la lista unificada: **NOT_DEMONSTRATED** hasta que ChatGPT realmente llame a una herramienta de medios.
 
@@ -277,3 +277,41 @@ ISYMCP_MEDIA_MCP_ENTRY='/home/danny/Development/ISyCo Git/chatgpt-http-mcp/src/m
 Salida íntegra: `docs/evidence/unified-media-20261009-smoke.json`. La prueba recibió un JPEG y dos PNG por MCP; la prueba automatizada también verificó que las herramientas de Codex siguen exigiendo su token. La suite completa inicial tuvo un timeout en el E2E existente de 5 segundos; al ejecutarla con `bun test --timeout 15000`, terminó con 291 pruebas correctas y cero fallos. Se conservaron ambos logs.
 
 Si ejecutas de nuevo el script genérico `connect-tunnel.ts` con su comando predeterminado, no conserva automáticamente la configuración de Video Vision: usa un `--mcp-command` que incluya `ISYMCP_VIDEO_VISION_ENTRY` y `ISYMCP_VIDEO_VISION_NODE`, igual que el perfil desplegado. Audio funciona sin el proveedor; video requiere esa configuración.
+
+## Pegar un enlace y procesarlo en tu PC
+
+Selecciona **Codex ISyMCP** en ChatGPT y escribe:
+
+> Usa Codex ISyMCP para descargar y analizar https://www.youtube.com/shorts/lHkDE3BahB0. Espera a que termine la importación. Examina los primeros 10 segundos de audio con onda y espectrograma y los fotogramas de los segundos 5 y 10. Distingue lo observado de tus interpretaciones.
+
+El modelo llama `media_import(url)`, recibe un `job_id` y consulta `media_import_status(job_id, wait_seconds: 10)`. Cuando aparece `state: complete`, usa `asset.id` con `media_info`, `audio_analyze` y `video_frame`. La descarga y el procesamiento corren en tu PC; el original no se carga en el chat. Las imágenes y estadísticas solicitadas sí llegan a OpenAI. No requiere un token de turno Codex.
+
+Prueba real ejecutada sobre el servidor principal:
+
+```bash
+ISYMCP_VIDEO_VISION_ENTRY=/home/danny/Development/video-vision-runtime/dist/index.js ISYMCP_VIDEO_VISION_NODE=/home/danny/.local/bin/node bun scripts/media-import-smoke.ts https://www.youtube.com/shorts/lHkDE3BahB0
+```
+
+Resultado real resumido (salida completa en `docs/evidence/url-media-20261009-smoke.jsonl`):
+
+```json
+{"state":"complete","asset":{"id":"media_122a35ba-e2b1-4da0-bed9-8f14dddd3e2d","name":"media.mp4","bytes":989440,"sha256":"af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af"}}
+```
+
+El archivo contiene video 720×720 y audio estéreo a 48 kHz, duración 18.521 segundos. La misma prueba recibió dos PNG de audio y un JPEG real del segundo 5 por MCP. Las gráficas analizan audio mono a 16 kHz, como se documentó arriba.
+
+| Estado de importación | Acción |
+|---|---|
+| `running` | Consulta `media_import_status`; todavía no hay un resultado para analizar |
+| `complete` | Usa `asset.id`; el archivo ya está registrado con SHA-256 |
+| `failed` | Informa el error; no afirmes haber visto ni escuchado el video |
+| Unknown import job | El servidor pudo reiniciarse o el estado salir del historial de 50 trabajos; busca el archivo en `media_list` |
+| Media worker busy | Espera; descarga y análisis comparten un trabajador |
+
+Primera versión: videos individuales públicos de YouTube y Shorts, HTTPS, hasta 30 minutos y 500 MiB. No importa playlists, transmisiones en vivo, sitios arbitrarios ni archivos de redes privadas. Plazo de descarga/validación: 180 segundos; consultas de estado pueden esperar hasta 10 segundos; análisis mantiene su plazo de 60 segundos y ventanas máximas de 60 segundos. Resolución solicitada de video hasta 720p. Si YouTube exige iniciar sesión o bloquea el enlace, el trabajo falla explícitamente: no usa cookies del navegador.
+
+Reutiliza yt-dlp instalado por Video Vision en `~/.oamaestro/bin/yt-dlp`, o el ejecutable de PATH. `ISYMCP_YTDLP_BIN` permite seleccionar otro ejecutable instalado. No instala ni actualiza automáticamente software; mantiene desactivadas la configuración, los plugins y la caché del descargador. Video Vision sigue proporcionando los fotogramas.
+
+Archivos en `~/.local/state/isymcp/media/downloads/import-*` (o el catálogo configurado). Los originales descargados y los archivos parciales se conservan; revocar un ID no libera espacio ni borra archivos. El trabajador comprueba tamaños durante la descarga, permite hasta 1 GiB temporal para mezclar pistas y exige al menos 64 MiB libres. Al detener el MCP termina también el grupo de procesos de descarga. No reanuda trabajos al reiniciar; los archivos ya registrados permanecen disponibles y puedes volver a importar un enlace fallido. Los estados recientes están en memoria y en un `job.json` local como registro; después de reiniciar usa `media_list` para descubrir medios terminados.
+
+Actualiza/reconecta el complemento para descubrir `media_import` y `media_import_status`. **NOT_DEMONSTRATED:** invocación remota desde ChatGPT.com de estas dos herramientas nuevas. Descarga real y análisis por MCP stdio local sí están verificados.

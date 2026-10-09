@@ -1,0 +1,38 @@
+{
+  "timestamp_utc": "2026-10-09T07:40:42.535133+00:00",
+  "scope": "YouTube URL import into existing Codex ISyMCP",
+  "tests": {
+    "command": "bun test --timeout 15000",
+    "exit_code": 0,
+    "result": "297 pass, zero fail"
+  },
+  "local_real_network_mcp_smoke": "verified complete fresh YouTube download, audio images and video frame",
+  "remote_chatgpt_new_tools": "NOT_DEMONSTRATED",
+  "files": {
+    "GUIA.md": "e468a9c11b149deaf2a0c7a2d716ab5673f22a91a67d0f9ecbc95957d00ecbd4",
+    "NOTICE": "36263f9f15c381ad1d4f5f0b8325556b178f9baa06e78f0830d9fcc0e9c4a6a9",
+    "README.md": "b18d581bf57850ab498223dbb8efee04a69038ad83bccc2b4ea20c57b21b9556",
+    "docs/evidence/url-media-20261009-final-tests.txt": "4752c3f3de6b756835055d1756751412bd09bb69697b245ed3126af6971cb829",
+    "docs/evidence/url-media-20261009-final2-tests.txt": "0de60d7d54ec6fbd660bf9ad5c88f3960cd0ca59b5d0dbd5574e20d95be06178",
+    "docs/evidence/url-media-20261009-notes.md": "e32214d11bd000db4f1bd8da1e68cf21ae7dd81399c6c01eb05bbf7789c6a668",
+    "docs/evidence/url-media-20261009-smoke-stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/evidence/url-media-20261009-smoke.jsonl": "342ecfd1203520071584f9915a46c46a1bc9ff2ef99b95ae75242e1146af8aac",
+    "docs/evidence/url-media-20261009-tests.txt": "2a4b25aaeac26ce5f46c83339c2e05dacc3ca343da38ab9c1f03e23501430cad",
+    "docs/evidence/url-media-20261009-tunnel.json": "b5e27f7d7799e9c4a5f2df8065b299d0f8593456e65afcb8ad95ab0b5c4b354b",
+    "scripts/media-import-smoke.ts": "bb214a1c27d884edd677888f701cde9ca49911b2c2eed8a18d460e54cc8fab97",
+    "src/mcp/identity.ts": "37d87561d756e5eefb30d7e07a9425f5a1d8fb2770fce5206db7ab3e993cd590",
+    "src/media/catalog.ts": "6b6f677e4c8bcd5604c3d6d65986017d9123f4952a46b2728f614f65fcc8281f",
+    "src/media/importer.ts": "29427386dcbf98b8b99bf21264e13002e80c926f5e46df75d5f6a5d6f9c011fa",
+    "src/media/process.ts": "7a1c3aca7aec00260422f5287493c1d804a91acee8dd03c4865b76fdc3ed8d94",
+    "src/media/register.ts": "60ec3c6476deba37eb3d72bc9d1392876217c5310a9cedd2d3833be632285d71",
+    "src/media/service.ts": "dea5afdf0c5b9090977ccb13acd1e699a6cb2a1f817943bc92740b052c83b636",
+    "src/media/youtube.ts": "ce24d025ee9023f82082e6eb42178f6f19d86e97d2f0c3aa967b454719411c13",
+    "tests/media-import.test.ts": "cf52a003861068749532ade7d093fca94aa7b130d637c83dd1c824e43998ddd5",
+    "tests/media-unified.test.ts": "4118da498d73c1b5d883d4f9e4d3f076275bb9a1364901112f309ce4d062f9ff"
+  },
+  "source_artifact": {
+    "bytes": 989440,
+    "sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+    "source_url": "https://www.youtube.com/watch?v=lHkDE3BahB0"
+  }
+}

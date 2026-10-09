@@ -1,0 +1,11 @@
+{
+  "alias": "codex-web-http",
+  "tunnel_id": "tunnel_6aa79054b69c8191b49df82a1834c4c8",
+  "healthz": 200,
+  "readyz": 200,
+  "process_running": true,
+  "control_plane_poll_health": {
+    "reason": "no live admin UI system snapshot",
+    "state": "unknown"
+  }
+}
