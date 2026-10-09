@@ -165,11 +165,11 @@ export class MediaPreparationStore {
     return manifest;
   }
 
-  begin(assetId: string, sourceUrl: string, sourceSha256: string, sourceBytes?: number): PreparationManifest {
+  begin(assetId: string, sourceUrl: string, sourceSha256: string, sourceBytes?: number, forceNew = false): PreparationManifest {
     validateAssetId(assetId);
     if (!hashPattern.test(sourceSha256) || !sourceUrl.startsWith('https://') || (sourceBytes !== undefined && (!Number.isSafeInteger(sourceBytes) || sourceBytes < 0))) throw Error('Invalid preparation source');
     const current = this.current(assetId);
-    if (current?.source_url === sourceUrl && current.source_sha256 === sourceSha256) return current;
+    if (!forceNew && current?.source_url === sourceUrl && current.source_sha256 === sourceSha256) return current;
     const generations = this.generationsDir(assetId, true);
     const candidates = readdirSync(generations).filter(name => uuidPattern.test(name)).sort().reverse();
     for (const generationId of candidates) {
@@ -186,6 +186,14 @@ export class MediaPreparationStore {
       status: 'preparing', progress: { phase: 'queued' }, artifacts: [],
     };
     this.generationDir(assetId, generationId, true);
+    this.writeManifest(assetId, manifest);
+    return manifest;
+  }
+
+  updateMetadata(assetId: string, generationId: string, metadata: Pick<PreparationManifest, 'source_bytes' | 'duration_seconds' | 'streams' | 'unavailable_modalities' | 'pipeline_versions'>): PreparationManifest {
+    const manifest = this.parseManifest(assetId, generationId);
+    Object.assign(manifest, metadata);
+    manifest.updated_at = new Date().toISOString();
     this.writeManifest(assetId, manifest);
     return manifest;
   }
