@@ -199,6 +199,13 @@ describe("MCP isymcp-chatgpt (bridge falso)", () => {
     const bridge = Bun.serve({
       hostname: "127.0.0.1", port: 0,
       async fetch(req) {
+        // The real MCP probes GET /health before making a chat turn.
+        // A health probe has no JSON body; only parse POST chat requests.
+        const pathname = new URL(req.url).pathname;
+        if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true });
+        if (req.method !== "POST" || pathname !== "/isymcp/chat/turn") {
+          return Response.json({ error: "Unexpected test request" }, { status: 404 });
+        }
         const body = await req.json() as { chat_id: string; message: string };
         received.push(body);
         if (body.message === "bloquea") return Response.json({ ok: false, reply: { role: "error", text: "OpenAI has blocked this call. UNTRUSTED_PROVIDER_PAYLOAD", meta: { kind: "provider_blocked" } } });
