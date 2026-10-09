@@ -23,11 +23,11 @@ test('snapshot enforces revocation during work; service rejects overlap',async()
 });
 test('media lookup distinguishes not-found/unprepared/ready and returns at most the selected verified sheet',async()=>{
  const root=mkdtempSync(join(tmpdir(),'isymcp-lookup-')),home=join(root,'state');const catalog=new MediaCatalog(home),service=new MediaService(catalog);
- const url='https://www.youtube.com/watch?v=abcdefghijk';
+ const url='https://www.youtube.com/watch?v=abcdefghijk',unpreparedUrl='https://www.youtube.com/watch?v=lmnopqrstuv';
  const unknown:any=await service.call('media_lookup',{url});expect(JSON.parse(unknown.content[0].text)).toMatchObject({found:false,status:'not_found'});
  const audio=join(root,'audio.wav');await run('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=2',audio]);
- const registered=await catalog.add(audio,url);const store=new MediaPreparationStore(home);
- const unprepared:any=await service.call('media_lookup',{url});expect(JSON.parse(unprepared.content[0].text)).toMatchObject({found:true,status:'not_prepared',asset_id:registered.id});
+ const registered=await catalog.add(audio,unpreparedUrl);const store=new MediaPreparationStore(home);
+ const unprepared:any=await service.call('media_lookup',{url:unpreparedUrl});expect(JSON.parse(unprepared.content[0].text)).toMatchObject({found:true,status:'not_prepared',asset_id:registered.id});
  expect(store.current(registered.id)).toBeUndefined();
 
  const video=join(root,'source.mp4');await run('ffmpeg',['-v','error','-f','lavfi','-i','color=blue:s=128x72:r=8:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-map','0:v','-map','1:a','-c:v','mpeg4','-c:a','aac','-shortest',video]);
