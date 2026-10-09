@@ -33,24 +33,27 @@ const server = new McpServer({ name: "isymcp-chatgpt", version: "0.1.0" }, {
   ].join(" "),
 });
 
-// Health check del bridge al iniciar
+// Health check del bridge al iniciar (no bloqueante, solo warning)
 async function checkBridgeHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${BRIDGE}/health`, {
       headers: bridgeAuthHeaders(),
       signal: AbortSignal.timeout(3000),
     });
+    // Ignorar contenido, solo status
     return res.ok;
   } catch {
     return false;
   }
 }
 
-const bridgeHealthy = await checkBridgeHealth();
-if (!bridgeHealthy) {
-  console.error(`[isymcp-chatgpt] ADVERTENCIA: Bridge no responde en ${BRIDGE}/health`);
-  console.error(`[isymcp-chatgpt] Ejecuta: isymcp server start`);
-}
+// Ejecutar health check en background, no bloquear el inicio
+checkBridgeHealth().then((healthy) => {
+  if (!healthy) {
+    console.error(`[isymcp-chatgpt] ADVERTENCIA: Bridge no responde en ${BRIDGE}/health`);
+    console.error(`[isymcp-chatgpt] Ejecuta: isymcp server start`);
+  }
+});
 
 function text(payload: string, isError = false) {
   return { content: [{ type: "text" as const, text: payload }], ...(isError ? { isError: true as const } : {}) };
