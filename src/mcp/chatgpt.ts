@@ -33,27 +33,36 @@ const server = new McpServer({ name: "isymcp-chatgpt", version: "0.1.0" }, {
   ].join(" "),
 });
 
-// Health check del bridge al iniciar (no bloqueante, solo warning)
+// Health check lazy: solo se ejecuta en la primera invocación de la tool
+let healthChecked = false;
+let healthCheckPromise: Promise<boolean> | null = null;
+
 async function checkBridgeHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${BRIDGE}/health`, {
       headers: bridgeAuthHeaders(),
       signal: AbortSignal.timeout(3000),
     });
-    // Ignorar contenido, solo status
     return res.ok;
   } catch {
     return false;
   }
 }
 
-// Ejecutar health check en background, no bloquear el inicio
-checkBridgeHealth().then((healthy) => {
-  if (!healthy) {
-    console.error(`[isymcp-chatgpt] ADVERTENCIA: Bridge no responde en ${BRIDGE}/health`);
-    console.error(`[isymcp-chatgpt] Ejecuta: isymcp server start`);
+async function ensureHealthChecked(): Promise<void> {
+  if (healthChecked) return;
+  if (!healthCheckPromise) {
+    healthCheckPromise = checkBridgeHealth().then((healthy) => {
+      healthChecked = true;
+      if (!healthy) {
+        console.error(`[isymcp-chatgpt] ADVERTENCIA: Bridge no responde en ${BRIDGE}/health`);
+        console.error(`[isymcp-chatgpt] Ejecuta: isymcp server start`);
+      }
+      return healthy;
+    });
   }
-});
+  await healthCheckPromise;
+}
 
 function text(payload: string, isError = false) {
   return { content: [{ type: "text" as const, text: payload }], ...(isError ? { isError: true as const } : {}) };
@@ -92,6 +101,7 @@ server.registerTool(
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
   async (input: { prompt: string; thread_id?: string }) => {
+    await ensureHealthChecked();
     let chatId = input.thread_id?.trim() || "";
     if (chatId) {
       if (!CHAT_ID_RE.test(chatId) || !loadChat(chatId)) return text(`thread_id desconocido: ${chatId}`, true);
