@@ -17,10 +17,35 @@ test('local audio distinguishes silence, tone and pulse and returns real PNGs',a
   if(name==='pulse') {expect(result.statistics.peak).toBeCloseTo(0.5);expect(result.statistics.silence.length).toBe(2);}
  }
  expect(()=>windowRange(0,61,100)).toThrow('Invalid window');
+ expect(()=>windowRange(0,61,100,120)).not.toThrow();
  expect(()=>windowRange(-1,1,2)).toThrow('Invalid window');
  await expect(run(process.execPath,['-e','setTimeout(()=>{},10000)'],100,20)).rejects.toThrow('timed out');
  await expect(run(process.execPath,['-e','process.stdout.write("123456")'],2)).rejects.toThrow('exceeds limit');
 },20000);
+test('audio scan chunks the complete requested range without gaps and keeps absolute segment times',async()=>{
+ const {chunkAudioRange,audioScan}=await import('../src/media/audio');
+ expect(()=>chunkAudioRange(0,245,121)).toThrow('between 0 and 120');
+ expect(chunkAudioRange(0,79.801)).toEqual([{start_seconds:0,end_seconds:79.801}]);
+ expect(chunkAudioRange(0,245)).toEqual([{start_seconds:0,end_seconds:120},{start_seconds:120,end_seconds:240},{start_seconds:240,end_seconds:245}]);
+ const root=mkdtempSync(join(tmpdir(),'isymcp-audio-scan-')),path=join(root,'events.wav');
+ const tone='0.5*sin(2*PI*440*t)';
+ const expression=`${tone}*gte(t\\,0.1)*lte(t\\,0.4)+${tone}*gte(t\\,1.1)*lte(t\\,1.4)+${tone}*gte(t\\,2.1)*lte(t\\,2.4)`;
+ await run('ffmpeg',['-v','error','-f','lavfi','-i',`aevalsrc=${expression}:s=16000:d=2.5`,'-c:a','pcm_f32le',path]);
+ const result=await audioScan(path,0,2.5,1);
+ expect(result.chunk_seconds).toBe(1);
+ expect(result.chunk_count).toBe(3);
+ expect(result.chunks.map(c=>[c.start_seconds,c.end_seconds])).toEqual([[0,1],[1,2],[2,2.5]]);
+ const starts=result.chunks.flatMap(c=>c.segments).map(s=>s.start_seconds);
+ expect(starts[0]).toBeCloseTo(0.1,1);expect(starts[1]).toBeCloseTo(1.1,1);expect(starts[2]).toBeCloseTo(2.1,1);
+ expect(result.chunks.every(c=>c.decoded_seconds<=1.001)).toBe(true);
+});
+test('audio segment windows and decoder support more than the old 60-second cap',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'isymcp-audio-61s-')),path=join(root,'silence.wav');
+ await run('ffmpeg',['-v','error','-f','lavfi','-i','anullsrc=r=16000:cl=mono:d=61','-c:a','pcm_f32le',path]);
+ const result=await audioSegments(path,0,61);
+ expect(result.decoded_seconds).toBeCloseTo(61,2);
+ expect(result.segments).toHaveLength(0);
+});
 test('graphs include only the requested audio window',async()=>{
  const root=mkdtempSync(join(tmpdir(),'isymcp-window-'));const silence=join(root,'silence.wav'),transition=join(root,'transition.wav');
  for(const [path,expression] of [[silence,'0'],[transition,'0.5*sin(2*PI*1000*t)*gte(t\\,1)']]) await run('ffmpeg',['-v','error','-f','lavfi','-i',`aevalsrc=${expression}:s=16000:d=2`,'-c:a','pcm_f32le',path]);

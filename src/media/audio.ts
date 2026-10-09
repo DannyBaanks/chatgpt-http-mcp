@@ -2,6 +2,7 @@ import { run } from './process';
 import { deflateSync } from 'node:zlib';
 
 const RATE=16000;
+export const MAX_AUDIO_CHUNK_SECONDS=120;
 const PNG=Buffer.from([137,80,78,71,13,10,26,10]);
 export type AudioChannel='mix'|'left'|'right'|'separate';
 export type SegmentOptions={thresholdDbfs:number;mergeGapSeconds:number;minSegmentSeconds:number};
@@ -12,8 +13,14 @@ export async function probe(path:string) {
  if(!Number.isFinite(duration)||duration<=0) throw Error('Media duration unavailable');
  return {duration_seconds:duration,streams:data.streams as Array<Record<string,unknown>>};
 }
-export function windowRange(start:number,end:number,duration:number) {
- if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start||end-start>60||end>duration+0.001) throw Error('Invalid window: 0 <= start < end <= duration; maximum 60 seconds');
+export function windowRange(start:number,end:number,duration:number,maxSeconds=60) {
+ if(!Number.isFinite(start)||!Number.isFinite(end)||!Number.isFinite(maxSeconds)||maxSeconds<=0||start<0||end<=start||end-start>maxSeconds||end>duration+0.001) throw Error(`Invalid window: 0 <= start < end <= duration; maximum ${maxSeconds} seconds`);
+}
+export function chunkAudioRange(start:number,end:number,chunkSeconds=MAX_AUDIO_CHUNK_SECONDS) {
+ if(!Number.isFinite(start)||!Number.isFinite(end)||!Number.isFinite(chunkSeconds)||start<0||end<=start||chunkSeconds<=0||chunkSeconds>MAX_AUDIO_CHUNK_SECONDS) throw Error('Invalid audio scan: start >= 0, end > start, and chunk_seconds must be between 0 and 120');
+ const chunks:Array<{start_seconds:number;end_seconds:number}>=[];
+ for(let cursor=start;cursor<end;){const next=Math.min(end,cursor+chunkSeconds);if(next<=cursor)throw Error('Invalid audio chunk boundary');chunks.push({start_seconds:cursor,end_seconds:next});cursor=next;}
+ return chunks;
 }
 function audioStream(info:Awaited<ReturnType<typeof probe>>) {
  const stream=info.streams.find(s=>s.codec_type==='audio');
@@ -32,7 +39,7 @@ async function decode(path:string,start:number,end:number,channel:AudioChannel) 
  const input=inputArgs(path,start,end);
  const selected=channel==='left'||channel==='right';
  const args=selected?['-af',channelFilter(channel),'-f','f32le','pipe:1']:['-ac','1','-ar',String(RATE),'-f','f32le','pipe:1'];
- const pcm=await run('ffmpeg',[...input,...args],60*RATE*4+4096);
+ const pcm=await run('ffmpeg',[...input,...args],MAX_AUDIO_CHUNK_SECONDS*RATE*4+4096);
  if(!pcm.length||pcm.length%4) throw Error('Invalid decoded audio');
  return pcm;
 }
@@ -103,7 +110,7 @@ function waveformPng(pcm:Buffer,start:number,channel:AudioChannel){
  return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),pngChunk('IHDR',ihdr),pngChunk('IDAT',deflateSync(raw)),pngChunk('IEND',Buffer.alloc(0))]);
 }
 export async function analyzeAudio(path:string,start:number,end:number,channel:AudioChannel='mix') {
- const info=await probe(path);windowRange(start,end,info.duration_seconds);
+ const info=await probe(path);windowRange(start,end,info.duration_seconds,MAX_AUDIO_CHUNK_SECONDS);
  const {channels:sourceChannels,channelLayout}=audioStream(info);
  if(channel==='left'||channel==='right'||channel==='separate')if(sourceChannels!==2||channelLayout!=='stereo')throw Error('Left/right inspection requires a two-channel stereo source');
  const mixedPcm=await decode(path,start,end,'mix'),mixed=measure(mixedPcm,start);
@@ -133,7 +140,17 @@ export function segmentActivity(pcm:Buffer,sampleRate:number,start:number,end:nu
  return out;
 }
 export async function audioSegments(path:string,start:number,end:number,options:SegmentOptions={thresholdDbfs:-32,mergeGapSeconds:0.1,minSegmentSeconds:0.12}) {
- const info=await probe(path);windowRange(start,end,info.duration_seconds);audioStream(info);
+ const info=await probe(path);windowRange(start,end,info.duration_seconds,MAX_AUDIO_CHUNK_SECONDS);audioStream(info);
  const pcm=await decode(path,start,end,'mix');
  return {sample_rate:RATE,analysis_channels:1,decoded_seconds:pcm.length/4/RATE,method:'100 Hz RMS activity threshold on mono 16 kHz audio',algorithm_version:'audio-rms-activity/2',parameters:{...options,resolution_seconds:0.01},segments:segmentActivity(pcm,RATE,start,end,options),limitations:'Detects acoustic activity, not speech. Music, effects and noise can create segments; quiet speech can be missed. Use audio_analyze on a returned interval to inspect its waveform and spectrogram.'};
+}
+export async function audioScan(path:string,start=0,end?:number,chunkSeconds=MAX_AUDIO_CHUNK_SECONDS,options:SegmentOptions={thresholdDbfs:-32,mergeGapSeconds:0.1,minSegmentSeconds:0.12}) {
+ const info=await probe(path),stream=audioStream(info),scanEnd=end??info.duration_seconds;
+ if(!Number.isFinite(start)||!Number.isFinite(scanEnd)||start<0||scanEnd<=start||scanEnd>info.duration_seconds+0.001)throw Error('Invalid audio scan window: 0 <= start < end <= duration');
+ const chunks=chunkAudioRange(start,Math.min(scanEnd,info.duration_seconds),chunkSeconds),results=[];
+ for(let index=0;index<chunks.length;index++){
+  const chunk=chunks[index],analysis=await audioSegments(path,chunk.start_seconds,chunk.end_seconds,options);
+  results.push({index:index+1,...chunk,decoded_seconds:analysis.decoded_seconds,segment_count:analysis.segments.length,segments:analysis.segments});
+ }
+ return {window:{start_seconds:start,end_seconds:Math.min(scanEnd,info.duration_seconds)},duration_seconds:info.duration_seconds,chunk_seconds:chunkSeconds,chunk_count:results.length,sample_rate:RATE,source_channels:stream.channels,analysis_channels:1,method:'Sequential 100 Hz RMS activity segmentation on mono 16 kHz audio; absolute source timestamps',algorithm_version:'audio-rms-activity/2',parameters:{...options,resolution_seconds:0.01},total_segments:results.reduce((count,chunk)=>count+chunk.segment_count,0),chunks:results,limitations:'Covers the requested audio window in chronological chunks; detects acoustic activity, not speech. Music, effects and noise can create segments; quiet speech can be missed. Each chunk is segmented independently, so activity can split at chunk boundaries. Times are absolute within the source. Use audio_analyze on a returned interval (up to 120 seconds) to inspect waveform and spectrogram; this is not native listening or transcription.'};
 }

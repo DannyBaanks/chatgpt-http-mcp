@@ -21,13 +21,17 @@ export function registerMediaTools(server:McpServer, service=new MediaService())
   inputSchema:{asset_id},annotations,
  },async input=>service.call('media_info',input));
  server.registerTool('audio_analyze',{
-  description:'Procesa localmente hasta 60 segundos: RMS, picos, silencios, onda y espectrograma con zoom temporal. channel=left/right inspecciona un canal; separate devuelve onda/espectrograma L/R y correlación/diferencia entre canales; mix conserva la mezcla mono predeterminada. La comparación no separa fuentes. Son mediciones acústicas, no escucha nativa.',
+  description:'Procesa localmente hasta 120 segundos: RMS, picos, silencios, onda y espectrograma con zoom temporal. Para cubrir una pista larga, usa audio_scan. channel=left/right inspecciona un canal; separate devuelve onda/espectrograma L/R y correlación/diferencia entre canales; mix conserva la mezcla mono predeterminada. La comparación no separa fuentes. Son mediciones acústicas, no escucha nativa ni transcripción.',
   inputSchema:{asset_id,start_seconds:z.number().finite().min(0),end_seconds:z.number().finite().min(0),channel:z.enum(['mix','left','right','separate']).optional()},annotations,
  },async input=>service.call('audio_analyze',input));
  server.registerTool('audio_segments',{
-  description:'Detecta segmentos de actividad acústica por RMS en ventanas de 10 ms sobre audio mono a 16 kHz; no reconoce habla. Devuelve tiempos, RMS y pico. Ajusta threshold_dbfs, merge_gap_seconds y min_segment_seconds; después usa audio_analyze sobre un intervalo para ampliar la onda y el espectrograma.',
+  description:'Detecta segmentos de actividad acústica en una ventana de hasta 120 segundos con RMS cada 10 ms sobre audio mono a 16 kHz; no reconoce habla. Devuelve tiempos, RMS y pico. Para analizar la pista completa, usa audio_scan. Ajusta threshold_dbfs, merge_gap_seconds y min_segment_seconds; después usa audio_analyze sobre un intervalo para ampliar la onda y el espectrograma.',
   inputSchema:{asset_id,start_seconds:z.number().finite().min(0),end_seconds:z.number().finite().min(0),threshold_dbfs:z.number().finite().min(-80).max(-5).optional(),merge_gap_seconds:z.number().finite().min(0).max(2).optional(),min_segment_seconds:z.number().finite().min(0.02).max(10).optional()},annotations,
  },async input=>service.call('audio_segments',input));
+ server.registerTool('audio_scan',{
+  description:'Analiza por completo el audio local registrado, desde 0 hasta su duración por defecto. Lo recorre en orden en bloques de hasta 120 segundos y devuelve segmentos de actividad con tiempos absolutos; chunk_seconds puede reducir el tamaño (1–120 s). Sin transcripción ni escucha nativa: detecta energía acústica, no palabras ni voces. Usa audio_analyze después para inspeccionar onda/espectrograma de un tramo de hasta 120 s.',
+  inputSchema:{asset_id,start_seconds:z.number().finite().min(0).optional(),end_seconds:z.number().finite().min(0).optional(),chunk_seconds:z.number().finite().min(1).max(120).optional(),threshold_dbfs:z.number().finite().min(-80).max(-5).optional(),merge_gap_seconds:z.number().finite().min(0).max(2).optional(),min_segment_seconds:z.number().finite().min(0.02).max(10).optional()},annotations,
+ },async input=>service.call('audio_scan',input));
  server.registerTool('video_contact_sheet',{
   description:'Genera localmente una sola hoja de contacto JPEG de 1920x1080, con fotogramas ordenados y tiempos solicitados. Cuadrícula 4x4 por defecto (16 imágenes); 3x3 o 6x6 opcionales. Intervalo de hasta 60 segundos. Úsala para explorar la secuencia y después pide video_frame para detalles. No equivale a reproducir una animación.',
   inputSchema:{asset_id,start_seconds:z.number().finite().min(0),end_seconds:z.number().finite().min(0),columns:z.union([z.literal(3),z.literal(4),z.literal(6)]).optional()},annotations,

@@ -171,7 +171,7 @@ Process explicitly registered audio and video locally, then inspect the evidence
 | **Local file** | Register it with `bun src/isymcp.ts media add <file>`; keep the returned asset ID. |
 | **Public YouTube video or Short** | Call `media_import(url)`, poll `media_import_status(job_id, wait_seconds: 10)` until `complete`, and use `asset.id`. |
 | **Inspect video** | Use `media_info`, `video_contact_sheet` for an overview and `video_frame` for a specific timestamp. |
-| **Inspect audio** | Use `audio_segments` for activity windows, then `audio_analyze` to zoom into waveforms, spectrograms and stereo measurements. |
+| **Inspect audio** | Use `audio_scan` to scan the complete track in chunks of at most 120 seconds, then `audio_analyze` to zoom into a selected waveform, spectrogram or stereo measurement. |
 
 For step-by-step commands and the verified ChatGPT prompt, see **[GUIA.md — Medios locales](GUIA.md#medios-locales-audio-y-video-2026-10-09)**.
 
@@ -181,7 +181,7 @@ The independent `src/mcp/media.ts` entry point processes only explicitly registe
 
 Audio activity windows, channel-aware waveforms, spectrograms, RMS, peaks and silence intervals run locally through **FFmpeg/ffprobe**. Video frames use a separately installed MIT **Video Vision** provider configured through `ISYMCP_VIDEO_VISION_ENTRY` (absolute `dist/index.js`) and optionally `ISYMCP_VIDEO_VISION_NODE`. Requires Bun and FFmpeg/ffprobe.
 
-Original files remain local and read-only; requested images and statistics are returned to the MCP client. Limits: **500 MiB per file**, **60 seconds per audio window/query deadline**, **one concurrent job** and **1 MiB per output image** (up to four images for separated stereo). Neither entry point provides an arbitrary filesystem path tool or audio transcription.
+Original files remain local and read-only; requested images and statistics are returned to the MCP client. Limits: **500 MiB per file**, **120 seconds per audio window**, **60 seconds for ordinary queries**, **300 seconds for full-track `audio_scan`**, **one concurrent job** and **1 MiB per output image** (up to four images for separated stereo). Neither entry point provides an arbitrary filesystem path tool or audio transcription.
 
 The standalone media stdio entry point has local compatibility coverage. Remote GPT.com calls documented below used the main Codex ISyMCP connection; they do not establish remote E2E compatibility for every standalone media tool.
 
@@ -199,7 +199,9 @@ The maximum interval is 60 seconds, under the shared worker/deadline and 1 MiB i
 
 ### Audio segments, waveforms & stereo
 
-`audio_segments(asset_id, start_seconds, end_seconds, threshold_dbfs?, merge_gap_seconds?, min_segment_seconds?)` finds activity intervals using **10 ms RMS windows on mono 16 kHz audio**. `algorithm_version` identifies the segmenter independently of the `isymcp-media/1` response schema. Version `audio-rms-activity/2` uses these defaults:
+`audio_scan(asset_id, start_seconds?, end_seconds?, chunk_seconds?, threshold_dbfs?, merge_gap_seconds?, min_segment_seconds?)` scans the complete audio track by default in chronological chunks of up to 120 seconds (`chunk_seconds` can be reduced to 1–120). It returns each chunk, acoustic activity segments with absolute source timestamps, effective parameters and a total segment count. The full scan has a 300-second deadline and returns measurements without images. Each chunk is segmented independently, so continuous activity can split at chunk boundaries. This measures acoustic energy, not speech, transcription or native listening.
+
+`audio_segments(asset_id, start_seconds, end_seconds, threshold_dbfs?, merge_gap_seconds?, min_segment_seconds?)` finds activity intervals using **10 ms RMS windows on mono 16 kHz audio**. It accepts windows up to 120 seconds. `algorithm_version` identifies the segmenter independently of the `isymcp-media/1` response schema. Version `audio-rms-activity/2` uses these defaults:
 
 | Parameter | Default |
 |---|---:|
