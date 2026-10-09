@@ -53,28 +53,35 @@ export function settingsStatus() {
   return { state, last: lastResult, seen: lastSeen };
 }
 
-const MODEL_BUTTON = 'button[aria-label="Seleccionar modelo de ChatGPT"], button[data-testid="model-switcher-dropdown-button"]';
+/** Selectores del botón de modelo - ordenados por prioridad (más específico primero). */
+const MODEL_BUTTON_SELECTORS = [
+  'button[aria-label="Seleccionar modelo de ChatGPT"]',
+  'button[data-testid="model-switcher-dropdown-button"]',
+  'button[aria-label*="modelo" i]',
+  'button[aria-label*="Model" i]',
+  'button[data-testid*="model" i]',
+] as const;
+
+const MODEL_BUTTON = MODEL_BUTTON_SELECTORS.join(", ");
 
 /** Lee el selector de modelo sin cambiar nada (abre el menu y lo cierra con Escape). */
 export async function readComposerSettings(page: Page): Promise<ComposerSettings> {
   const empty: ComposerSettings = { pill: null, model: null, effort: null, effortPosition: null, effortSteps: null };
+  const debug = process.env.ISYMCP_DEBUG === "1";
+  const log = debug ? (msg: string) => console.error(`[readComposerSettings] ${msg}`) : () => {};
+  
   try {
     const button = page.locator(MODEL_BUTTON).first();
     await button.waitFor({ state: "visible", timeout: 15_000 });
+    log("Botón de modelo encontrado");
+    
     const pill = ((await button.innerText()) || "").trim().replace(/\s+/g, " ") || null;
-    // Sin clic incondicional: si el menu ya estaba abierto, un clic lo cerraria.
-    // ensureOpen() (abajo) solo hace clic cuando aria-expanded no es "true".
-    // Esperar a que el menu termine de montarse (el deslizante de potencia
-    // llega despues que los items): con una espera fija de 900 ms, justo tras
-    // navegar a un chat nuevo, se leia "High (?/?)" (visto 2026-10-07, M8).
+    log(`Pill inicial: ${pill}`);
+
     const readMenu = () => page.evaluate(() => {
       const radios = Array.from(document.querySelectorAll('[role="menuitemradio"], [role="menuitem"], [role="option"]')) as HTMLElement[];
       const checked = radios.find((r) => r.getAttribute("aria-checked") === "true");
       const texts = radios.map((r) => (r.innerText || "").trim().replace(/\s+/g, " "));
-      // Solo dentro de un menu/popper abierto: otras barras de la pagina (p. ej.
-      // la alerta de uso) tambien llevan aria-valuenow. Y no basta con el
-      // PRIMER popper: el tooltip del boton del modelo tambien es uno (de ahi
-      // un "?/?" intermitente en el gate del Codex CLI).
       const scopes = Array.from(document.querySelectorAll('[data-radix-popper-content-wrapper], [role="menu"]'));
       const slider = (scopes.map((s) => s.querySelector('[role="slider"], [aria-valuenow]')).find(Boolean) ?? null) as HTMLElement | null;
       return {
@@ -83,18 +90,26 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
         slider: slider ? { now: slider.getAttribute("aria-valuenow"), max: slider.getAttribute("aria-valuemax"), min: slider.getAttribute("aria-valuemin"), text: slider.getAttribute("aria-valuetext") } : null,
       };
     });
+
     const resolved = (m: Awaited<ReturnType<typeof readMenu>>) => Boolean(m.slider?.now || m.texts.some((t) => /\d+\s+(?:de|of)\s+\d+/.test(t)));
-    // En un Chrome de larga vida el menu puede haber quedado abierto: el clic lo
-    // CERRABA y no habia deslizante que leer ("?/?" desde Codex App, 2026-10-07).
-    // Se confirma que quedo abierto (aria-expanded) y, si no se resuelve, se
-    // cierra, se reabre y se intenta una segunda vez. Sin dato: fail closed.
+
     const ensureOpen = async () => {
-      if ((await button.getAttribute("aria-expanded").catch(() => null)) !== "true") await button.click().catch(() => {});
+      const expanded = await button.getAttribute("aria-expanded").catch(() => null);
+      if (expanded !== "true") {
+        log("Abriendo menú (aria-expanded !== true)");
+        await button.click().catch(() => {});
+      } else {
+        log("Menú ya abierto");
+      }
     };
+
     await ensureOpen();
     let menu = await readMenu();
+    log(`Intento 0 - resuelto: ${resolved(menu)}, texts: ${menu.texts.length}, slider: ${!!menu.slider}`);
+
     for (let attempt = 0; attempt < 2 && !resolved(menu); attempt++) {
       if (attempt === 1) {
+        log("Reintento: cerrando y reabriendo menú");
         await page.keyboard.press("Escape").catch(() => {});
         await page.waitForTimeout(500);
         await button.click().catch(() => {});
@@ -103,26 +118,31 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
       for (let i = 0; i < 20 && !resolved(menu); i++) {
         await page.waitForTimeout(400);
         menu = await readMenu();
+        if (debug && i % 5 === 0) log(`Espera ${i}: resuelto=${resolved(menu)}`);
       }
     }
+
     await page.keyboard.press("Escape").catch(() => {});
-    // "Instant, 1 de 3" (o en ingles "Instant, 1 of 3") en algun item del menu.
+    
     const effortText = menu.texts.map((t) => /([\p{L}][\p{L} ]*?),\s*(\d+)\s+(?:de|of)\s+(\d+)/u.exec(t)).find(Boolean);
     let effort = effortText ? effortText[1]!.trim() : (menu.slider?.text ?? null);
     let effortPosition = effortText ? Number(effortText[2]) : null;
     let effortSteps = effortText ? Number(effortText[3]) : null;
+    
     if (effortPosition === null && menu.slider?.now) {
       const min = Number(menu.slider.min ?? 0);
       effortPosition = Number(menu.slider.now) - min + 1;
       effortSteps = menu.slider.max ? Number(menu.slider.max) - min + 1 : null;
     }
-    // Con el menu abierto el boton dice "Esfuerzo de razonamiento", no el
-    // nivel: la etiqueta se relee con el menu YA cerrado.
+
     await page.waitForTimeout(300);
     const closedPill = ((await button.innerText().catch(() => "")) || "").trim().replace(/\s+/g, " ") || pill;
     if (!effort && closedPill) effort = closedPill;
+    
+    log(`Resultado: pill=${closedPill}, model=${menu.model}, effort=${effort}, pos=${effortPosition}, steps=${effortSteps}`);
     return { pill: closedPill, model: menu.model, effort, effortPosition, effortSteps };
-  } catch {
+  } catch (error) {
+    log(`Error: ${error instanceof Error ? error.message : String(error)}`);
     return empty;
   }
 }
