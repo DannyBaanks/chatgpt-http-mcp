@@ -34,6 +34,10 @@ export class MediaCatalog {
   const s=statSync(a.realPath); if(!s.isFile() || s.size!==a.bytes) throw Error('Asset changed: register again');
   const data=await boundedRead(a.realPath); if(digest(data)!==a.sha256) throw Error('Asset changed: register again'); this.get(id); return a;
  }
+ findBySourceUrl(canonicalUrl:string):Asset|undefined {
+  const match=this.list().find(asset=>asset.source_url===canonicalUrl);
+  return match?this.get(match.id):undefined;
+ }
  async snapshot<T>(id:string, work:(asset:Asset,path:string)=>Promise<T>):Promise<T> {
   const a=this.get(id);
   if(realpathSync(a.path)!==a.realPath) throw Error('Asset changed: register again');
