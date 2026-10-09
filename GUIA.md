@@ -264,7 +264,7 @@ Selecciona **Codex ISyMCP** y escribe:
 
 > Lista mis medios registrados con media_list. Busca angel-engine-test.mp4 y audio.wav. Analiza los primeros 10 segundos del audio con audio_analyze y muéstrame el fotograma del video en el segundo 5 con video_frame. Distingue mediciones e interpretaciones.
 
-El servidor principal conserva las ocho herramientas `codex_*` y ofrece `media_list`, `media_info`, `audio_segments`, `audio_analyze`, `video_frame`, `video_contact_sheet`, `media_import` y `media_import_status`. Las de medios no requieren token de turno. `media_list` entrega hasta 20 archivos registrados por página; sigue `next_offset` si existe. No devuelve rutas locales ni explora archivos no registrados. Para autorizar otro archivo usa `media add` como se describe arriba; para retirarlo, `media revoke`.
+El servidor principal conserva las ocho herramientas `codex_*` y ofrece `media_list`, `media_info`, `audio_segments`, `audio_scan`, `audio_analyze`, `video_frame`, `video_contact_sheet`, `media_import`, `media_import_status` y `media_lookup`. Las herramientas de medios no requieren token de turno. `media_list` entrega hasta 20 archivos registrados por página; sigue `next_offset` si existe. No devuelve rutas locales ni explora archivos no registrados. Para autorizar otro archivo usa `media add` como se describe arriba; para retirarlo, `media revoke`.
 
 El túnel habitual de Codex ISyMCP mantiene su ID y apunta a `src/mcp/main.ts`, con el proveedor Video Vision configurado mediante variables de entorno. No se creó otro complemento ni se modificaron permisos de la cuenta. Actualiza/reconecta el complemento en ChatGPT si todavía muestra solo las herramientas `codex_*`; volver a abrir un chat puede ser necesario para cargar su nueva lista. Prueba remota con la lista unificada: **NOT_DEMONSTRATED** hasta que ChatGPT realmente llame a una herramienta de medios.
 
@@ -278,13 +278,29 @@ Salida íntegra: `docs/evidence/unified-media-20261009-smoke.json`. La prueba re
 
 Si ejecutas de nuevo el script genérico `connect-tunnel.ts` con su comando predeterminado, no conserva automáticamente la configuración de Video Vision: usa un `--mcp-command` que incluya `ISYMCP_VIDEO_VISION_ENTRY` y `ISYMCP_VIDEO_VISION_NODE`, igual que el perfil desplegado. Audio funciona sin el proveedor; video requiere esa configuración.
 
-## Pegar un enlace y procesarlo en tu PC
+## Preparar una vez y consultar después
+
+Para dejar listo un video y reutilizar el análisis entre conversaciones, ejecuta en una terminal:
+
+```bash
+isymcp media prepare 'https://www.youtube.com/shorts/VIDEO_ID'
+```
+
+También puedes usar `bun src/isymcp.ts media prepare '<url>'`. El comando valida y canonicaliza la URL pública de YouTube/Shorts. Si ya existe un registro para esa URL, lo reutiliza; si no, descarga con yt-dlp sin cookies y aplica los límites actuales de 500 MiB y 30 minutos. Después verifica el archivo y guarda localmente metadatos, el `audio_scan` completo en chunks de hasta 120 segundos y hojas 4×4 de 1920×1080 para ventanas consecutivas de hasta 60 segundos.
+
+El comando informa las fases por `stderr` y al terminar imprime una sola línea JSON con `asset_id`, `status`, `duration_seconds`, `sheet_count` y `segment_count`. Si se interrumpe, conserva el origen y los resultados parciales verificados; repetir el comando con la misma URL reanuda lo que se pueda reutilizar. Cambios al algoritmo de audio o al renderizador regeneran solo esa clase de artefactos. Una preparación incompleta nunca reemplaza una generación lista.
+
+Los manifiestos y artefactos se guardan bajo `~/.local/state/isymcp/media/preparations/` (o bajo `ISYMCP_MEDIA_HOME`) con permisos privados. No se agregan herramientas para aceptar rutas arbitrarias ni se borran originales, generaciones antiguas o resultados parciales.
+
+En ChatGPT, selecciona **Codex ISyMCP** y pide primero `media_lookup(url)`. Si aparece `status: ready`, el modelo recibe el audio segmentado completo y el índice de hojas, pero no las imágenes hasta que solicite `sheet_index`; cada llamada devuelve como máximo una hoja. Si recibe `not_prepared`, puede usar la importación de una sola vez o indicarte que ejecutes `isymcp media prepare <url>`. Si recibe `not_found`, el enlace aún no está registrado. `media_lookup` es de solo lectura: no descarga ni vuelve a calcular. Las mediciones acústicas no son transcripción ni escucha nativa.
+
+## Pegar un enlace para importarlo y analizarlo ahora
 
 Selecciona **Codex ISyMCP** en ChatGPT y escribe:
 
-> Usa Codex ISyMCP para descargar y analizar https://www.youtube.com/shorts/lHkDE3BahB0. Espera a que termine la importación. Examina los primeros 10 segundos de audio con onda y espectrograma y los fotogramas de los segundos 5 y 10. Distingue lo observado de tus interpretaciones.
+> Usa Codex ISyMCP para analizar https://www.youtube.com/shorts/lHkDE3BahB0. Primero llama media_lookup. Si ya está preparado, revisa el audio_scan y pide las hojas pertinentes; si no, impórtalo ahora. Examina los primeros 10 segundos de audio con onda y espectrograma y los fotogramas de los segundos 5 y 10. Distingue lo observado de tus interpretaciones.
 
-El modelo llama `media_import(url)`, recibe un `job_id` y consulta `media_import_status(job_id, wait_seconds: 10)`. Cuando aparece `state: complete`, usa `asset.id` con `media_info`, `audio_analyze` y `video_frame`. La descarga y el procesamiento corren en tu PC; el original no se carga en el chat. Las imágenes y estadísticas solicitadas sí llegan a OpenAI. No requiere un token de turno Codex.
+Si `media_lookup` devuelve `not_found` o `not_prepared` y quieres procesar el enlace inmediatamente, el modelo llama `media_import(url)`, recibe un `job_id` y consulta `media_import_status(job_id, wait_seconds: 10)`. Cuando aparece `state: complete`, usa `asset.id` con `media_info`, `audio_analyze` y `video_frame`. Para guardar la preparación y reutilizarla en futuras conversaciones, ejecuta el comando CLI descrito arriba. La descarga y el procesamiento corren en tu PC; el original no se carga en el chat. Las imágenes y estadísticas solicitadas sí llegan a OpenAI. No requiere un token de turno Codex para las herramientas multimedia.
 
 Prueba real ejecutada sobre el servidor principal:
 
@@ -314,7 +330,7 @@ Reutiliza yt-dlp instalado por Video Vision en `~/.oamaestro/bin/yt-dlp`, o el e
 
 Archivos en `~/.local/state/isymcp/media/downloads/import-*` (o el catálogo configurado). Los originales descargados y los archivos parciales se conservan; revocar un ID no libera espacio ni borra archivos. El trabajador comprueba tamaños durante la descarga, permite hasta 1 GiB temporal para mezclar pistas y exige al menos 64 MiB libres. Al detener el MCP termina también el grupo de procesos de descarga. No reanuda trabajos al reiniciar; los archivos ya registrados permanecen disponibles y puedes volver a importar un enlace fallido. Los estados recientes están en memoria y en un `job.json` local como registro; después de reiniciar usa `media_list` para descubrir medios terminados.
 
-Actualiza/reconecta el complemento para descubrir `media_import` y `media_import_status`. **NOT_DEMONSTRATED:** invocación remota desde ChatGPT.com de estas dos herramientas nuevas. Descarga real y análisis por MCP stdio local sí están verificados.
+Actualiza/reconecta el complemento para descubrir `media_lookup`, `media_import` y `media_import_status`. **NOT_DEMONSTRATED:** invocación remota desde ChatGPT.com de la preparación persistente o `media_lookup` hasta que se pruebe desde esa conexión. Descarga real y análisis por MCP stdio local sí están verificados.
 
 ## Segmentos temporales y canales de audio
 
