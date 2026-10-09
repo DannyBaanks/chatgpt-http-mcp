@@ -6,7 +6,13 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {MediaCatalog} from '../src/media/catalog';
 import {run} from '../src/media/process';
-import {CODEX_TOOLS} from '../src/mcp/identity';
+import {buildInstructions,CODEX_TOOLS} from '../src/mcp/identity';
+test('media guidance checks prepared local results before starting an import',()=>{
+ const instructions=buildInstructions('native');
+ expect(instructions).toContain('media_lookup');
+ expect(instructions.indexOf('media_lookup')).toBeLessThan(instructions.indexOf('media_import'));
+ expect(instructions).toContain('isymcp media prepare');
+});
 test('Codex ISyMCP combines original tools with token-free registered media',async()=>{
  const root=mkdtempSync(join(tmpdir(),'isymcp-unified-'));const file=join(root,'tone.wav');const home=join(root,'media');
  await run('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=1',file]);
@@ -15,7 +21,7 @@ test('Codex ISyMCP combines original tools with token-free registered media',asy
  const transport=new StdioClientTransport({command:process.execPath,args:[join(import.meta.dir,'../src/mcp/main.ts')],env:{...process.env,ISYMCP_MEDIA_HOME:home,CODEX_WEB_HTTP_HOME:join(root,'codex')} as Record<string,string>,stderr:'pipe'});transport.stderr?.on('data',()=>{});
  try {
   await client.connect(transport);const names=(await client.listTools()).tools.map(t=>t.name);
-  for(const name of [...CODEX_TOOLS,'media_list','media_info','audio_analyze','audio_segments','video_frame','media_import','media_import_status','video_contact_sheet'])expect(names).toContain(name);
+  for(const name of [...CODEX_TOOLS,'media_list','media_info','audio_analyze','audio_segments','audio_scan','video_frame','media_import','media_import_status','media_lookup','video_contact_sheet'])expect(names).toContain(name);
   const invalid:any=await client.callTool({name:'media_import',arguments:{url:'https://127.0.0.1/a'}});expect(invalid.isError).toBe(true);
   const list:any=await client.callTool({name:'media_list',arguments:{}});expect(list.isError).not.toBe(true);
   const payload=JSON.parse(list.content[0].text);expect(payload.assets[0].id).toBe(a.id);expect(list.content[0].text).not.toContain(root);

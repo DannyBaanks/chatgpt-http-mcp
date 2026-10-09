@@ -7,8 +7,12 @@ export function sampleTimes(start:number,end:number,count:number,duration:number
 }
 export async function contactSheet(path:string,start:number,end:number,columns=4) {
  if(![3,4,6].includes(columns))throw Error('Contact sheet columns must be 3, 4 or 6');
- const info=await probe(path);if(!info.streams.some(s=>s.codec_type==='video'))throw Error('Media has no video stream');
- const times=sampleTimes(start,end,columns*columns,info.duration_seconds);
+ const info=await probe(path),video=info.streams.find(s=>s.codec_type==='video');if(!video)throw Error('Media has no video stream');
+ windowRange(start,end,info.duration_seconds);
+ const rate=(value:unknown)=>{const match=/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/.exec(String(value??''));const result=match?Number(match[1])/Number(match[2]):Number.NaN;return Number.isFinite(result)&&result>0?result:undefined;};
+ const fps=rate(video.avg_frame_rate)||rate(video.r_frame_rate);
+ const safeEnd=fps?Math.max(start,end-1/fps):end;
+ const times=safeEnd>start?sampleTimes(start,safeEnd,columns*columns,info.duration_seconds):Array.from({length:columns*columns},()=>start);
  const width=1920/columns,height=1080/columns,band=24;
  const canvas=Buffer.alloc(1920*1080*3);const samples=[];
  for(let index=0;index<times.length;index++) {

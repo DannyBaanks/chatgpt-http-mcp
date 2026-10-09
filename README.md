@@ -169,7 +169,9 @@ Process explicitly registered audio and video locally, then inspect the evidence
 | Start with | What to do |
 |---|---|
 | **Local file** | Register it with `bun src/isymcp.ts media add <file>`; keep the returned asset ID. |
-| **Public YouTube video or Short** | Call `media_import(url)`, poll `media_import_status(job_id, wait_seconds: 10)` until `complete`, and use `asset.id`. |
+| **Prepare a reusable YouTube analysis** | Run `bun src/isymcp.ts media prepare <url>`. This reuses an exact registered source or downloads it under the existing public-video policy, then saves the complete audio scan and contact-sheet pages locally. |
+| **Look up a YouTube source in ChatGPT** | Call read-only `media_lookup(url)` first. If it is `ready`, inspect its stored audio results and request one relevant sheet with `sheet_index`; `not_found` and `not_prepared` never download or analyze. |
+| **One-off public YouTube video or Short** | Call `media_import(url)`, poll `media_import_status(job_id, wait_seconds: 10)` until `complete`, and use `asset.id`. |
 | **Inspect video** | Use `media_info`, `video_contact_sheet` for an overview and `video_frame` for a specific timestamp. |
 | **Inspect audio** | Use `audio_scan` to scan the complete track in chunks of at most 120 seconds, then `audio_analyze` to zoom into a selected waveform, spectrogram or stereo measurement. |
 
@@ -177,11 +179,13 @@ For step-by-step commands and the verified ChatGPT prompt, see **[GUIA.md — Me
 
 ### Local execution, entry points & limits
 
-The independent `src/mcp/media.ts` entry point processes only explicitly registered local assets. The main **Codex ISyMCP** entry point exposes the media tools alongside its existing `codex_*` tools; both share `src/media/register.ts`. `media_list` discovers only user-registered assets, paginated in groups of 20. Codex session authorization and sandbox behavior remain enforced.
+The independent `src/mcp/media.ts` entry point processes only explicitly registered local assets. The main **Codex ISyMCP** entry point exposes the media tools alongside its existing `codex_*` tools; both share `src/media/register.ts`. `media_list` discovers only user-registered assets, paginated in groups of 20. `media_lookup` resolves only a canonical public YouTube URL already in the catalog and never starts work. Codex session authorization and sandbox behavior remain enforced.
 
 Audio activity windows, channel-aware waveforms, spectrograms, RMS, peaks and silence intervals run locally through **FFmpeg/ffprobe**. Video frames use a separately installed MIT **Video Vision** provider configured through `ISYMCP_VIDEO_VISION_ENTRY` (absolute `dist/index.js`) and optionally `ISYMCP_VIDEO_VISION_NODE`. Requires Bun and FFmpeg/ffprobe.
 
 Original files remain local and read-only; requested images and statistics are returned to the MCP client. Limits: **500 MiB per file**, **120 seconds per audio window**, **60 seconds for ordinary queries**, **300 seconds for full-track `audio_scan`**, **one concurrent job** and **1 MiB per output image** (up to four images for separated stereo). Neither entry point provides an arbitrary filesystem path tool or audio transcription.
+
+`media prepare` stores versioned manifests, verified audio-scan JSON and consecutive contact sheets privately under the media catalog. Audio is segmented in chunks of at most 120 seconds; video is sampled in gapless windows of at most 60 seconds. Failed runs can resume verified partial outputs, and only a complete generation becomes current. A later `media_lookup` returns the saved scan and sheet index; each call transfers at most one JPEG. Acoustic segments are energy measurements, not speech recognition or native listening.
 
 The standalone media stdio entry point has local compatibility coverage. Remote GPT.com calls documented below used the main Codex ISyMCP connection; they do not establish remote E2E compatibility for every standalone media tool.
 

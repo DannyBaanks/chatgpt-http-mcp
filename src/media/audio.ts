@@ -8,7 +8,7 @@ export type AudioChannel='mix'|'left'|'right'|'separate';
 export type SegmentOptions={thresholdDbfs:number;mergeGapSeconds:number;minSegmentSeconds:number};
 
 export async function probe(path:string) {
- const data=JSON.parse((await run('ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration:stream=codec_type,codec_name,sample_rate,channels,channel_layout,width,height','-of','json',path])).toString());
+ const data=JSON.parse((await run('ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration:stream=codec_type,codec_name,sample_rate,channels,channel_layout,width,height,avg_frame_rate,r_frame_rate','-of','json',path])).toString());
  const duration=Number(data.format?.duration);
  if(!Number.isFinite(duration)||duration<=0) throw Error('Media duration unavailable');
  return {duration_seconds:duration,streams:data.streams as Array<Record<string,unknown>>};
