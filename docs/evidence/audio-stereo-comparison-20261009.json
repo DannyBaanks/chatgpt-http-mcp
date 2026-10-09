@@ -1,0 +1,19 @@
+{
+  "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+  "source_sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+  "window_seconds": [
+    3,
+    5
+  ],
+  "decoded_sample_rate_hz": 16000,
+  "samples_per_channel": 32000,
+  "method": "Pearson correlation over paired float32 channel samples; difference RMS and peak over L-R samples",
+  "ffmpeg_channel_filter": "pan=mono|c0=FL,aresample=16000 and pan=mono|c0=FR,aresample=16000",
+  "left_rms": 0.15375321485316293,
+  "right_rms": 0.151464421157614,
+  "pearson_correlation": 0.9958708811874217,
+  "difference_rms": 0.014055550140271293,
+  "difference_peak": 0.12490135431289673,
+  "difference_rms_over_mean_channel_rms": 0.09210182166390285,
+  "scope": "Only the 3-5 second window; describes channel waveform similarity, not source separation or speaker identity."
+}

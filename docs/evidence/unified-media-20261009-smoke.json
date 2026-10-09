@@ -1,0 +1,62 @@
+[
+  {
+    "tool": "video_frame",
+    "metadata": {
+      "asset_id": "media_b4f26f12-51f0-41ac-832f-af1a2d676184",
+      "sha256": "766c6551232cb6b1c7494cd285011b19452eae480b6e88c941aaad46d47732ce",
+      "window": {
+        "timestamp_seconds": 5
+      },
+      "method": "Video Vision extract_frame_at",
+      "version": "isymcp-media/1",
+      "result": {
+        "width_limit": 640
+      }
+    },
+    "images": [
+      {
+        "mimeType": "image/jpeg",
+        "bytes": 75406
+      }
+    ]
+  },
+  {
+    "tool": "audio_analyze",
+    "metadata": {
+      "asset_id": "media_e60fbdfd-85ce-477b-82f3-daa9d2970117",
+      "sha256": "12f03dde00ed232863125c887f9664c1ed6cf626366fd66a38a6eae00a2ffe89",
+      "window": {
+        "start_seconds": 0,
+        "end_seconds": 10
+      },
+      "method": "FFmpeg/ffprobe; audio mono 16 kHz",
+      "version": "isymcp-media/1",
+      "result": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "decoded_seconds": 10,
+        "rms": 0.1422534418555751,
+        "peak": 0.67303466796875,
+        "silence_threshold_dbfs": -50,
+        "silence_resolution_seconds": 0.1,
+        "silence": [
+          {
+            "start_seconds": 0,
+            "end_seconds": 0.1
+          }
+        ]
+      },
+      "limitations": "Waveform and spectrum are acoustic measurements, not native listening or sound identification."
+    },
+    "images": [
+      {
+        "mimeType": "image/png",
+        "bytes": 4431
+      },
+      {
+        "mimeType": "image/png",
+        "bytes": 376540
+      }
+    ]
+  }
+]

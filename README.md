@@ -193,7 +193,7 @@ curl -s http://127.0.0.1:8791/v1/chat/completions \
 
 ## Verification & Testing
 
-- **Full Test Suite:** **280 tests passing across 41 files** (`bun test`).
+- **Full Test Suite:** **302 tests passing across 48 files** (`bun test`; verified locally on 2026-10-09).
 - **Unified E2E Smoke:** Verified with `isymcp smoke` and `scripts/e2e-all.ts`.
 - **Soak Testing:** 99/100 successful real turns in soak baseline; 9/10 with tool execution inside sandbox.
 - **Canary:** Regular verification against live chatgpt.com DOM changes.
@@ -205,3 +205,35 @@ See [`docs/EVIDENCE.md`](docs/EVIDENCE.md), [`docs/ARCHITECTURE.md`](docs/ARCHIT
 ## License
 
 MIT — see `LICENSE`. Derivative mechanics from MIT projects are credited in `NOTICE`.
+
+### Local media MCP
+
+The independent `src/mcp/media.ts` entry point processes explicitly registered local audio and video. Register files with `bun src/isymcp.ts media add <file>` and use the returned opaque ID with `media_info`, `audio_segments`, `audio_analyze`, or `video_frame`. Audio activity windows, channel-aware waveforms, spectrograms, RMS, peaks and silence intervals run locally through FFmpeg; frames use a separately installed MIT Video Vision provider configured via `ISYMCP_VIDEO_VISION_ENTRY` (absolute `dist/index.js`) and optionally `ISYMCP_VIDEO_VISION_NODE`.
+
+Requires Bun and FFmpeg/ffprobe. Original files remain local and read-only; requested images/statistics are sent to the MCP client. Limits: 500 MiB per file, 60 seconds per audio window and query deadline, one concurrent job, two images of at most 1 MiB each. This entry point has no arbitrary filesystem path tool and no transcription tool; YouTube imports are described below. See [GUIA.md](GUIA.md#medios-locales-audio-y-video-2026-10-09) for verified commands and the ChatGPT test prompt. The separate stdio entry point has local compatibility coverage; remote GPT.com calls documented below were made through the main Codex ISyMCP connection, so they do not demonstrate remote compatibility for every standalone media tool.
+
+The main **Codex ISyMCP** entry point exposes the media tools alongside its existing `codex_*` tools. `media_list` discovers only user-registered assets, paginated in groups of 20; media queries work without a Codex turn token. Both entry points share `src/media/register.ts`. Codex session authorization and sandbox behavior remain enforced. A user-reported GPT.com E2E verified `audio_segments` and `audio_analyze` with separated stereo channels; the evidence and limits are recorded below. This does not establish remote E2E for every media tool.
+
+
+### YouTube URL imports
+
+`media_import(url)` starts a local download job for an individual public YouTube video or Short. Poll `media_import_status(job_id, wait_seconds: 10)` until complete, then use its `asset.id` with the existing media analysis tools. Import is asynchronous to keep the MCP request short. yt-dlp (reused from the Video Vision installation, PATH, or `ISYMCP_YTDLP_BIN`) downloads locally without browser cookies, configuration or plugins. Video Vision supplies frames; FFmpeg supplies audio graphics and measurements. Limits: 500 MiB, 30 minutes, 180-second import deadline, one shared download/analysis worker. Sources and SHA-256 are recorded. Completed downloads persist; partial files are retained; in-memory job status resets at server restart. See GUIA.md for the verified Angel Engine download and ChatGPT prompt.
+
+### Contact sheets
+
+`video_contact_sheet(asset_id, start_seconds, end_seconds, columns?)` returns one 1920×1080 JPEG with chronological labelled frames and a timestamp/index map. Default 4×4 (16 samples); 3×3 and 6×6 are available. FFmpeg runs locally; aspect ratio is preserved. Maximum 60-second interval, shared worker/deadline and 1 MiB image cap. Samples exclude the interval endpoint; requested seek times may differ from source frame PTS. Use `video_frame` for details and narrower intervals for fast changes. OCR is not yet integrated; the image grid is a sampled overview, not playback.
+
+### Audio activity and channel inspection
+
+`audio_segments(asset_id, start_seconds, end_seconds, threshold_dbfs?, merge_gap_seconds?, min_segment_seconds?)` returns deterministic activity intervals from 10 ms RMS windows on mono 16 kHz audio. Its `algorithm_version` identifies the segmenter separately from the `isymcp-media/1` response schema; current version `audio-rms-activity/2` defaults to −32 dBFS, merges gaps up to 0.10 s, and discards segments shorter than 0.12 s. To reproduce previous 0.15 s grouping, pass `merge_gap_seconds: 0.15`. It detects energy, not speech; adjust `merge_gap_seconds` to trade shorter boundaries for fewer fragments. Use `audio_analyze` on a returned interval to zoom its waveform and spectrogram. Its optional `channel` is `mix` (default and backward-compatible), `left`, `right`, or `separate`; stereo `separate` returns independent measurements and plots in L/R order plus Pearson correlation and L−R difference RMS/peak for the selected interval. This quantifies channel similarity; it does not separate voices, music, or effects. Source and analyzed channel counts are reported. This remains measurement, not listening, transcription, or speaker recognition. Per-image cap remains 1 MiB; separate mode returns four images.
+
+#### Reproducibility canary (2026-10-09)
+
+On the public [Angel Engine Short](https://www.youtube.com/shorts/lHkDE3BahB0), the user reported two successful direct GPT.com calls through Codex ISyMCP against the same registered asset and SHA-256. The default settings returned eight intervals; setting `merge_gap_seconds: 0.15` reproduced the earlier six-interval result. Both responses reported `isymcp-media/1`, `audio-rms-activity/2`, the effective parameters, and matching interval boundaries from the earlier runs:
+
+| `merge_gap_seconds` | Activity intervals (seconds) |
+|---:|---|
+| `0.10` (default) | `0.17–1.49`, `1.72–2.41`, `2.65–2.80`, `3.15–4.30`, `4.43–5.72`, `6.13–6.42`, `6.93–8.00`, `8.13–9.992` |
+| `0.15` | `0.17–1.49`, `1.72–2.41`, `2.65–2.80`, `3.02–5.72`, `6.13–6.62`, `6.93–9.992` |
+
+The user also reported a successful `audio_analyze(channel="separate")` call over seconds 3–5: Pearson correlation `0.9958708812`, L−R difference RMS `0.0140555501`, and peak `0.1249013543`. These measurements indicate similar, non-identical channel signals; they do not identify or separate sound sources. The GPT.com report is user-provided rather than a captured raw protocol transcript; segment RMS/peak values were said to match but were not included in the report. See [the E2E report](docs/evidence/audio-segments-gptcom-e2e-user-report-20261009.json), [local test log](docs/evidence/audio-segment-versioned-tests-20261009.txt), and [version manifest](docs/evidence/audio-media-final-manifest-20261009.sha256).

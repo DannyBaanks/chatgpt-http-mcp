@@ -1,0 +1,24 @@
+{
+  "alias": "video-vision",
+  "tunnel_id": "tunnel_6ac885e4fba88191946d3258aa88164a",
+  "healthz": {
+    "body": "live",
+    "error": "",
+    "ok": true,
+    "status": 200,
+    "url": "http://127.0.0.1:44161/healthz"
+  },
+  "readyz": {
+    "body": "ready",
+    "error": "",
+    "ok": true,
+    "status": 200,
+    "url": "http://127.0.0.1:44161/readyz"
+  },
+  "control_plane_poll_health": {
+    "reason": "no live admin UI system snapshot",
+    "state": "unknown"
+  },
+  "process_running": true,
+  "runtime_state": "ready"
+}

@@ -1,0 +1,154 @@
+{
+  "default": {
+    "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+    "sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+    "source_url": "https://www.youtube.com/watch?v=lHkDE3BahB0",
+    "window": {
+      "start_seconds": 0,
+      "end_seconds": 10
+    },
+    "method": "FFmpeg RMS activity segmentation; mono 16 kHz",
+    "version": "isymcp-media/1",
+    "result": {
+      "sample_rate": 16000,
+      "analysis_channels": 1,
+      "decoded_seconds": 9.9925,
+      "method": "100 Hz RMS activity threshold on mono 16 kHz audio",
+      "algorithm_version": "audio-rms-activity/2",
+      "parameters": {
+        "thresholdDbfs": -32,
+        "mergeGapSeconds": 0.1,
+        "minSegmentSeconds": 0.12,
+        "resolution_seconds": 0.01
+      },
+      "segments": [
+        {
+          "start_seconds": 0.17,
+          "end_seconds": 1.49,
+          "duration_seconds": 1.32,
+          "rms": 0.2640764914204965,
+          "peak": 0.9348395466804504
+        },
+        {
+          "start_seconds": 1.72,
+          "end_seconds": 2.41,
+          "duration_seconds": 0.69,
+          "rms": 0.2393862763536179,
+          "peak": 0.8286656141281128
+        },
+        {
+          "start_seconds": 2.65,
+          "end_seconds": 2.8,
+          "duration_seconds": 0.15,
+          "rms": 0.037534807015759966,
+          "peak": 0.288383811712265
+        },
+        {
+          "start_seconds": 3.15,
+          "end_seconds": 4.3,
+          "duration_seconds": 1.15,
+          "rms": 0.23795697155379272,
+          "peak": 0.7325297594070435
+        },
+        {
+          "start_seconds": 4.43,
+          "end_seconds": 5.72,
+          "duration_seconds": 1.29,
+          "rms": 0.28296907644301494,
+          "peak": 0.9518107175827026
+        },
+        {
+          "start_seconds": 6.13,
+          "end_seconds": 6.42,
+          "duration_seconds": 0.29,
+          "rms": 0.14559295483408893,
+          "peak": 0.6060795783996582
+        },
+        {
+          "start_seconds": 6.93,
+          "end_seconds": 8,
+          "duration_seconds": 1.07,
+          "rms": 0.20253538026262147,
+          "peak": 0.6841768026351929
+        },
+        {
+          "start_seconds": 8.13,
+          "end_seconds": 9.992,
+          "duration_seconds": 1.863,
+          "rms": 0.16993247686956395,
+          "peak": 0.6534786820411682
+        }
+      ],
+      "limitations": "Detects acoustic activity, not speech. Music, effects and noise can create segments; quiet speech can be missed. Use audio_analyze on a returned interval to inspect its waveform and spectrogram."
+    }
+  },
+  "previous_grouping": {
+    "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+    "sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+    "source_url": "https://www.youtube.com/watch?v=lHkDE3BahB0",
+    "window": {
+      "start_seconds": 0,
+      "end_seconds": 10
+    },
+    "method": "FFmpeg RMS activity segmentation; mono 16 kHz",
+    "version": "isymcp-media/1",
+    "result": {
+      "sample_rate": 16000,
+      "analysis_channels": 1,
+      "decoded_seconds": 9.9925,
+      "method": "100 Hz RMS activity threshold on mono 16 kHz audio",
+      "algorithm_version": "audio-rms-activity/2",
+      "parameters": {
+        "thresholdDbfs": -32,
+        "mergeGapSeconds": 0.15,
+        "minSegmentSeconds": 0.12,
+        "resolution_seconds": 0.01
+      },
+      "segments": [
+        {
+          "start_seconds": 0.17,
+          "end_seconds": 1.49,
+          "duration_seconds": 1.32,
+          "rms": 0.2640764914204965,
+          "peak": 0.9348395466804504
+        },
+        {
+          "start_seconds": 1.72,
+          "end_seconds": 2.41,
+          "duration_seconds": 0.69,
+          "rms": 0.2393862763536179,
+          "peak": 0.8286656141281128
+        },
+        {
+          "start_seconds": 2.65,
+          "end_seconds": 2.8,
+          "duration_seconds": 0.15,
+          "rms": 0.037534807015759966,
+          "peak": 0.288383811712265
+        },
+        {
+          "start_seconds": 3.02,
+          "end_seconds": 5.72,
+          "duration_seconds": 2.7,
+          "rms": 0.2498149132549113,
+          "peak": 0.9518107175827026
+        },
+        {
+          "start_seconds": 6.13,
+          "end_seconds": 6.62,
+          "duration_seconds": 0.49,
+          "rms": 0.11290515645814496,
+          "peak": 0.6060795783996582
+        },
+        {
+          "start_seconds": 6.93,
+          "end_seconds": 9.992,
+          "duration_seconds": 3.063,
+          "rms": 0.17861937034478342,
+          "peak": 0.6841768026351929
+        }
+      ],
+      "limitations": "Detects acoustic activity, not speech. Music, effects and noise can create segments; quiet speech can be missed. Use audio_analyze on a returned interval to inspect its waveform and spectrogram."
+    }
+  }
+}

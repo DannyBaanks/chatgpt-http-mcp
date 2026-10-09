@@ -1,0 +1,29 @@
+{
+  "timestamp_utc": "2026-10-09T08:04:15.349254+00:00",
+  "scope": "1920x1080 chronological contact sheets in Codex ISyMCP",
+  "tests": "299 pass, zero fail, exit 0 (bun test --timeout 15000; installed provider enabled)",
+  "remote_chatgpt_new_tool": "NOT_DEMONSTRATED",
+  "ocr": "not implemented; user asked which non-LLM tool: Tesseract",
+  "files": {
+    "GUIA.md": "d5607f0ad661dd6c4dc3ffcd845939650b5e9cdfa8bb2ea7b54fb4342a2d3df0",
+    "README.md": "6bfefde18d4347e1cc264e68bd774cae342fe5fef08bb9cbd6c1fc3554e307dd",
+    "docs/evidence/contact-sheet-20261009-final-tests.txt": "4c59c3f12a1165108bb73118ea54b1b10a347a42775321194f5e08140eec6cc7",
+    "docs/evidence/contact-sheet-20261009-notes.md": "b2a56737a3bff24cf7d0b9f624fec29a7c71e349a0d57cf02286b45f5fdbdae8",
+    "docs/evidence/contact-sheet-20261009-smoke.json": "0067a750bfc7ae4a52c0ad4af1f7368089099939de2a11cb9fff013674e685ba",
+    "docs/evidence/contact-sheet-20261009-tests.txt": "908da035080849b0a63b3be4ecc40cb6bfa7e6a77ee30e05f080f2349074d043",
+    "docs/evidence/contact-sheet-20261009-tunnel.json": "b5e27f7d7799e9c4a5f2df8065b299d0f8593456e65afcb8ad95ab0b5c4b354b",
+    "scripts/media-sheet-smoke.ts": "788e7862a7539afafdb992d1d610ccb5804458176788896895e166611290b44c",
+    "src/mcp/identity.ts": "a803926c601b8fa93070f6ff62729e6976ec46b602d7887abdd3c7c68fa3ec28",
+    "src/media/contact-sheet.ts": "7ca776f16ef9c57f42ef8ec02de1f18e1a83852f77a80ff5f38057c4e84e94a6",
+    "src/media/process.ts": "e7f1feb48e264821e7bed28e87a82d0fbc12d8362ba3b1cd056a081e14e43a5e",
+    "src/media/register.ts": "657d64df70c513d38d5decc80ad9bf5bec257674af5050a6ee3e1f553c5ebe25",
+    "src/media/service.ts": "8414550e3806e9d1759316526f8c61bd8571f0c214ee741534b4d3d6b2e749ab",
+    "tests/media-contact-sheet.test.ts": "ee96f5add5b6766753fa5b0ec85c32d3ec436d970beafb7008a4a1185ff64215",
+    "tests/media-unified.test.ts": "c60172ea4575d0b7461efcc09a849d01e618791287d130d046e81b834188b69b"
+  },
+  "local_image": {
+    "path": "/tmp/isymcp-angel-contact-sheet.jpg",
+    "bytes": 216194,
+    "sha256": "bc3b96b6ec4204d5e3550344b96c5d3ca5974f8b4b9327568572937b0595a9e2"
+  }
+}
