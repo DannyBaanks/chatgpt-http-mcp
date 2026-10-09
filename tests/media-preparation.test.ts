@@ -28,6 +28,8 @@ async function prepare(path: string, home: string, onProgress?: (phase: string, 
   return { catalog, asset, store, manifest: await prepareMedia(catalog, asset, store, { onProgress }) };
 }
 
+// This integration test generates a real 121-second FFmpeg fixture and renders three
+// contact sheets; CI runners can exceed Bun's default 5s per-test timeout.
 test('preparation covers a 121-second audio/video source in bounded chunks and reuses a ready generation', async () => {
   const base = root(), path = join(base, 'source.mp4'), home = join(base, 'catalog');
   await fixture(path, true, true, 121);
@@ -69,7 +71,7 @@ test('preparation covers a 121-second audio/video source in bounded chunks and r
   expect(refreshed.generation_id).not.toBe(current.generation_id);
   expect(resumedPhases).toContain('audio_scan');
   expect(resumedPhases.filter(phase => phase === 'contact_sheet_reused')).toHaveLength(3);
-});
+}, 30_000);
 
 test('failed preparation resumes verified saved pages without publishing a partial generation', async () => {
   const base = root(), path = join(base, 'source.mp4'), home = join(base, 'catalog');
