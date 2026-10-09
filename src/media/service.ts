@@ -87,7 +87,9 @@ export class MediaService {
     sheets,...(selectedSheet?{selected_sheet:selectedSheet}:{})};
    return {content:[{type:'text' as const,text:JSON.stringify(result)},...images]};
   } catch(error) {
-   const message=String(error instanceof Error?error.message:'Media lookup failed').replaceAll(this.catalog.home,'[media-state]');
+   const raw=String(error instanceof Error?error.message:'Media lookup failed');
+   const safeErrors=new Set(['Invalid YouTube URL','Use a public HTTPS YouTube video URL','Only individual YouTube videos and Shorts are supported','Invalid sheet_index','sheet_index is out of range','Asset revoked','Asset changed: register again']);
+   const message=safeErrors.has(raw)?raw:'Media lookup failed; the source may be unavailable or its integrity could not be verified.';
    return {isError:true,content:[{type:'text' as const,text:message}]};
   }
  }

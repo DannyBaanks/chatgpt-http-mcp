@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {mkdtempSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,unlinkSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {MediaCatalog} from '../src/media/catalog';
@@ -43,6 +43,8 @@ test('media lookup distinguishes not-found/unprepared/ready and returns at most 
  expect(one.content[0].text).not.toContain(root);
  const invalid:any=await service.call('media_lookup',{url,sheet_index:1});expect(invalid.isError).toBe(true);
  expect(manifest.generation_id).toBe(payload.generation_id);
+ writeFileSync(video,'changed after preparation');
+ const changed:any=await service.call('media_lookup',{url});expect(changed.isError).toBe(true);expect(changed.content[0].text).not.toContain(root);
 });
 test('media lookup rejects invalid URLs, revoked assets and changed source bytes',async()=>{
  const root=mkdtempSync(join(tmpdir(),'isymcp-lookup-invalid-')),home=join(root,'state');const catalog=new MediaCatalog(home),service=new MediaService(catalog);
@@ -50,8 +52,9 @@ test('media lookup rejects invalid URLs, revoked assets and changed source bytes
  const file=join(root,'a.wav');writeFileSync(file,'audio bytes');const url='https://www.youtube.com/watch?v=abcdefghijk';const asset=await catalog.add(file,url);
  const stale:any=await service.call('media_lookup',{url});expect(JSON.parse(stale.content[0].text).status).toBe('not_prepared');
  writeFileSync(file,'changed bytes');const changed:any=await service.call('media_lookup',{url});expect(changed.isError).toBe(true);
+ unlinkSync(file);const missing:any=await service.call('media_lookup',{url});expect(missing.isError).toBe(true);expect(missing.content[0].text).not.toContain(root);
  catalog.revoke(asset.id);const revoked:any=await service.call('media_lookup',{url});expect(JSON.parse(revoked.content[0].text)).toMatchObject({found:false,status:'not_found'});
- expect(JSON.stringify([changed,revoked])).not.toContain(root);
+ expect(JSON.stringify([changed,missing,revoked])).not.toContain(root);
 });
 test('real MCP stdio returns info and two inline audio images',async()=>{
  const root=mkdtempSync(join(tmpdir(),'isymcp-stdio-'));const file=join(root,'tone.wav');
