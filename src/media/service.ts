@@ -1,3 +1,4 @@
+import { contactSheet } from './contact-sheet';
 import { MediaImporter } from './importer';
 import { withinDeadline } from './deadline';
 import { MediaCatalog } from './catalog';
@@ -28,18 +29,19 @@ export class MediaService {
   if(this.busy||this.importer.active) return {isError:true,content:[{type:'text' as const,text:'Media worker busy; retry after current query finishes'}]};
   this.busy=true;
   try {
-   if(!['media_info','audio_analyze','video_frame'].includes(name)) {this.busy=false;throw Error('Unknown media tool');}
+   if(!['media_info','audio_analyze','video_frame','video_contact_sheet'].includes(name)) {this.busy=false;throw Error('Unknown media tool');}
    return await withinDeadline(()=>this.catalog.snapshot(args.asset_id,async(asset,path)=>{
     let result:any,images:any[]=[];
-    const window=name==='audio_analyze'?{start_seconds:args.start_seconds,end_seconds:args.end_seconds}:name==='video_frame'?{timestamp_seconds:args.timestamp_seconds}:undefined;
+    const window=['audio_analyze','video_contact_sheet'].includes(name)?{start_seconds:args.start_seconds,end_seconds:args.end_seconds}:name==='video_frame'?{timestamp_seconds:args.timestamp_seconds}:undefined;
     if(name==='media_info') result=await probe(path);
     else if(name==='audio_analyze') {const audio=await analyzeAudio(path,args.start_seconds,args.end_seconds);result=audio.statistics;images=audio.images;}
+    else if(name==='video_contact_sheet'){const sheet=await contactSheet(path,args.start_seconds,args.end_seconds,args.columns??4);result=sheet.metadata;images=[sheet.image];}
     else {
      const info=await probe(path); if(!info.streams.some(s=>s.codec_type==='video')) throw Error('Media has no video stream');
      const t=args.timestamp_seconds; windowRange(t,t+0.000001,info.duration_seconds); if(t>=info.duration_seconds) throw Error('Timestamp must precede end of video');
      images=[await videoFrame(path,t)];result={width_limit:640};
     }
-    return {content:[{type:'text' as const,text:JSON.stringify({asset_id:asset.id,sha256:asset.sha256,source_url:asset.sourceUrl,window,method:name==='video_frame'?'Video Vision extract_frame_at':'FFmpeg/ffprobe; audio mono 16 kHz',version:'isymcp-media/1',result,limitations:name==='audio_analyze'?'Waveform and spectrum are acoustic measurements, not native listening or sound identification.':undefined})},...images]};
+    return {content:[{type:'text' as const,text:JSON.stringify({asset_id:asset.id,sha256:asset.sha256,source_url:asset.sourceUrl,window,method:name==='video_frame'?'Video Vision extract_frame_at':name==='video_contact_sheet'?'FFmpeg contact sheet; labelled sample times; aspect ratio preserved':'FFmpeg/ffprobe; audio mono 16 kHz',version:'isymcp-media/1',result,limitations:name==='audio_analyze'?'Waveform and spectrum are acoustic measurements, not native listening or sound identification.':undefined})},...images]};
    }),60000,()=>{this.busy=false;});
   } catch(error) { return {isError:true,content:[{type:'text' as const,text:String(error instanceof Error?error.message:error).replaceAll(this.catalog.home,'[media-state]')}]}; }
  }

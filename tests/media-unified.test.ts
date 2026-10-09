@@ -15,7 +15,7 @@ test('Codex ISyMCP combines original tools with token-free registered media',asy
  const transport=new StdioClientTransport({command:process.execPath,args:[join(import.meta.dir,'../src/mcp/main.ts')],env:{...process.env,ISYMCP_MEDIA_HOME:home,CODEX_WEB_HTTP_HOME:join(root,'codex')} as Record<string,string>,stderr:'pipe'});transport.stderr?.on('data',()=>{});
  try {
   await client.connect(transport);const names=(await client.listTools()).tools.map(t=>t.name);
-  for(const name of [...CODEX_TOOLS,'media_list','media_info','audio_analyze','video_frame','media_import','media_import_status'])expect(names).toContain(name);
+  for(const name of [...CODEX_TOOLS,'media_list','media_info','audio_analyze','video_frame','media_import','media_import_status','video_contact_sheet'])expect(names).toContain(name);
   const invalid:any=await client.callTool({name:'media_import',arguments:{url:'https://127.0.0.1/a'}});expect(invalid.isError).toBe(true);
   const list:any=await client.callTool({name:'media_list',arguments:{}});expect(list.isError).not.toBe(true);
   const payload=JSON.parse(list.content[0].text);expect(payload.assets[0].id).toBe(a.id);expect(list.content[0].text).not.toContain(root);

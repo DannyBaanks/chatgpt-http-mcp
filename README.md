@@ -218,3 +218,7 @@ The main **Codex ISyMCP** entry point now exposes the same media tools alongside
 ### YouTube URL imports
 
 `media_import(url)` starts a local download job for an individual public YouTube video or Short. Poll `media_import_status(job_id, wait_seconds: 10)` until complete, then use its `asset.id` with the existing media analysis tools. Import is asynchronous to keep the MCP request short. yt-dlp (reused from the Video Vision installation, PATH, or `ISYMCP_YTDLP_BIN`) downloads locally without browser cookies, configuration or plugins. Video Vision supplies frames; FFmpeg supplies audio graphics and measurements. Limits: 500 MiB, 30 minutes, 180-second import deadline, one shared download/analysis worker. Sources and SHA-256 are recorded. Completed downloads persist; partial files are retained; in-memory job status resets at server restart. See GUIA.md for the verified Angel Engine download and ChatGPT prompt.
+
+### Contact sheets
+
+`video_contact_sheet(asset_id, start_seconds, end_seconds, columns?)` returns one 1920×1080 JPEG with chronological labelled frames and a timestamp/index map. Default 4×4 (16 samples); 3×3 and 6×6 are available. FFmpeg runs locally; aspect ratio is preserved. Maximum 60-second interval, shared worker/deadline and 1 MiB image cap. Samples exclude the interval endpoint; requested seek times may differ from source frame PTS. Use `video_frame` for details and narrower intervals for fast changes. OCR is not yet integrated; the image grid is a sampled overview, not playback.

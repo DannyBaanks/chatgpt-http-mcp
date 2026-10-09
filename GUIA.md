@@ -315,3 +315,29 @@ Reutiliza yt-dlp instalado por Video Vision en `~/.oamaestro/bin/yt-dlp`, o el e
 Archivos en `~/.local/state/isymcp/media/downloads/import-*` (o el catálogo configurado). Los originales descargados y los archivos parciales se conservan; revocar un ID no libera espacio ni borra archivos. El trabajador comprueba tamaños durante la descarga, permite hasta 1 GiB temporal para mezclar pistas y exige al menos 64 MiB libres. Al detener el MCP termina también el grupo de procesos de descarga. No reanuda trabajos al reiniciar; los archivos ya registrados permanecen disponibles y puedes volver a importar un enlace fallido. Los estados recientes están en memoria y en un `job.json` local como registro; después de reiniciar usa `media_list` para descubrir medios terminados.
 
 Actualiza/reconecta el complemento para descubrir `media_import` y `media_import_status`. **NOT_DEMONSTRATED:** invocación remota desde ChatGPT.com de estas dos herramientas nuevas. Descarga real y análisis por MCP stdio local sí están verificados.
+
+## Hojas de contacto: varios fotogramas en una imagen
+
+Con Codex ISyMCP seleccionado:
+
+> Genera una hoja de contacto 4×4 de los segundos 0 a 18 del video importado de Angel Engine. Recorre los fotogramas de izquierda a derecha y de arriba abajo. Si necesitas un detalle, pide su fotograma con video_frame.
+
+Herramienta: `video_contact_sheet(asset_id, start_seconds, end_seconds, columns)`. `columns` es opcional: 4 por defecto; también 3 o 6. Salida: una imagen JPEG de **1920×1080** y JSON con el índice, fila, columna y tiempo de cada muestra. Intervalo máximo de 60 segundos; se conserva la proporción del fotograma con márgenes negros. Cada celda incluye una banda con su índice y tiempo solicitado.
+
+| Cuadrícula | Muestras | Celda, incluida la etiqueta |
+|---|---:|---|
+| 3×3 | 9 | 640×360 |
+| 4×4 | 16 | 480×270 |
+| 6×6 | 36 | 320×180 |
+
+Las muestras se distribuyen uniformemente desde el inicio hasta antes del final. Ejemplo: intervalo 0–18, 4×4 → 0, 1.125, 2.250, …, 16.875 segundos. No equivale a reproducir una animación ni garantiza cubrir cambios entre muestras; pide intervalos más pequeños para estudiar movimientos rápidos. Son tiempos solicitados al decodificador, no una garantía de PTS exacto del fotograma original. Texto y detalles pequeños pueden perderse al reducir; pide una imagen individual para examinarlos.
+
+Prueba ejecutada:
+
+```bash
+bun scripts/media-sheet-smoke.ts media_122a35ba-e2b1-4da0-bed9-8f14dddd3e2d
+```
+
+Salida completa en `docs/evidence/contact-sheet-20261009-smoke.json`; imagen local en `/tmp/isymcp-angel-contact-sheet.jpg`. La prueba recibió una hoja real de 16 fotogramas de Angel Engine mediante el entry point principal. Límite de imagen: 1 MiB; el JPEG puede comprimir más para respetarlo y reporta su calidad en el JSON. Comparte el worker y plazo de análisis de 60 segundos. Si una muestra no se decodifica, devuelve error en lugar de inventar o rellenar fotogramas.
+
+OCR es otro módulo: Tesseract reconoce texto mediante modelos OCR y no es un LLM. Debe procesar los fotogramas originales antes de reducirlos para la cuadrícula. **Todavía no se integró OCR**; esta herramienta devuelve imágenes y sus tiempos, no transcripciones de texto. Referencia oficial: https://tesseract-ocr.github.io/tessdoc/ . Prueba remota de esta nueva herramienta desde ChatGPT: **NOT_DEMONSTRATED**; refresca la lista de herramientas del complemento después del despliegue.

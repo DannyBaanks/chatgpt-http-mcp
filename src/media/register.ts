@@ -24,6 +24,10 @@ export function registerMediaTools(server:McpServer, service=new MediaService())
   description:'Procesa localmente hasta 60 segundos: RMS, picos, silencios, onda y espectrograma. Son mediciones acústicas, no escucha nativa. No requiere turn_token.',
   inputSchema:{asset_id,start_seconds:z.number().finite().min(0),end_seconds:z.number().finite().min(0)},annotations,
  },async input=>service.call('audio_analyze',input));
+ server.registerTool('video_contact_sheet',{
+  description:'Genera localmente una sola hoja de contacto JPEG de 1920x1080, con fotogramas ordenados y tiempos solicitados. Cuadrícula 4x4 por defecto (16 imágenes); 3x3 o 6x6 opcionales. Intervalo de hasta 60 segundos. Úsala para explorar la secuencia y después pide video_frame para detalles. No equivale a reproducir una animación.',
+  inputSchema:{asset_id,start_seconds:z.number().finite().min(0),end_seconds:z.number().finite().min(0),columns:z.union([z.literal(3),z.literal(4),z.literal(6)]).optional()},annotations,
+ },async input=>service.call('video_contact_sheet',input));
  server.registerTool('video_frame',{
   description:'Devuelve un fotograma real de un video local registrado usando Video Vision. No requiere turn_token.',
   inputSchema:{asset_id,timestamp_seconds:z.number().finite().min(0)},annotations,
