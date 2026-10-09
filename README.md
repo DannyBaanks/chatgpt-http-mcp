@@ -205,3 +205,9 @@ See [`docs/EVIDENCE.md`](docs/EVIDENCE.md), [`docs/ARCHITECTURE.md`](docs/ARCHIT
 ## License
 
 MIT — see `LICENSE`. Derivative mechanics from MIT projects are credited in `NOTICE`.
+
+### Local media MCP
+
+The independent `src/mcp/media.ts` entry point processes explicitly registered local audio and video. Register files with `bun src/isymcp.ts media add <file>` and use the returned opaque ID with `media_info`, `audio_analyze`, or `video_frame`. Audio waveforms, spectrograms, RMS, peaks and silence intervals run locally through FFmpeg; frames use a separately installed MIT Video Vision provider configured via `ISYMCP_VIDEO_VISION_ENTRY` (absolute `dist/index.js`) and optionally `ISYMCP_VIDEO_VISION_NODE`.
+
+Requires Bun and FFmpeg/ffprobe. Original files remain local and read-only; requested images/statistics are sent to the MCP client. Limits: 500 MiB per file, 60 seconds per audio window and query deadline, one concurrent job, two images of at most 1 MiB each. This entry point has no arbitrary path or URL-import tool and no transcription tool. See [GUIA.md](GUIA.md#medios-locales-audio-y-video-2026-10-09) for verified commands and the ChatGPT test prompt. Local stdio compatibility is verified; remote ChatGPT compatibility for this entry point remains NOT_DEMONSTRATED.

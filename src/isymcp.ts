@@ -743,6 +743,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await openMenu();
 } else if (!cmd || cmd === "status") {
   await status();
+} else if (cmd === "media") {
+  await (await import("./media/cli")).mediaCommand(sub, rest);
 } else if (cmd === "tree") {
   console.log(brandHeader());
   for (const label of visibleLabels()) console.log(`  ${label}`);

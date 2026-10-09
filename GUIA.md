@@ -185,3 +185,75 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 | **Error `web_session_expired`** | Las cookies de chatgpt.com caducaron | Vuelve a ejecutar `bun run scripts/import-cookies.ts --file cookie.txt`. |
 | **Error `upstream_unreachable`** | Corte de conexión hacia OpenAI | Verifica tu conexión a internet o el estado de ChatGPT. |
 | **Túnel desconectado** | ChatGPT no puede llamar herramientas | Ejecuta `isymcp tunnel connect` o reactívalo desde el Panel. |
+
+## Medios locales: audio y video (2026-10-09)
+
+Desde la carpeta de este proyecto, registra el archivo que quieres consultar:
+
+```bash
+bun src/isymcp.ts media add /home/danny/Development/video-vision-runtime/angel-engine-test.mp4
+```
+
+Salida real de esta instalación:
+
+```json
+{"id":"media_b4f26f12-51f0-41ac-832f-af1a2d676184","name":"angel-engine-test.mp4","bytes":351204,"sha256":"766c6551232cb6b1c7494cd285011b19452eae480b6e88c941aaad46d47732ce"}
+```
+
+Regla: solo los archivos registrados por ti se entregan al proveedor. Conserva el original; si cambia, registra un ID nuevo. El original queda en tu equipo; las imágenes y estadísticas consultadas sí llegan a ChatGPT.
+
+Lista los IDs disponibles:
+
+```bash
+bun src/isymcp.ts media list
+```
+
+Salida real (formato compacto):
+
+```json
+[{"id":"media_e60fbdfd-85ce-477b-82f3-daa9d2970117","name":"audio.wav","bytes":592510,"sha256":"12f03dde00ed232863125c887f9664c1ed6cf626366fd66a38a6eae00a2ffe89"},{"id":"media_b4f26f12-51f0-41ac-832f-af1a2d676184","name":"angel-engine-test.mp4","bytes":351204,"sha256":"766c6551232cb6b1c7494cd285011b19452eae480b6e88c941aaad46d47732ce"}]
+```
+
+Audio de la prueba, registrado desde la extracción local de Angel Engine:
+
+```bash
+bun src/isymcp.ts media add /home/danny/.oamaestro/sessions/c0ac235d-21a2-4fb5-a398-354f54f9cd4a/jobs/787fee46-06d2-47fd-b8ad-ee63116503a5/audio.wav
+```
+
+Salida real: ID `media_e60fbdfd-85ce-477b-82f3-daa9d2970117`, 592510 bytes, hash indicado arriba. Los IDs cambian con cada registro; no son enlaces públicos ni contraseñas.
+
+El catálogo normal está en `~/.local/state/isymcp/media`; `ISYMCP_MEDIA_HOME` permite otro catálogo. Prueba ejecutada de revocación, en un catálogo temporal independiente:
+
+```bash
+ISYMCP_MEDIA_HOME=/tmp/isymcp-media-guide-20261009 bun src/isymcp.ts media revoke media_ca9fafa6-2310-4393-be18-06ef17c377bd
+```
+
+Salida: `Asset revoked; original preserved.` La lista posterior quedó `[]`. Para revocar un ID real, usa su ID y el mismo catálogo con que lo registraste. Revocar no elimina el archivo original.
+
+Servidor MCP independiente: `src/mcp/media.ts`. Requiere Bun, FFmpeg y ffprobe en PATH; no exige abrir el bridge web. Video Vision es opcional para audio y obligatorio para fotogramas. Configura `ISYMCP_VIDEO_VISION_ENTRY` con la ruta absoluta de su `dist/index.js`, y `ISYMCP_VIDEO_VISION_NODE` con Node compatible. Esta instalación usa `/home/danny/Development/video-vision-runtime/dist/index.js` y `/home/danny/.local/bin/node`.
+
+Prueba real del protocolo stdio, ejecutada con esas variables:
+
+```bash
+ISYMCP_VIDEO_VISION_ENTRY=/home/danny/Development/video-vision-runtime/dist/index.js ISYMCP_VIDEO_VISION_NODE=/home/danny/.local/bin/node bun scripts/media-smoke.ts media_b4f26f12-51f0-41ac-832f-af1a2d676184 media_e60fbdfd-85ce-477b-82f3-daa9d2970117
+```
+
+Devolvió un JPEG real para `video_frame` y dos PNG para `audio_analyze`; salida íntegra en `docs/evidence/local-media-20261009-smoke.json`. Las imágenes de esta prueba se guardan en `/tmp/isymcp-*` para inspección.
+
+En ChatGPT, actualiza/reconecta el complemento Video Vision para descubrir estas herramientas: `media_info`, `audio_analyze`, `video_frame`. Prueba humana en ChatGPT con esta versión: **NOT_DEMONSTRATED**; las pruebas locales no la sustituyen. Mensaje para pegar:
+
+> Usa Video Vision. Ejecuta media_info sobre media_e60fbdfd-85ce-477b-82f3-daa9d2970117; después audio_analyze entre 0 y 10 segundos. Inspecciona la onda y el espectrograma. Luego ejecuta video_frame sobre media_b4f26f12-51f0-41ac-832f-af1a2d676184 en el segundo 5. Distingue mediciones, imágenes e interpretaciones.
+
+| Resultado | Significado y acción |
+|---|---|
+| JSON con hash e imágenes | Consulta local terminada; examina los resultados |
+| `isError: true`, worker busy | Espera a que termine la consulta anterior |
+| Asset changed / revoked | Registra de nuevo, solo si quieres autorizar ese archivo |
+| Invalid window | Usa inicio >= 0 y fin <= duración; máximo 60 segundos |
+| Media has no audio stream | El archivo no contiene audio; registra también el WAV o un video con audio |
+| Configure ISYMCP_VIDEO_VISION_ENTRY | Falta configurar el proveedor de fotogramas |
+| timed out / exceeds limit | Reduce el intervalo o usa un archivo más pequeño |
+
+Límites: 500 MiB por archivo, una consulta simultánea, plazo total de 60 segundos, hasta dos imágenes de 1 MiB cada una. WAV/FLAC/MP3/M4A/MP4/MOV/WebM. La consulta utiliza una copia privada verificada y temporal; no expone rutas arbitrarias al modelo. Espectrogramas de audio mono a 16 kHz: frecuencias superiores a 8 kHz quedan fuera del análisis. Silencio: umbral -50 dBFS, ventanas de 0.1 segundos; no es detección de voz. No incluye transcripción en este entry point ni importación de URLs. El Whisper reparado sigue instalado en Video Vision; este MCP dedicado expone solo los gráficos, estadísticas y fotogramas.
+
+Trampas: el MP4 de prueba de 18 segundos es **solo video**; consultar su audio falla correctamente. Tener el túnel listo no prueba una consulta desde ChatGPT. Si el complemento conserva herramientas antiguas, reconéctalo; no le pidas herramientas que no aparecen. Mantén el equipo encendido mientras uses el túnel.

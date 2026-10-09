@@ -1,0 +1,49 @@
+{
+  "timestamp_utc": "2026-10-09T07:19:51.840955+00:00",
+  "scope": "ISyMCP local audio and video v1",
+  "environment": {
+    "bun": "1.4.2",
+    "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+    "node_provider": "v24.21.0"
+  },
+  "verification": {
+    "full_suite": "290 pass / 0 fail; exit 0",
+    "raw_output": "local-media-20261009-final2-tests.txt",
+    "local_mcp_stdio": "verified: real audio PNGs and Video Vision JPEG",
+    "remote_chatgpt": "NOT_DEMONSTRATED",
+    "control_plane_poll_health": "unknown",
+    "negative_results": "Image window regression failed before input duration correction; earlier model repair evidence is in provider installation"
+  },
+  "files": {
+    "GUIA.md": "dfc235efb7a3a9af4a73964e46635031fea1e4ea544f1a4b3c439b55f034308c",
+    "NOTICE": "44f371746af646ebe410d28ea436a5d02ec9abbc76963e6fbe2eaca33839fa36",
+    "README.md": "f3e7908fc227e5c222d9efeee045257bf351ee5438be5151e1c260d1d00c2330",
+    "docs/evidence/local-media-20261009-final-tests.txt": "95871d07c67364a1f42155cb1fbb7c9c158c96ed25aecc11ef0191f0545d935d",
+    "docs/evidence/local-media-20261009-final2-tests.txt": "42b6c4be291019872b89ce7e212fae8d352307b171e4d9a6bb9fb74be7f1c165",
+    "docs/evidence/local-media-20261009-smoke.json": "4d600c770c1e6d6c93f608dfd7778f1fa87e27bbf4880ad1c8c161ff0efecad2",
+    "docs/evidence/local-media-20261009-tests.txt": "5890cf2dca38713197c4c8d67c0897b017fab0dffa160570771d0b18c5ea831f",
+    "docs/evidence/local-media-20261009-tunnel.json": "4d7bd719dd835569282042c1d1b29ea2cf8c726daf9f104d2d762b8a5102b8b6",
+    "docs/superpowers/plans/2026-10-09-local-media-ledger.md": "76eaed6ca297b66546f7bcbbf2654b10297c36f0d28f2a594578391018b13b54",
+    "docs/superpowers/plans/2026-10-09-local-media.md": "5d80311be38ffc10aacc81d1e69b943d0a4f394c04c0bb7cc8b2bff0a258b831",
+    "docs/superpowers/specs/2026-10-09-local-media-design.md": "3ad516f174daaff4e2eeb38be1e3d911182086d5da0ae32a2a753c84ed9019d6",
+    "scripts/media-smoke.ts": "072aed75ff26a99f10c18fe8d73110d2461f6a0a8d9203c507ec588afa810259",
+    "src/isymcp.ts": "8195317f26ff915971ccab8d373877fc6c5421f23c43e30be539279dabdb42d3",
+    "src/mcp/media.ts": "4da173bf9d91a2297f6d7d89d75f49fff25320cf812484321371d3fe73e51c27",
+    "src/media/audio.ts": "7cd7887a2235f03d5af4cafe47b83bd8bea8c4890d64cc05f9e08930e2d5e7ef",
+    "src/media/catalog.ts": "8aa2a892c91b2943e4e7e90517b5600e24f50123467d8be5e59f5390ccf553f6",
+    "src/media/cli.ts": "69c565f8905ad3879480abfbfbaf9754346a063d17683bd55a50be1cbc85c717",
+    "src/media/deadline.ts": "421e7cdf8e6494f7b04e141afe5e5aaea5eb6d18af829446286312d1f13ac190",
+    "src/media/process.ts": "7bbf4ef1e42b5a7920eebfe48e622bfaf3131310e80a0f4140ca3412450e5e71",
+    "src/media/service.ts": "f3f8233ede86e26815edb909c8224ff5a36d12ae05c2cb567c73ec8823aee47f",
+    "src/media/video-vision.ts": "061bb85561621d51dee7c5109a7f54509190287b3a3560eb682b44ef5d591dbf",
+    "tests/media-audio.test.ts": "2428c1c25e33735e179a1f6cb92f305fa9045ea6e8221b6dbb2446f32c637d5a",
+    "tests/media-catalog.test.ts": "899e3619d09d63d990b4d485a1d3192e9a0627e2260e6441423618e8285310cc",
+    "tests/media-mcp.test.ts": "1ef0bbdf81581e79338cc6a842d6e5f3a8a53b479c539f15cd9647805b899465",
+    "tests/media-video.test.ts": "167db3adcf1b2bfd3e0e941693d1eed3c89c0ee0062593d79d9e38841e2c4765"
+  },
+  "provider": {
+    "entry_sha256": "3b14b7cf6125b9eb788a8956620d8de0625c9ed0e69229d6d9338c77b7d73626",
+    "license": "MIT; Copyright (c) 2026 OA Maestro",
+    "copied_source": false
+  }
+}
