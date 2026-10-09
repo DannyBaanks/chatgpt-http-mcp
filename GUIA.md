@@ -254,7 +254,7 @@ En ChatGPT, actualiza/reconecta el complemento Video Vision para descubrir estas
 | Configure ISYMCP_VIDEO_VISION_ENTRY | Falta configurar el proveedor de fotogramas |
 | timed out / exceeds limit | Reduce el intervalo o usa un archivo más pequeño |
 
-Límites: 500 MiB por archivo, una consulta simultánea, plazo total de 60 segundos, hasta dos imágenes de 1 MiB cada una. WAV/FLAC/MP3/M4A/MP4/MOV/WebM. La consulta utiliza una copia privada verificada y temporal; no expone rutas arbitrarias al modelo. Espectrogramas de audio mono a 16 kHz: frecuencias superiores a 8 kHz quedan fuera del análisis. Silencio: umbral -50 dBFS, ventanas de 0.1 segundos; no es detección de voz. No incluye transcripción en este entry point. La importación de YouTube se describe en la sección final. El Whisper reparado sigue instalado en Video Vision; este MCP dedicado expone solo los gráficos, estadísticas y fotogramas.
+Límites: 500 MiB por archivo, una consulta simultánea, plazo total de 60 segundos, hasta cuatro imágenes de 1 MiB cada una en modo estéreo separado. WAV/FLAC/MP3/M4A/MP4/MOV/WebM. La consulta utiliza una copia privada verificada y temporal; no expone rutas arbitrarias al modelo. El audio se remuestrea a 16 kHz; los espectrogramas no muestran frecuencias superiores a 8 kHz. Silencio: umbral -50 dBFS, ventanas de 0.1 segundos; no es detección de voz. No incluye transcripción en este entry point. La importación de YouTube se describe en la sección final. El Whisper reparado sigue instalado en Video Vision; este MCP expone gráficos, estadísticas y fotogramas.
 
 Trampas: el MP4 de prueba de 18 segundos es **solo video**; consultar su audio falla correctamente. Tener el túnel listo no prueba una consulta desde ChatGPT. Si el complemento conserva herramientas antiguas, reconéctalo; no le pidas herramientas que no aparecen. Mantén el equipo encendido mientras uses el túnel.
 
@@ -264,7 +264,7 @@ Selecciona **Codex ISyMCP** y escribe:
 
 > Lista mis medios registrados con media_list. Busca angel-engine-test.mp4 y audio.wav. Analiza los primeros 10 segundos del audio con audio_analyze y muéstrame el fotograma del video en el segundo 5 con video_frame. Distingue mediciones e interpretaciones.
 
-El servidor principal ahora conserva las ocho herramientas `codex_*` y añade `media_list`, `media_info`, `audio_analyze`, `video_frame`, `media_import` y `media_import_status`. Las de medios no requieren token de turno. `media_list` entrega hasta 20 archivos registrados por página; sigue `next_offset` si existe. No devuelve rutas locales ni explora archivos no registrados. Para autorizar otro archivo usa `media add` como se describe arriba; para retirarlo, `media revoke`.
+El servidor principal conserva las ocho herramientas `codex_*` y ofrece `media_list`, `media_info`, `audio_segments`, `audio_analyze`, `video_frame`, `video_contact_sheet`, `media_import` y `media_import_status`. Las de medios no requieren token de turno. `media_list` entrega hasta 20 archivos registrados por página; sigue `next_offset` si existe. No devuelve rutas locales ni explora archivos no registrados. Para autorizar otro archivo usa `media add` como se describe arriba; para retirarlo, `media revoke`.
 
 El túnel habitual de Codex ISyMCP mantiene su ID y apunta a `src/mcp/main.ts`, con el proveedor Video Vision configurado mediante variables de entorno. No se creó otro complemento ni se modificaron permisos de la cuenta. Actualiza/reconecta el complemento en ChatGPT si todavía muestra solo las herramientas `codex_*`; volver a abrir un chat puede ser necesario para cargar su nueva lista. Prueba remota con la lista unificada: **NOT_DEMONSTRATED** hasta que ChatGPT realmente llame a una herramienta de medios.
 
@@ -315,6 +315,18 @@ Reutiliza yt-dlp instalado por Video Vision en `~/.oamaestro/bin/yt-dlp`, o el e
 Archivos en `~/.local/state/isymcp/media/downloads/import-*` (o el catálogo configurado). Los originales descargados y los archivos parciales se conservan; revocar un ID no libera espacio ni borra archivos. El trabajador comprueba tamaños durante la descarga, permite hasta 1 GiB temporal para mezclar pistas y exige al menos 64 MiB libres. Al detener el MCP termina también el grupo de procesos de descarga. No reanuda trabajos al reiniciar; los archivos ya registrados permanecen disponibles y puedes volver a importar un enlace fallido. Los estados recientes están en memoria y en un `job.json` local como registro; después de reiniciar usa `media_list` para descubrir medios terminados.
 
 Actualiza/reconecta el complemento para descubrir `media_import` y `media_import_status`. **NOT_DEMONSTRATED:** invocación remota desde ChatGPT.com de estas dos herramientas nuevas. Descarga real y análisis por MCP stdio local sí están verificados.
+
+## Segmentos temporales y canales de audio
+
+`audio_segments(asset_id, start_seconds, end_seconds, threshold_dbfs?, merge_gap_seconds?, min_segment_seconds?)` mide RMS en bloques de 10 ms de una mezcla mono a 16 kHz y devuelve intervalos de actividad con RMS y pico por intervalo. Incluye `algorithm_version: audio-rms-activity/2` para identificar la lógica de segmentación sin cambiar `version: isymcp-media/1`, que identifica el formato general del resultado. Valores predeterminados v2: umbral −32 dBFS, unir huecos de hasta 0.10 s y descartar intervalos menores de 0.12 s. En el Short de referencia, −32 dBFS con fusión de 0.15 s devolvió seis tramos; 0.10 s produjo ocho y separó dos intervalos largos en pausas más pequeñas. Para reproducir la agrupación anterior, especifica `merge_gap_seconds=0.15`. Esto ubica actividad acústica; no distingue habla de música, efectos o ruido. Voces muy bajas pueden quedar por debajo del umbral y las pausas breves pueden dividir una frase; ajusta `merge_gap_seconds` según el material.
+
+Después, solicita `audio_analyze` en una ventana acotada, por ejemplo 3–5 s, para ampliar la onda y el espectrograma. Su parámetro opcional `channel` acepta `mix` (predeterminado, conserva el análisis mono anterior), `left`, `right` o `separate`. Para fuentes estéreo, `separate` devuelve las medidas y gráficas L/R en ese orden, más correlación Pearson y RMS/pico de la diferencia L−R en la ventana. Estas medidas indican similitud entre canales; no aíslan voz, música ni efectos. Los metadatos diferencian el número de canales fuente y analizados; las etiquetas de cada gráfica dicen `mono mix`, `left` o `right`. Un origen mono responde con error si se solicitan canales L/R inexistentes.
+
+Prueba desde ChatGPT, una vez actualizada la lista de herramientas:
+
+> Usa `audio_segments` sobre los primeros 10 segundos del asset importado y reporta todos los intervalos y parámetros. Luego usa `audio_analyze` de 3 a 5 segundos con `channel=separate`. Reporta `pearson_correlation`, `difference_rms` y `difference_peak`; interpreta cuánto se parecen L/R sin llamarlo separación de fuentes, transcripción ni identificación de voces.
+
+La actividad usa 10 ms de resolución; los tiempos resultantes se redondean a milisegundos. La medida de silencio previa conserva su resolución de 100 ms y −50 dBFS. Todas estas son mediciones deterministas, no separación de fuentes ni escucha nativa.
 
 ## Hojas de contacto: varios fotogramas en una imagen
 

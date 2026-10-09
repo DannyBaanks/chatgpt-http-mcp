@@ -1,0 +1,39 @@
+{
+  "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+  "source_sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+  "window": {
+    "start_seconds": 3,
+    "end_seconds": 5
+  },
+  "command": "Bun stdio client -> main MCP -> audio_analyze(channel=separate); response images omitted from JSON, byte sizes retained.",
+  "result": {
+    "method": "Pearson correlation and L-R difference over decoded samples",
+    "sample_rate_hz": 16000,
+    "samples_per_channel": 32000,
+    "pearson_correlation": 0.9958708811874208,
+    "difference_rms": 0.0140555501402712,
+    "difference_peak": 0.12490135431289673,
+    "difference_rms_over_mean_channel_rms": 0.09210182166390078,
+    "left_rms": 0.1537532148531656,
+    "right_rms": 0.15146442115761613,
+    "images": [
+      {
+        "label": "left waveform",
+        "bytes": 5599
+      },
+      {
+        "label": "left spectrogram",
+        "bytes": 304397
+      },
+      {
+        "label": "right waveform",
+        "bytes": 5442
+      },
+      {
+        "label": "right spectrogram",
+        "bytes": 304428
+      }
+    ],
+    "scope": "One 2-second window only; channel similarity measurement, not source separation or speaker identification."
+  }
+}

@@ -27,6 +27,10 @@ test('real MCP stdio returns info and two inline audio images',async()=>{
  try {await client.connect(transport);expect((await client.listTools()).tools.map(t=>t.name)).toContain('media_list');
  const info:any=await client.callTool({name:'media_info',arguments:{asset_id:a.id}});expect(info.isError).not.toBe(true);
  const audio:any=await client.callTool({name:'audio_analyze',arguments:{asset_id:a.id,start_seconds:0,end_seconds:1}});expect(audio.isError).not.toBe(true);expect(audio.content.filter((c:any)=>c.type==='image').length).toBe(2);
+ const stereoFile=join(root,'stereo.wav');await run('ffmpeg',['-v','error','-f','lavfi','-i','aevalsrc=0.5*sin(2*PI*440*t)|0.25*sin(2*PI*440*t):s=16000:d=1','-c:a','pcm_f32le',stereoFile]);
+ const stereo=await new MediaCatalog(home).add(stereoFile);const stereoAudio:any=await client.callTool({name:'audio_analyze',arguments:{asset_id:stereo.id,start_seconds:0,end_seconds:1,channel:'separate'}});
+ expect(stereoAudio.isError).not.toBe(true);expect(JSON.parse(stereoAudio.content[0].text).result.channel_comparison.pearson_correlation).toBeCloseTo(1,5);expect(stereoAudio.content.filter((c:any)=>c.type==='image').length).toBe(4);
+ const segments:any=await client.callTool({name:'audio_segments',arguments:{asset_id:a.id,start_seconds:0,end_seconds:1}});expect(segments.isError).not.toBe(true);expect(JSON.parse(segments.content[0].text).result.algorithm_version).toBe('audio-rms-activity/2');expect(JSON.parse(segments.content[0].text).result.segments).toHaveLength(1);
  } finally {await client.close();}
 },15000);
 import {withinDeadline} from '../src/media/deadline';

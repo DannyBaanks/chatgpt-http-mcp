@@ -1,0 +1,97 @@
+{
+  "evidence_type": "user_reported_e2e_observation",
+  "reported_source": "User pasted results from two direct GPT.com calls through Codex ISyMCP; no raw MCP protocol transcript was attached.",
+  "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+  "source_sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+  "window": {
+    "start_seconds": 0,
+    "end_seconds": 10,
+    "decoded_seconds": 9.9925,
+    "sample_rate_hz": 16000,
+    "resolution_ms": 10
+  },
+  "response_schema_version": "isymcp-media/1",
+  "algorithm_version": "audio-rms-activity/2",
+  "calls": [
+    {
+      "threshold_dbfs": -32,
+      "merge_gap_seconds": 0.1,
+      "min_segment_seconds": 0.12,
+      "segment_count": 8,
+      "intervals_seconds": [
+        [
+          0.17,
+          1.49
+        ],
+        [
+          1.72,
+          2.41
+        ],
+        [
+          2.65,
+          2.8
+        ],
+        [
+          3.15,
+          4.3
+        ],
+        [
+          4.43,
+          5.72
+        ],
+        [
+          6.13,
+          6.42
+        ],
+        [
+          6.93,
+          8.0
+        ],
+        [
+          8.13,
+          9.992
+        ]
+      ]
+    },
+    {
+      "threshold_dbfs": -32,
+      "merge_gap_seconds": 0.15,
+      "min_segment_seconds": 0.12,
+      "segment_count": 6,
+      "intervals_seconds": [
+        [
+          0.17,
+          1.49
+        ],
+        [
+          1.72,
+          2.41
+        ],
+        [
+          2.65,
+          2.8
+        ],
+        [
+          3.02,
+          5.72
+        ],
+        [
+          6.13,
+          6.62
+        ],
+        [
+          6.93,
+          9.992
+        ]
+      ]
+    }
+  ],
+  "user_reported_checks": {
+    "both_calls_executed": true,
+    "effective_parameters_returned": true,
+    "intervals_match_prior_runs": true,
+    "per_segment_rms_and_peak_match_prior_runs": true,
+    "suite_302_of_302_passed_by_agent": true
+  },
+  "scope_note": "The user reported that per-segment RMS/peak values matched prior runs but did not include the individual values in this report. The 302-test suite result is from the assistant-run local log, not the user GPT.com calls."
+}
