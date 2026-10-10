@@ -1,0 +1,119 @@
+{
+  "version": "isymcp-native-mcp-verification/1",
+  "date": "2026-10-10",
+  "environment": {
+    "bun": "1.4.2 (744846f84)",
+    "codex": "0.162.0"
+  },
+  "suite": {
+    "command": "bun test",
+    "exit_code": 0,
+    "pass": 485,
+    "skip": 1,
+    "fail": 0,
+    "total": 486,
+    "files": 68
+  },
+  "chatgpt_connector": {
+    "prompt_lines": 4,
+    "elapsed_ms": 72692,
+    "file_verified": true,
+    "turn_completed": true
+  },
+  "limitations": [
+    "Web-provider CLI native tool loop NOT_DEMONSTRATED",
+    "Web-provider Codex App model selection NOT_DEMONSTRATED"
+  ],
+  "artifacts": [
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-hardening/c10a510311fb415c9093905aa6a6f622/full-suite-closure.txt",
+      "bytes": 50191,
+      "sha256": "0bfc3e5cb394265d1b93b0051efbfe585518f88054c7b51b11d144c25559328a"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-hardening/c10a510311fb415c9093905aa6a6f622/full-suite.txt",
+      "bytes": 49558,
+      "sha256": "b28de2be3360713f92392376d061246b904412e67b0aea03ef6e5aaf26c88080"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-hardening/c10a510311fb415c9093905aa6a6f622/full-suite-isolated.txt",
+      "bytes": 49243,
+      "sha256": "bb334cf48369f79b6191b9d106a922019c64c738ecb7f8aa58c63ce726b8d5d4"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-hardening/c10a510311fb415c9093905aa6a6f622/full-suite-final.txt",
+      "bytes": 48532,
+      "sha256": "e2d78f3a4b840c7d4195c5e7b7c7b1be7a5e8019b7567b3383d179f6b0ac558d"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-hardening/c10a510311fb415c9093905aa6a6f622/bootstrap-cli-final.txt",
+      "bytes": 2633,
+      "sha256": "7f97f41a9051c8d2292e391ac169b68b981c772182934f120fb2ce7a4476459f"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-hardening/c10a510311fb415c9093905aa6a6f622/request-bom-red.txt",
+      "bytes": 1820,
+      "sha256": "212bc247280cfcf2bbc657743001238edf74412b38e2818d38a4ea362a7fd3dc"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-hardening/c10a510311fb415c9093905aa6a6f622/survey-red.txt",
+      "bytes": 2039,
+      "sha256": "e3b9fdb3fe2a16407715e05898fba3ad08461e4c41e8d783e1848dfd824ed3af"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-hardening/c10a510311fb415c9093905aa6a6f622/survey-green.txt",
+      "bytes": 1324,
+      "sha256": "817df215105d0f0b85091849475e0cedc875ca168a894549dbfdd2b84b136ca8"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-hardening/c10a510311fb415c9093905aa6a6f622/cli-entry/output-redacted.txt",
+      "bytes": 686,
+      "sha256": "58c2661323b267684a0705c061d9ae312554c7324a34a08717232f266df34011"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-live/47384e93-afea-4046-95ec-f11cd306a5e0/app-tools-all.json",
+      "bytes": 15556,
+      "sha256": "60008d2d2c15a089799e2d814f11bc90c5f17452ef97c08b64145739b8453786"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-live/47384e93-afea-4046-95ec-f11cd306a5e0/app-post-update.json",
+      "bytes": 1441,
+      "sha256": "4f7dedb9e6f74beb689ffcf386069b9dc48c55dc659f189eeca6073b5520a2b9"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/native-mcp-live/47384e93-afea-4046-95ec-f11cd306a5e0/native-cli-v2-receipt.json",
+      "bytes": 13176,
+      "sha256": "39c0da83a6d80f2cd3d45a75c5f76743111c72bf62229275c3c0f13722ef255c"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/chatgpt-connector-20261010-9b5be907/receipt.json",
+      "bytes": 3004,
+      "sha256": "9624f2ef43f64c38085d860858f9a322156f55f4c84f327fd5fdde8a201b755c"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/chatgpt-connector-20261010-9b5be907/prompt-redacted.txt",
+      "bytes": 194,
+      "sha256": "2df248944ed309c224495e97fd2579c34cf63e29efea9750a6e3452a82dd76a1"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/chatgpt-connector-20261010-9b5be907/trace-session.txt",
+      "bytes": 1754,
+      "sha256": "e240dbcdd25ea676b77515c5e2ca1d069747d6f90bdfc0b0c45a607372b4a644"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/chatgpt-connector-20261010-9b5be907/app-bootstrap.json",
+      "bytes": 4988,
+      "sha256": "5b85f7a0e1aea04cebc86304d7a695243ebbec92be4fcee667454ff80f8c1a8a"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/chatgpt-connector-20261010-9b5be907/workspace/connector-probe.txt",
+      "bytes": 26,
+      "sha256": "fec19d54cc206f01cad1612520185bf102651ffc0d5acb6fa411559534dedb66"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-cli-live/c95b078b-f7cb-474e-adb7-3fdedc191edb/receipt.json",
+      "bytes": 6581,
+      "sha256": "b22ca2d0ea4202f0b94f079be3579cb753fd274f999eac1bdcd4dbe44c46572e"
+    }
+  ]
+}

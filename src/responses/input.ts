@@ -12,8 +12,9 @@ export interface ParsedResponsesInput {
   declarations: Record<string, unknown>[];
 }
 export type TaskInputItem = { role: string; text: string } | {
-  type: "function_call" | "custom_tool_call" | "function_call_output" | "custom_tool_call_output";
-  call_id: string; name?: string; namespace?: string; arguments?: string; input?: string; output?: string;
+  type: "function_call" | "custom_tool_call" | "function_call_output" | "custom_tool_call_output" | "tool_search_call" | "tool_search_output";
+  call_id: string; name?: string; namespace?: string; arguments?: string | Record<string, unknown>; input?: string; output?: string;
+  execution?: "client"; tools?: Record<string, unknown>[];
 };
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -33,8 +34,18 @@ function contentText(value: unknown): string {
 
 function toolItem(item: Record<string, unknown>): TaskInputItem | null {
   const type = item.type;
-  if (!["function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output"].includes(type as string)) return null;
+  if (!["function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "tool_search_call", "tool_search_output"].includes(type as string)) return null;
   if (typeof item.call_id !== "string" || !item.call_id || item.call_id.length > 256) return invalid("tool item requires a bounded call_id");
+  if (type === "tool_search_call" || type === "tool_search_output") {
+    if (item.execution !== "client") return unsupported("only client-executed tool search is supported");
+    if (type === "tool_search_call") {
+      if (!record(item.arguments)) return invalid("client search requires object arguments");
+      return { type, execution: "client", call_id: item.call_id, arguments: item.arguments };
+    }
+    if (!Array.isArray(item.tools) || !item.tools.every(record) || JSON.stringify(item.tools).length > 200_000)
+      return invalid("client search output requires a bounded array of tool definitions");
+    return { type, execution: "client", call_id: item.call_id, tools: item.tools };
+  }
   if (String(type).endsWith("_output")) {
     return { type: type as "function_call_output", call_id: item.call_id, output: contentText(item.output) };
   }

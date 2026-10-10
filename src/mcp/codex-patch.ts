@@ -17,7 +17,9 @@
 // el hunk; si no hay, se usa la pista explicita de `@@ -N`; si tampoco, se
 // busca la ventana completa (ctx+del) en orden. El candidato SIEMPRE se
 // verifica contra el archivo real antes de aplicar: si nada cuadra, rechazo.
-import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { relative } from "node:path";
 import { resolveWithin } from "../codex-sessions";
 
 export class CodexPatchError extends Error {}
@@ -155,8 +157,8 @@ function locate(lines: string[], from: number, hunk: Hunk, path: string): number
 }
 
 /** Aplica los hunks de un Update File y devuelve el contenido NUEVO completo. */
-function applyUpdate(abs: string, op: { path: string; hunks: Hunk[] }): string {
-  const { lines, finalNewline } = splitLines(readFileSync(abs, "utf8"));
+function applyUpdate(original: string, op: { path: string; hunks: Hunk[] }): string {
+  const { lines, finalNewline } = splitLines(original);
   if (op.hunks.length === 0) throw new CodexPatchError(`Update File sin hunks: ${op.path}`);
   const out: string[] = [];
   let origIdx = 0;
@@ -196,50 +198,137 @@ function applyUpdate(abs: string, op: { path: string; hunks: Hunk[] }): string {
   return out.join("\n") + (finalNewline || lastEmitWasAdd ? "\n" : "");
 }
 
-function atomicWrite(abs: string, content: string, mode: number): void {
-  const tmp = `${abs}.isyco-tmp-${process.pid}-${Date.now()}`;
-  try {
-    writeFileSync(tmp, content, { mode });
-    renameSync(tmp, abs);
-  } finally {
-    try {
-      if (existsSync(tmp)) unlinkSync(tmp);
-    } catch {
-      /* best effort */
-    }
-  }
-}
-
 /**
- * Aplica un patch formato Codex dentro de `cwd`. Fase 1 valida y calcula
- * todo el contenido nuevo; fase 2 escribe (tmp+rename por archivo). Ante
- * cualquier invalidacion lanza CodexPatchError SIN escribir nada.
- * Devuelve las rutas tocadas (relativas a cwd, sin repetir).
+ * Validate all operations, stage every write and backup, then publish.
+ * Directory descriptors and O_NOFOLLOW prevent symlink-parent escapes.
+ * Publication is atomic per file; a commit error rolls back earlier files.
+ * This is not a multi-file filesystem transaction for concurrent observers.
  */
 export function applyCodexPatch(cwd: string, patch: string): string[] {
   const ops = parse(patch);
-  const planned: Array<{ abs: string; write?: { content: string; mode: number }; delete?: boolean }> = [];
-  for (const op of ops) {
-    const abs = resolveWithin(cwd, op.path);
-    if (!abs) throw new CodexPatchError(`path fuera del workspace: ${op.path}`);
-    if (op.op === "add") {
-      if (existsSync(abs)) throw new CodexPatchError(`el archivo ya existe: ${op.path}`);
-      const content = op.lines.join("\n") + (op.lines.length > 0 ? "\n" : "");
-      planned.push({ abs, write: { content, mode: 0o644 } });
-    } else if (op.op === "delete") {
-      if (!existsSync(abs)) throw new CodexPatchError(`el archivo no existe: ${op.path}`);
-      planned.push({ abs, delete: true });
-    } else {
-      if (!existsSync(abs)) throw new CodexPatchError(`el archivo no existe: ${op.path}`);
-      const content = applyUpdate(abs, op);
-      planned.push({ abs, write: { content, mode: statSync(abs).mode & 0o777 } });
+  if (process.platform !== "linux") throw new CodexPatchError("native patch confinement requires Linux directory descriptors");
+  const root = realpathSync(cwd);
+  const dirs = new Map<string, number>();
+  const createdDirs: string[] = [];
+  const scratch = new Set<string>();
+  const published: Array<{ target: string; backup?: string; add: boolean }> = [];
+  let retainBackups = false;
+  try {
+    dirs.set("", openSync(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
+    const normalized = ops.map(op => {
+      const abs = resolveWithin(root, op.path);
+      if (!abs || abs === root) throw new CodexPatchError(`path fuera del workspace: ${op.path}`);
+      return { op, path: relative(root, abs), parts: relative(root, abs).split("/") };
+    });
+    const names = new Set<string>();
+    for (const p of normalized) {
+      if (names.has(p.path)) throw new CodexPatchError(`ruta repetida en el patch: ${p.op.path}`);
+      names.add(p.path);
     }
+    for (const p of normalized) {
+      for (let i = 1; i < p.parts.length; i++) if (names.has(p.parts.slice(0, i).join("/")))
+        throw new CodexPatchError(`archivo usado como directorio en el patch: ${p.path}`);
+    }
+    const parent = (parts: string[], create: boolean): string | null => {
+      let key = "";
+      let fd = dirs.get("")!;
+      for (const part of parts.slice(0, -1)) {
+        const next = key ? `${key}/${part}` : part;
+        if (!dirs.has(next)) {
+          const anchored = `/proc/self/fd/${fd}/${part}`;
+          try { dirs.set(next, openSync(anchored, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)); }
+          catch (error: any) {
+            if (error.code !== "ENOENT") throw new CodexPatchError(`padre no es directorio seguro: ${next}`);
+            if (!create) return null;
+            mkdirSync(anchored);
+            createdDirs.push(anchored);
+            dirs.set(next, openSync(anchored, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
+          }
+        }
+        key = next; fd = dirs.get(key)!;
+      }
+      return `/proc/self/fd/${fd}/${parts.at(-1)!}`;
+    };
+    const planned = normalized.map(p => {
+      const target = parent(p.parts, false);
+      let original: Buffer | undefined;
+      let mode = 0o644;
+      let identity: { dev: number; ino: number } | undefined;
+      if (target) {
+        try {
+          const info = lstatSync(target);
+          if (p.op.op === "add") throw new CodexPatchError(`el archivo ya existe: ${p.op.path}`);
+          if (!info.isFile() || info.isSymbolicLink()) throw new CodexPatchError(`archivo no regular o symlink: ${p.op.path}`);
+          const fd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+          try {
+            const actual = fstatSync(fd);
+            if (!actual.isFile()) throw new CodexPatchError(`archivo no regular: ${p.op.path}`);
+            original = readFileSync(fd); mode = actual.mode & 0o777;
+            identity = { dev: actual.dev, ino: actual.ino };
+          } finally { closeSync(fd); }
+        } catch (error: any) { if (error.code !== "ENOENT") throw error; }
+      }
+      if (p.op.op !== "add" && original === undefined) throw new CodexPatchError(`el archivo no existe: ${p.op.path}`);
+      const content = p.op.op === "add" ? p.op.lines.join("\n") + (p.op.lines.length ? "\n" : "")
+        : p.op.op === "update" ? applyUpdate(original!.toString("utf8"), p.op) : undefined;
+      return { ...p, original, mode, identity, content, target: "", staged: undefined as string | undefined, backup: undefined as string | undefined };
+    });
+    // All syntax, paths and hunks are valid before creating directories/files.
+    for (const p of planned) {
+      p.target = parent(p.parts, true)!;
+      if (p.original !== undefined) {
+        p.backup = `${p.target}.isymcp-backup-${randomUUID()}`;
+        linkSync(p.target, p.backup); scratch.add(p.backup);
+      }
+      if (p.content !== undefined) {
+        p.staged = `${p.target}.isymcp-stage-${randomUUID()}`;
+        const fd = openSync(p.staged, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, p.mode);
+        scratch.add(p.staged);
+        try { writeFileSync(fd, p.content); fchmodSync(fd, p.mode); } finally { closeSync(fd); }
+      }
+    }
+    // Reject a changed source before publishing any part of this patch.
+    for (const p of planned) {
+      if (p.original !== undefined) {
+        const fd = openSync(p.target, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          const info = fstatSync(fd);
+          if (info.dev !== p.identity!.dev || info.ino !== p.identity!.ino || !readFileSync(fd).equals(p.original))
+            throw new CodexPatchError(`archivo cambio durante el patch: ${p.path}`);
+        } finally { closeSync(fd); }
+      } else {
+        try { lstatSync(p.target); throw new CodexPatchError(`el archivo ya existe: ${p.path}`); }
+        catch (error: any) { if (error.code !== "ENOENT") throw error; }
+      }
+    }
+    for (const p of planned) {
+      if (p.op.op === "add") linkSync(p.staged!, p.target); // no-overwrite publication
+      else if (p.staged) { renameSync(p.staged, p.target); scratch.delete(p.staged); }
+      else unlinkSync(p.target);
+      published.push({ target: p.target, backup: p.backup, add: p.op.op === "add" });
+    }
+    return normalized.map(p => p.path);
+  } catch (error) {
+    const failures: string[] = [];
+    for (const p of published.reverse()) {
+      try {
+        if (p.add) unlinkSync(p.target);
+        else { renameSync(p.backup!, p.target); scratch.delete(p.backup!); }
+      } catch {
+        const recoverable = p.backup ?? p.target;
+        // Descriptors close in finally: report the persistent path for recovery.
+        try { failures.push(realpathSync(recoverable)); }
+        catch { failures.push(recoverable); }
+      }
+    }
+    retainBackups = failures.length > 0;
+    throw new CodexPatchError(`${error instanceof Error ? error.message : String(error)}${failures.length ? `; rollback incompleto, backups conservados: ${failures.join(", ")}` : ""}`);
+  } finally {
+    for (const path of scratch) {
+      if (retainBackups && path.includes(".isymcp-backup-")) continue;
+      try { unlinkSync(path); } catch { /* preserve unrelated paths */ }
+    }
+    for (const path of createdDirs.reverse()) { try { rmdirSync(path); } catch { /* keep non-empty successful parents */ } }
+    for (const fd of [...dirs.values()].reverse()) { try { closeSync(fd); } catch { /* descriptor already closed */ } }
   }
-  for (const p of planned) {
-    if (p.write) atomicWrite(p.abs, p.write.content, p.write.mode);
-  }
-  for (const p of planned) {
-    if (p.delete) unlinkSync(p.abs);
-  }
-  return [...new Set(ops.map((o) => o.path))];
 }

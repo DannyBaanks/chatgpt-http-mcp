@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const entry = join(import.meta.dir, "..", "src", "isymcp.ts");
@@ -10,7 +10,13 @@ function fixture() {
   const bin = join(dir, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "codex"), '#!/usr/bin/env bun\nconsole.log(JSON.stringify({codex_args:process.argv.slice(2)}));\n', { mode: 0o755 });
-  return { dir, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CODEX_WEB_HTTP_HOME: dir, CODEX_WEB_HTTP_PORT: "1" } };
+  // A real Codex process may refresh its cache concurrently. Test an owned
+  // native home instead of treating the user's live cache as immutable.
+  const nativeHome = join(dir, "native-codex");
+  mkdirSync(nativeHome);
+  writeFileSync(join(nativeHome, "config.toml"), 'model="native-fixture"\n');
+  writeFileSync(join(nativeHome, "models_cache.json"), '{"fixture":"keep"}\n');
+  return { dir, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CODEX_HOME: nativeHome, CODEX_WEB_HTTP_HOME: dir, CODEX_WEB_HTTP_PORT: "1" } };
 }
 
 async function run(args: string[], env: Record<string, string | undefined>) {
@@ -38,7 +44,7 @@ test("Codex help does not start Web services", async () => {
 
 test("Web launcher selects its own provider and leaves global Codex files unchanged", async () => {
   const { dir, env } = fixture();
-  const globalDir = process.env.CODEX_HOME || join(homedir(), ".codex");
+  const globalDir = env.CODEX_HOME;
   const paths = ["config.toml", "models_cache.json"].map(file => join(globalDir, file));
   const before = paths.map(path => existsSync(path) ? readFileSync(path) : null);
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ status: "ok", web_models: "on", upstream: "fixture" }) });

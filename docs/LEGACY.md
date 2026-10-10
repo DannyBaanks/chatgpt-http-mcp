@@ -35,3 +35,11 @@ HOME, CONNECTOR, EXEC_TIMEOUT_MS, SANDBOX) + `ISYMCP_TUI_BASE_URL`. **Sin obsole
 
 - No borrar provenance (launcher, docs de referencia) — solo clasificar.
 - Nada en este documento autoriza revivir Electron ni payloads gigantes por comodidad.
+
+## Local connector guide (2026-10-10)
+
+`src/mcp/SKILL.md` is current local package content returned by a real
+`codex_turn_start`, with its SHA-256. An operator may bind a local UTF-8 task
+using `isymcp session mint --request-file`; the generated connector command is
+four lines. The external Web-provider JSON response protocol remains in
+`src/responses/tools.ts`. It is not injected into the connector guide.

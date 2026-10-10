@@ -409,18 +409,24 @@ function codexSession(sub: string, rest: string[]): void {
     const writable = rest.includes("--write") || rest.includes("--writable") || rest.includes("--rw");
     const ttlRaw = opt("--ttl");
     const ttlHours = ttlRaw === undefined ? undefined : Number(ttlRaw);
-    const record = mintSession(cwd, { label, writable, ttlHours });
+    const requestFile = opt("--request-file");
+    if (rest.includes("--request-file") && (!requestFile || requestFile.startsWith("--")))
+      throw new Error("--request-file requiere un archivo de texto dentro del workspace");
+    const record = mintSession(cwd, { label, writable, ttlHours, requestFile });
     console.log("sesion Codex ISyMCP creada (el token se muestra UNA vez; el registro es 0600)");
     console.log(`  label:    ${record.label}`);
     console.log(`  cwd:      ${record.cwd}`);
     console.log(`  writable: ${record.writable}`);
     console.log(`  fp:       ${record.fp}`);
     console.log(`  caduca:   ${record.expiresAt ?? "nunca (--ttl 0)"}`);
+    if (record.request) console.log(`  request:  ${record.request.filename} [sha256 ${record.request.sha256}]`);
     console.log(`  token:    ${record.token}`);
     console.log("");
     console.log("Para usarla, elegir el app Codex ISyMCP en el composer y pegar:");
     console.log("  COMANDO: @CODEX ISYMCP");
     console.log(`  turn_token: ${record.token}`);
+    console.log("  Primero llama codex_turn_start y lee bootstrap.content.");
+    console.log(record.request ? "  Ejecuta la tarea local verificada de request.content y devuelve evidencia real." : "  Solicitud: <escribe aquí tu tarea autorizada>.");
     return;
   }
   if (sub === "list") {
@@ -438,7 +444,7 @@ function codexSession(sub: string, rest: string[]): void {
     console.log(`Revoked sessions: ${revokeSession(target)}`);
     return;
   }
-  throw new Error("uso: isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] | list | revoke <token|fp>");
+  throw new Error("uso: isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] [--request-file TASK.md] | list | revoke <token|fp>");
 }
 
 function modelsRestore(): void {
@@ -563,9 +569,10 @@ function help(): void {
   isymcp tui install         dry-run del parche opencode (provider+MCP)
   isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
   isymcp tui install --restore vuelve al backup
-  isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas]
+  isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] [--request-file TASK.md]
                              crea un session token del MCP (read-only por defecto;
-                             caduca a los 7 dias, --ttl 0 = nunca)
+                             caduca a los 7 dias, --ttl 0 = nunca;
+                             request-file vincula una tarea local por SHA-256)
   isymcp session list        sesiones vivas (solo fingerprint)
   isymcp session revoke <token|fp>
   isymcp canary              turno real de prueba (eco A, eco B sin A, markdown)

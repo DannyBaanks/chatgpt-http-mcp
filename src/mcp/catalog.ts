@@ -51,7 +51,7 @@ export function shapesFor(contract: "native" | "safe"): Record<ToolName, Record<
 }
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
-  codex_turn_start: "Inicia un turno Codex. Devuelve el turn_token para las demas tools.",
+  codex_turn_start: "Inicia el turno usando su token y devuelve la guía local verificada en bootstrap.content y, si está vinculada, la tarea local en request.content.",
   codex_exec:
     "Ejecuta un comando en el runtime Codex (sandbox bwrap del workspace). background=true inicia un proceso persistente con stdin abierto y devuelve exec_id para codex_write_stdin; capture_ms (0-5000, 1500 por defecto) es la espera inicial de salida.",
   codex_write_stdin:

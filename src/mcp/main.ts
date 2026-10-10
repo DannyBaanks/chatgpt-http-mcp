@@ -32,6 +32,7 @@ import { tmpdir } from "node:os";
 import { z } from "zod";
 import {
   bridgeHome,
+  readSessionRequest,
   findSessionByToken,
   fingerprint,
   patchPaths,
@@ -41,6 +42,7 @@ import {
   sandboxAvailable,
   type CodexSession,
 } from "../codex-sessions";
+import { readMcpBootstrap } from "./bootstrap";
 import { applyCodexPatch, CodexPatchError } from "./codex-patch";
 import { capabilities, shapesFor, TOOL_DESCRIPTIONS, WIRE_ALIASES, type ToolName } from "./catalog";
 import { drain, findLive, killSessionExecs, registerLiveExec, writeStdin as stdinWrite, type BgProc } from "./exec-registry";
@@ -348,13 +350,13 @@ async function runWriteStdin(session: CodexSession, input: Record<string, unknow
   if (!rec) return fail("exec_id desconocido o expirado", { session: sessionMeta(session) });
   if (rec.sessionFp !== session.fp) return fail("exec_id pertenece a otra sesion", { session: sessionMeta(session) });
   const signal = input.signal === "TERM" || input.signal === "KILL" ? (input.signal as "TERM" | "KILL") : undefined;
-  if (rec.exited && !signal) {
+  const data = String(input.data ?? "");
+  if (rec.exited && !signal && (data.length > 0 || input.close_stdin === true)) {
     return fail("el proceso ya termino", { exec_id: id, exit_code: rec.exitCode, session: sessionMeta(session) });
   }
-  if (rec.stdinClosed && !signal && input.close_stdin !== true) {
+  if (rec.stdinClosed && !signal && data.length > 0) {
     return fail("el stdin ya esta cerrado", { exec_id: id, session: sessionMeta(session) });
   }
-  const data = String(input.data ?? "");
   const out = await stdinWrite(rec, data, {
     close: input.close_stdin === true,
     signal,
@@ -392,22 +394,30 @@ function stableStringify(v: unknown): string {
   return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`).join(",")}}`;
 }
 
-function payloadOf(out: { content: Array<{ type: string; text?: string }> }): Record<string, unknown> {
-  try {
-    return JSON.parse(out.content.find((c) => c.type === "text")?.text ?? "{}") as Record<string, unknown>;
-  } catch {
-    return {};
-  }
+type ToolCallResult = Awaited<ReturnType<typeof dispatchTool>>;
+interface CachedToolCall {
+  at: number;
+  signature: string;
+  pending: Promise<ToolCallResult>;
+  settled: boolean;
 }
+/** Retry identity belongs to a session; concurrent retries share the same result. */
+const toolCallCache = new Map<string, CachedToolCall>();
+const TOOL_CALL_TTL_MS = 10 * 60_000;
+const TOOL_CALL_MAX = 64;
 
-/** Dedupe de reintentos de codex_tool_call por call_id (10 min, cap 64). */
-const toolCallCache = new Map<string, { at: number; payload: Record<string, unknown> }>();
-function rememberToolCall(key: string, payload: Record<string, unknown>): void {
-  toolCallCache.set(key, { at: Date.now(), payload });
-  if (toolCallCache.size > 64) {
-    const oldest = toolCallCache.keys().next().value;
-    if (oldest !== undefined) toolCallCache.delete(oldest);
-  }
+function replayToolCall(out: ToolCallResult, wire: string): ToolCallResult {
+  return {
+    ...out,
+    content: out.content.map((item) => {
+      if (item.type !== "text") return item;
+      try {
+        return { ...item, text: JSON.stringify({ ...JSON.parse(item.text), replayed: true, wire_name: wire }) };
+      } catch {
+        return item;
+      }
+    }),
+  };
 }
 
 /** Dispatch local de codex_tool_call a las tools nativas ejecutables. */
@@ -453,20 +463,41 @@ async function runToolCall(session: CodexSession, input: Record<string, unknown>
     const detail = check.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
     return fail(`arguments no validos para ${tool}: ${detail}`, { session: sessionMeta(session) });
   }
-  // call_id: un reintento con el mismo call_id no re-ejecuta.
   const callId = typeof input.call_id === "string" ? input.call_id : null;
-  const cacheKey = callId ? `${callId}|${tool}|${stableStringify(args)}` : null;
-  if (cacheKey) {
-    const hit = toolCallCache.get(cacheKey);
-    if (hit && Date.now() - hit.at < 10 * 60_000) {
-      return jsonText({ replayed: true, wire_name: wire, ...hit.payload });
+  if (!callId) return dispatchTool(session, tool, args);
+  const cacheKey = `${session.fp}|${callId}`;
+  // Ignore nested tokens: authority always comes from the outer authorized session.
+  const validatedArgs = { ...check.data };
+  delete validatedArgs[turnKey];
+  const signature = `${tool}|${stableStringify(validatedArgs)}`;
+  const now = Date.now();
+  for (const [key, entry] of toolCallCache) {
+    if (entry.settled && now - entry.at >= TOOL_CALL_TTL_MS) toolCallCache.delete(key);
+  }
+  const hit = toolCallCache.get(cacheKey);
+  if (hit) {
+    if (hit.signature !== signature) {
+      return fail("call_id ya utilizado con otra tool o arguments", { session: sessionMeta(session) });
     }
+    return replayToolCall(await hit.pending, wire);
   }
-  const out = await dispatchTool(session, tool, args);
-  if (cacheKey && !out.isError) {
-    rememberToolCall(cacheKey, payloadOf(out));
+  if (toolCallCache.size >= TOOL_CALL_MAX) {
+    const removable = [...toolCallCache].find(([, entry]) => entry.settled);
+    if (removable) toolCallCache.delete(removable[0]);
+    else return fail("limite de tool calls pendientes alcanzado", { session: sessionMeta(session) });
   }
-  return out;
+  // Publish before dispatch starts so a retry cannot cross the await boundary twice.
+  const entry: CachedToolCall = {
+    at: now, signature, settled: false,
+    pending: Promise.resolve().then(() => dispatchTool(session, tool, validatedArgs)),
+  };
+  toolCallCache.set(cacheKey, entry);
+  try {
+    return await entry.pending;
+  } finally {
+    entry.settled = true;
+    entry.at = Date.now();
+  }
 }
 
 server.registerTool(
@@ -479,7 +510,15 @@ server.registerTool(
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
     const session = sessionFrom(input, "codex_turn_start");
-    if (session) return jsonText({ started: true, session: sessionMeta(session) });
+    if (session) {
+      try {
+        const bootstrap = readMcpBootstrap();
+        const request = readSessionRequest(session);
+        return jsonText({ started: true, session: sessionMeta(session), bootstrap, ...(request ? { request } : {}) });
+      } catch (err) {
+        return fail(`local bootstrap failed: ${String(err)}`, { session: sessionMeta(session) });
+      }
+    }
     return jsonText({ started: true, turn_token: token });
   },
 );

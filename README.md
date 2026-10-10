@@ -50,9 +50,28 @@ The native tool adapter translates supplied function/custom declarations into
 Responses calls; **Codex executes them** and returns their real results. Calls
 are correlated to a task, turn and call ID, with durable replay and explicit
 handling of interrupted calls. WebSocket events use one JSON event per frame.
-The full ChatGPT Web CLI canary and Codex App integration remain
-**NOT_DEMONSTRATED**: passing local protocol tests does not close those gates.
-[Verification scope and evidence](docs/verification/2026-10-09-codex-isolation.md).
+The MCP connector has been exercised through Codex App, the native Codex CLI
+and ChatGPT.com. Selecting the Web bridge as a Codex App model and the complete
+Web-provider CLI loop remain **NOT_DEMONSTRATED**; these are separate paths.
+[Current verification scope and evidence](docs/verification/2026-10-10-native-mcp-live.md).
+
+### A four-line ChatGPT command with a local task
+
+Write your authorized task in `TASK.md` inside the project, then run:
+
+```bash
+isymcp session mint --cwd "$PWD" --write --request-file TASK.md
+```
+
+Select **Codex ISyMCP** in ChatGPT's composer and paste the four lines printed
+by the command. `codex_turn_start` returns the installed local guide in
+`bootstrap.content` and the bound task in `request.content`, with SHA-256
+hashes. You do not need to paste either document. A changed task requires a new
+token; files outside the authorized workspace are rejected. Omit `--write`
+for a read-only task. Existing sessions without a task file remain supported.
+
+The ChatGPT.com canary used exactly four lines and performed real command
+execution, patching, file verification and turn completion.
 
 ### 🤝 ChatGPT inside your other agents (9 Harnesses Ready)
 `chatgpt_ask` is an MCP tool. It lets **Claude Code, Codex, Cursor IDE, OpenCode TUI, GitHub Copilot CLI, Hermes Agent, OpenClaw, Pi, and Gemini CLI** ask *your* ChatGPT (GPT-5.6 Sol, your plan) for a second opinion halfway through a task.

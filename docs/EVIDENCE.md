@@ -373,3 +373,19 @@ el estado actual.
   `isymcp session mint --cwd <dir> --write`, pegar el compose con
   `COMANDO: @CODEX ISYMCP`, verificar probe.txt con las dos lineas y el cierre
   del turno.
+
+## Remote MCP and four-line local-task entry (2026-10-10)
+
+The earlier TEST E status above is historical. The independent ChatGPT.com
+connector canary now passed: a four-line message caused a real local guide and
+task read, inventory, exec, native patch, file verification and completion.
+Codex App exercised all eight MCP tools; the installed native CLI exercised
+start, inventory, exec and complete. These checks do not establish support for
+the Web bridge as a Codex App model or complete the Web-provider CLI gate.
+
+`bun test` after the final repairs: **485 pass, 1 skip, 0 fail** (486 tests,
+68 files). Raw final output SHA-256:
+`0bfc3e5cb394265d1b93b0051efbfe585518f88054c7b51b11d144c25559328a`.
+The [dated verification report](verification/2026-10-10-native-mcp-live.md)
+records the successful receipts, preserved negative attempts, hashes and
+remaining limitations. Tokens and cookie state are not committed.

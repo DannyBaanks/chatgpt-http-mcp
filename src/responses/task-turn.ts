@@ -7,7 +7,7 @@ import { selectComposerSettings } from "../chatgpt-settings";
 import { canonicalConversationUrl, sendWebTurn, withWebLock } from "../web-turn";
 import { normalizeTaskInput, parseResponsesInput, type TaskInputItem } from "./input";
 import { assertWebSelection, webModelLabel, WebTaskError } from "./selection";
-import { decodeToolReply, nativeToolChoice, nativeTools, toolPrompt, type NativeCall } from "./tools";
+import { decodeToolReply, nativeToolChoice, nativeTools, toolPrompt, type NativeCall, type NativeTool } from "./tools";
 import { commitConversationReceipt } from "../codex-conversation";
 
 export interface TaskIdentity { key: string; threadId: string; turnId: string }
@@ -56,10 +56,21 @@ function write(path: string, value: unknown) {
 }
 interface State {
   url: string; input: TaskInputItem[]; instructions: string; pending?: string;
-  awaiting?: { turnId: string; call: NativeCall; registryFingerprint: string; step: number };
+  awaiting?: { turnId: string; call: NativeCall; registryFingerprint: string; step: number; searchRegistry?: NativeTool[]; registryFormat?: "native-registry/2" };
 }
-interface Turn { fingerprint: string; phase: "prepared" | "attempted" | "done" | "failed"; response?: Record<string, any>; error?: { type: string; status: number; message: string } }
+interface Turn { fingerprint: string; phase: "prepared" | "attempted" | "done" | "failed"; response?: Record<string, any>; error?: { type: string; status: number; message: string }; diagnostic?: { name: string; message: string } }
 interface Dependencies { dir?: string; send?: typeof sendWebTurn; selectSettings?: typeof selectComposerSettings }
+
+const registryDigest = (registry: Map<string, NativeTool>) => hash(stable([...registry.values()].sort((a, b) => a.wireName.localeCompare(b.wireName))));
+function extendRegistry(registry: Map<string, NativeTool>, declarations: Record<string, unknown>[]) {
+  for (const [name, tool] of nativeTools(declarations)) {
+    if (tool.type === "tool_search") throw new WebTaskError("web_tool_result_mismatch", 409, "search outputs may load function/custom tools only");
+    const existing = registry.get(name);
+    if (existing && stable(existing) !== stable(tool))
+      throw new WebTaskError("web_tool_result_mismatch", 409, "search output cannot replace an existing tool definition");
+    registry.set(name, tool);
+  }
+}
 
 /** Sequential native requests per Codex turn. Codex executes; the adapter correlates. */
 export async function runTaskTurn(req: Request, body: Record<string, any>, config: AppConfig,
@@ -68,12 +79,15 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
   const identity = resolveTaskIdentity(req, body);
   const parsed = parseResponsesInput(body); // validate before persistence/browser interaction
   const choice = nativeToolChoice(body.tool_choice);
+  const input = normalizeTaskInput(body.input);
   const registry = nativeTools(parsed.declarations);
-  const registryFingerprint = hash(stable(parsed.declarations));
+  // Search definitions become authority only after the committed history and
+  // matching pending call are checked below. Never execute them here.
+  for (const item of input) if ("type" in item && item.type === "tool_search_output") extendRegistry(registry, item.tools!);
+  const registryFingerprint = registryDigest(registry);
   const protocol = toolPrompt(registry, choice);
   const effort = body.reasoning?.effort ?? body.reasoning_effort ?? "high";
   assertWebSelection(body.model, effort);
-  const input = normalizeTaskInput(body.input);
   const instructions = body.instructions ?? "";
   const { stream, client_metadata, prompt_cache_key, ...semanticBody } = body;
   const fingerprint = hash(stable({ ...semanticBody, input }));
@@ -151,11 +165,24 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
         }
       }
       if (task?.awaiting && !unconfirmedCall) {
-        const expectedType = task.awaiting.call.type === "function_call" ? "function_call_output" : "custom_tool_call_output";
+        const isSearch = task.awaiting.call.type === "tool_search_call";
+        const expectedType = isSearch ? "tool_search_output" : task.awaiting.call.type === "function_call" ? "function_call_output" : "custom_tool_call_output";
         const output = delta[0];
-        if (task.awaiting.turnId !== identity.turnId || registryFingerprint !== task.awaiting.registryFingerprint || delta.slice(1).some(i => "type" in i || i.role === "assistant") ||
+        // An upgrade may encounter a pending ordinary call persisted before
+        // client search existed. Its original declaration fingerprint stays valid.
+        const matchedRegistry = task.awaiting.registryFormat === "native-registry/2" ? registryFingerprint : hash(stable(parsed.declarations));
+        if (task.awaiting.turnId !== identity.turnId || (!isSearch && matchedRegistry !== task.awaiting.registryFingerprint) || delta.slice(1).some(i => "type" in i || i.role === "assistant") ||
           !output || !("type" in output) || output.type !== expectedType || output.call_id !== task.awaiting.call.call_id)
           throw new WebTaskError("web_tool_result_mismatch", 409, "result must match the single pending call, registry and Codex turn");
+        if (isSearch) {
+          if (!Array.isArray(task.awaiting.searchRegistry)) throw new WebTaskError("web_task_state_invalid", 503, "pending search has no committed registry");
+          const expected = new Map(task.awaiting.searchRegistry.map(t => [t.wireName, t]));
+          if (registryDigest(expected) !== task.awaiting.registryFingerprint)
+            throw new WebTaskError("web_task_state_invalid", 503, "pending search registry is inconsistent");
+          extendRegistry(expected, output.tools!);
+          if (registryDigest(expected) !== registryFingerprint)
+            throw new WebTaskError("web_tool_result_mismatch", 409, "only definitions returned by the matching client search may extend the registry");
+        }
       } else if (delta.some(i => "type" in i)) {
         throw new WebTaskError("web_tool_result_mismatch", 409, "unsolicited native call or result in a task without a pending call");
       }
@@ -222,7 +249,8 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
           response.output = [{ id: `item_${crypto.randomUUID().replace(/-/g, "")}`, ...answer.call, status: "completed" }];
           response.output_text = "";
           emitted = answer.call;
-          awaiting = { turnId: identity.turnId, call: answer.call, registryFingerprint, step };
+          awaiting = { turnId: identity.turnId, call: answer.call, registryFingerprint, registryFormat: "native-registry/2", step,
+            ...(answer.call.type === "tool_search_call" ? { searchRegistry: [...registry.values()] } : {}) };
         }
         response.metadata = { isymcp_conversation: url, isymcp_model_state: "visible_state_verified", isymcp_model: webModelLabel(body.model), isymcp_effort: "High" };
         write(taskPath, { url, input: [...input, emitted], instructions, ...(awaiting ? { awaiting } : {}) });
@@ -236,6 +264,10 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
           throw new WebTaskError("web_turn_ambiguous", 409, "submit was attempted but no response committed; inspect task state before recovery");
         }
         const typed = error instanceof WebTaskError ? error : new WebTaskError("web_turn_not_submitted", 502, "browser failed before submission");
+        // Preserve the cause only in the private 0600 record. The HTTP error
+        // stays generic; operators otherwise cannot distinguish browser failures.
+        if (error instanceof Error && !(error instanceof WebTaskError))
+          record.diagnostic = { name: error.name.slice(0, 256), message: error.message.slice(0, 8192) };
         record.phase = "failed"; record.error = { type: typed.type, status: typed.status, message: typed.message }; persistRound();
         throw typed;
       }

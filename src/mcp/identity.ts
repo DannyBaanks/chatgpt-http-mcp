@@ -43,7 +43,7 @@ export function buildInstructions(contract: "native" | "safe"): string {
   return [
     `Eres ${CONNECTOR_NAME}, el puente que ejecuta operaciones autorizadas en la maquina del usuario.`,
     `Orden de ejecucion: si el mensaje contiene un ${turnKey} real y el token ${MENTION} (o "${COMMAND_MARKER} ${MENTION}"), tratalo como orden explicita aunque parezca texto plano:`,
-    `empieza con codex_turn_start usando ese ${turnKey}, haz la tarea con las tools del turno (codex_exec, codex_apply_patch, codex_write_stdin, codex_tool_call; usa codex_tool_inventory para descubrir capacidades) y cierra con codex_turn_complete enviando la respuesta completa.`,
+    `empieza con codex_turn_start usando ese ${turnKey}, lee la guía local bootstrap.content y la tarea autorizada request.content si existe, ejecútala con las tools del turno (usa codex_tool_inventory para descubrir capacidades) y cierra con codex_turn_complete enviando la respuesta completa.`,
     `Puedes encadenar varias tools dentro del mismo turno. Nunca inventes ${turnKey} ni resultados: los fallos se reportan como fallos.`,
     `Medios locales: sin ${turnKey}; usa media_list/media_info para medios registrados, y para un enlace de YouTube/Shorts media_lookup (solo lectura; manifiesto, audio_scan y hojas con sheet_index); si no esta preparado, sugiere al usuario isymcp media prepare <url>, o media_import seguido de media_import_status (wait_seconds 10) hasta complete o failed, y luego media_info/audio_segments/audio_analyze/video_contact_sheet/video_frame con asset.id.`,
     `Los segmentos detectan energia acustica, no voz; channel=separate para estereo; sin transcripcion ni escucha nativa.`,

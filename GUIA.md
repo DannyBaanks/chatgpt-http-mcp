@@ -122,13 +122,21 @@ GPT-6, High, posición 3 de 3. La evidencia privada está en
 `~/.codex-web-http/evidence/composer-live/81b981e2-40a3-4e25-aee8-fe5dd9d517fa`
 (SHA-256 `cc70b0071894c276d6f46176c2e9a04959cadb58815b0fab5107216c1e9e613f`).
 
-**NO PROBADO:** una conversación Web cuyo comando nativo lo ejecute Codex, y
-cualquier flujo de la App. El canario CLI de esa noche no llegó al puente:
+**Estado histórico de 2026-10-09:** no se había probado una conversación Web
+cuyo comando nativo lo ejecutase Codex, ni el conector en la App. El canario CLI de esa noche no llegó al puente:
 Codex respondió el límite de uso de la cuenta y hubo cero peticiones locales.
 `isymcp conversation new` abre el CLI interactivo con proveedor propio y
 `--no-daemon`. `isymcp conversation new --client app` se rechaza. Reanudar dos
 hilos reales sigue sin demostrarse.
 [Resultados y límites](docs/verification/2026-10-09-codex-isolation.md).
+
+**Actualización 2026-10-10:** el conector Codex ISyMCP ejecutó sus ocho
+herramientas desde Codex App; un CLI nativo real también abrió una sesión,
+consultó su inventario, ejecutó un comando y completó el turno. Esto comprueba
+el MCP como herramientas. Elegir ChatGPT Web como modelo de una tarea de la
+App sigue siendo un flujo distinto y no está disponible. El informe nuevo
+separa esos caminos y conserva los intentos fallidos:
+[pruebas App, CLI y transporte Web](docs/verification/2026-10-10-native-mcp-live.md).
 
 ---
 
@@ -370,11 +378,11 @@ Codex ISyMCP es un servidor de herramientas; la respuesta en lenguaje natural la
 
 ## Las ocho herramientas codex_* (completas)
 
-Desde 2026-10-10 las ocho herramientas `codex_*` ejecutan de verdad con un token de sesión válido, dentro del sandbox bwrap del workspace de la sesión. Verificado por `tests/mcp-native-tools.test.ts`, `tests/codex-patch.test.ts` y la suite completa (455 pruebas); invocación remota desde ChatGPT.com: **NOT_DEMONSTRATED** hasta probarla con una sesión real (refresh del complemento incluido).
+Desde 2026-10-10 las ocho herramientas `codex_*` ejecutan con un token de sesión válido, dentro del sandbox bwrap del workspace. Una sesión propia probó las ocho mediante el complemento remoto desde Codex App, incluida la imagen, el parche y el intercambio stdin/EOF. El CLI nativo real probó cuatro llamadas principales. ChatGPT.com también pasó su prueba independiente: leyó la guía y tarea locales, consultó el inventario, ejecutó, aplicó un parche, comprobó el archivo y cerró el turno. [Evidencia y límites](docs/verification/2026-10-10-native-mcp-live.md).
 
 | Herramienta | Qué hace |
 |---|---|
-| `codex_turn_start` | Abre el turno; eco de la sesión resuelta |
+| `codex_turn_start` | Abre el turno y devuelve guía local y tarea vinculada, con sus hashes |
 | `codex_exec` | Comando foreground; con `background: true` devuelve `exec_id` y stdin abierto |
 | `codex_write_stdin` | Escribe al stdin de un proceso vivo; devuelve la salida nueva desde la última lectura |
 | `codex_apply_patch` | Parche en formato nativo Codex (`*** Begin Patch`) o diff unificado (`git diff`); solo writable |
@@ -394,15 +402,49 @@ Desde 2026-10-10 las ocho herramientas `codex_*` ejecutan de verdad con un token
 *** End Patch
 ```
 
-y el diff unificado de git (`--- a/x` / `+++ b/x`). Ambos producen el mismo contenido final para un caso equivalente (test de equivalencia incluido). El formato nativo se valida completo en memoria antes de escribir: un parche inválido (contexto que no coincide, ruta escapada, archivo repetido) se rechaza sin tocar disco. Con sesión read-only se niega.
+y el diff unificado de git (`--- a/x` / `+++ b/x`). Ambos producen el mismo contenido final para un caso equivalente. El formato nativo valida el contenido y las rutas antes de publicar, rechaza escapes por enlaces simbólicos y prepara todos los archivos antes de reemplazarlos. Si falla una publicación, intenta recuperar los originales; si esa recuperación falla, informa la ruta del respaldo conservado. Cada reemplazo es atómico, pero varios archivos no forman una transacción del sistema de archivos: evita escritores concurrentes en el mismo workspace. Con sesión read-only se niega.
 
-**Procesos persistentes.** `codex_exec` con `background: true` no espera al exit: devuelve `exec_id`, `alive`, la salida inicial (según `capture_ms`, 1500 ms por defecto) y `expires_at`. `codex_write_stdin(exec_id, data, close_stdin?, signal?, wait_ms?)` escribe al stdin y devuelve **solo el delta** de stdout/stderr desde la última lectura; `close_stdin` manda EOF; `signal: "TERM"|"KILL"` termina el proceso. Los `exec_id` son de la sesión que los creó (se rechazan los ajenos) y mueren por inactividad (TTL 15 min, `CODEX_WEB_HTTP_BG_TTL_MS`), al cerrar el turno (`codex_turn_complete` reporta `live_execs_killed`) o con el propio MCP (bwrap `--die-with-parent`). Sin huérfanos.
+**Procesos persistentes.** `codex_exec` con `background: true` devuelve `exec_id`, `alive`, la salida inicial y `expires_at`. `codex_write_stdin` devuelve solo el delta de stdout/stderr; `close_stdin` manda EOF y `signal: "TERM"|"KILL"` termina el proceso. Un polling con `data: ""` puede recuperar la salida final después del exit; escribir datos nuevos a un proceso terminado se rechaza. Los IDs pertenecen a su sesión. Hay terminación por TTL de 15 minutos, cierre del turno y bwrap `--die-with-parent`; también se termina el proceso recién creado si excede el límite del registro. `live_execs_killed` cuenta únicamente procesos que seguían vivos, no los que ya habían finalizado.
 
-**Invocación nativa por wire_name.** `codex_tool_call(wire_name, arguments | input, call_id?)` ejecuta una tool nativa con la MISMA sesión, sandbox y validación de argumentos contra el esquema registrado. Acepta el `wire_name` del inventario (`codex_exec`, …) o el alias corto del harness (`exec`, `exec_command`, `shell`, `shell_command`, `apply_patch`, `view_image`, `write_stdin`, `tool_inventory`). Un `wire_name` no soportado se rechaza con la lista disponible; nunca inventa resultados. Con el mismo `call_id` un reintento devuelve el resultado cacheado (`replayed: true`) en vez de re-ejecutar.
+**Invocación nativa por wire_name.** `codex_tool_call(wire_name, arguments | input, call_id?)` comparte sesión, sandbox y validación con la herramienta destino. Acepta el nombre del inventario o los alias locales documentados; no despacha herramientas remotas arbitrarias del harness. La caché de `call_id` pertenece a esa sesión: reintentos simultáneos ejecutan una sola vez, el resultado conserva imágenes y cambiar argumentos con el mismo ID se rechaza. La caché dura diez minutos, tiene límite de 64 entradas y no es un registro durable de ejecución tras reiniciar el MCP.
+
+**Catálogo desactualizado del complemento.** Reiniciar el servidor carga código nuevo, pero un cliente ya abierto puede conservar el esquema anterior. Reconecta/actualiza el complemento para recibir los parámetros nuevos. Consulta `codex_tool_inventory.capabilities` para ver el esquema real; mientras tanto, `codex_tool_call.arguments` permite enviar las opciones del destino, por ejemplo `background` o `close_stdin`.
 
 **Inventario fiel.** `codex_tool_inventory` con sesión real lista las 8 herramientas y además `capabilities`: descripción, esquema JSON de argumentos y requisitos (`turn_token`, `writable`). Con token desconocido responde `tools: []` y la razón. El soak en vivo espera **8** elementos (antes 6, `scripts/soak-tools.ts`).
 
 **Bootstrap mínimo.** Las instructions del connector (lo que ve el modelo de ChatGPT al abrir el app) se redujeron a la orden de ejecución y una nota de medios; el contrato JSON largo `ISYMCP CODEX RESPONSE CONTRACT` sigue existiendo SOLO en el transporte Codex externo (`src/responses/tools.ts`) y jamás se inyecta en el connector.
+
+## Una tarea local y un mensaje de cuatro líneas
+
+Escribe la tarea autorizada en `TASK.md` dentro de tu proyecto y ejecuta:
+
+```bash
+isymcp session mint --cwd "$PWD" --write --request-file TASK.md
+```
+
+El comando se probó con un workspace temporal. Devuelve la sesión, el nombre
+del archivo, su SHA-256 y este bloque para pegar, con el token real en la
+segunda línea. Selecciona **Codex ISyMCP** en el composer antes de enviarlo:
+
+```text
+COMANDO: @CODEX ISYMCP
+turn_token: <token generado por el comando>
+Primero llama codex_turn_start y lee bootstrap.content.
+Ejecuta la tarea local verificada de request.content y devuelve evidencia real.
+```
+
+La primera llamada lee `src/mcp/SKILL.md`, la guía del complemento instalada
+en tu PC, y el archivo vinculado. Ambas respuestas incluyen su SHA-256. El
+modelo recibe esos documentos mediante MCP; no hay que pegarlos en el mensaje.
+El archivo de tarea admite texto UTF-8 de hasta 64 KiB dentro del workspace.
+Si cambias la tarea, genera otro token; si falta el archivo, cambia su hash o
+escapa del workspace, el inicio devuelve un error y no debe continuar.
+Sin `--request-file`, puedes seguir escribiendo la tarea directamente en el
+chat. Sin `--write`, la sesión queda en modo de solo lectura.
+
+La prueba de ChatGPT.com envió exactamente cuatro líneas: el archivo final
+contuvo `primera linea` y `MCP_PATCHED`; las llamadas de ejecución y parche
+terminaron con código 0 y el cierre informó `live_execs_killed: 0`.
 
 ## Pegar un enlace para importarlo y analizarlo ahora
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveTaskIdentity, runTaskTurn } from "../src/responses/task-turn";
@@ -100,6 +100,20 @@ test("model mismatch fails before submission", async () => {
   const backend = fakeBackend(); backend.mismatch();
   await expect(backend.run(req("A", "a1", "hello"))).rejects.toThrow("web_model_state_mismatch");
   expect(backend.calls).toHaveLength(0);
+});
+
+test("a pre-submit browser failure retains its cause privately and never retries the submit", async () => {
+  const backend = fakeBackend();
+  let attempts = 0;
+  backend.deps.send = async () => { attempts++; throw new Error("composer insertion failed at selector XYZ"); };
+  await expect(backend.run(req("A", "a1", "hello"))).rejects.toThrow("web_turn_not_submitted: browser failed before submission");
+  await expect(backend.run(req("A", "a1", "hello"))).rejects.toThrow("web_turn_not_submitted");
+  const path = join(backend.dir, readdirSync(backend.dir).find(f => f.startsWith("request-"))!);
+  const saved = JSON.parse(readFileSync(path, "utf8"));
+  expect(saved.diagnostic).toEqual({ name: "Error", message: "composer insertion failed at selector XYZ" });
+  expect(saved.error.message).not.toContain("XYZ");
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  expect(attempts).toBe(1);
 });
 
 test("ambiguous submit blocks retry and subsequent turns, including a new backend instance", async () => {

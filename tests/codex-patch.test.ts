@@ -1,7 +1,7 @@
 // codex-patch.test.ts — unitario del formato nativo Codex (*** Begin Patch).
 // Todo contra un directorio temporal; nada toca el repo.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexPatchError, applyCodexPatch } from "../src/mcp/codex-patch";
@@ -224,6 +224,83 @@ describe("codex-patch: Add y Delete File", () => {
 });
 
 describe("codex-patch: validacion y confinement", () => {
+  for (const failRollback of [false, true]) test(`publication failure ${failRollback ? "preserves a usable recovery backup" : "rolls back the already published file"}`, () => {
+    write("first.txt", "original\n");
+    write("second.txt", "second\n");
+    const modulePath = new URL("../src/mcp/codex-patch.ts", import.meta.url).href;
+    // Isolated process: the injected filesystem failure never changes other tests.
+    const source = `
+      import { mock } from "bun:test";
+      import * as fs from "node:fs";
+      const original = { ...fs };
+      mock.module("node:fs", () => ({ ...original, renameSync(from, to) {
+        if (String(to).endsWith("/second.txt") || (${failRollback} && String(from).includes(".isymcp-backup-")))
+          throw new Error("injected publication failure");
+        return original.renameSync(from, to);
+      } }));
+      const { applyCodexPatch } = await import(${JSON.stringify(modulePath)});
+      let error = "";
+      try { applyCodexPatch(${JSON.stringify(dir)}, "*** Begin Patch\\n*** Update File: first.txt\\n@@\\n-original\\n+changed\\n*** Update File: second.txt\\n@@\\n-second\\n+updated\\n*** End Patch"); }
+      catch (e) { error = e.message; }
+      console.log(JSON.stringify({ error, first: original.readFileSync(${JSON.stringify(join(dir, "first.txt"))}, "utf8"), files: original.readdirSync(${JSON.stringify(dir)}) }));
+    `;
+    const child = Bun.spawnSync([process.execPath, "--eval", source], { stdout: "pipe", stderr: "pipe" });
+    if (child.exitCode !== 0) throw new Error(child.stderr.toString());
+    expect(child.exitCode).toBe(0);
+    const result = JSON.parse(child.stdout.toString());
+    expect(result.error).toContain("injected publication failure");
+    expect(read("second.txt")).toBe("second\n");
+    if (!failRollback) {
+      expect(result.first).toBe("original\n");
+      expect(result.files.sort()).toEqual(["first.txt", "second.txt"]);
+    } else {
+      expect(result.error).toContain("rollback incompleto");
+      const backups = result.error.split("backups conservados: ")[1].split(", ");
+      expect(backups.length).toBe(1);
+      expect(backups[0]).toStartWith(dir + "/");
+      expect(readFileSync(backups[0], "utf8")).toBe("original\n");
+    }
+  });
+
+  test("a symlink parent cannot write outside the authorized root", () => {
+    const outside = mkdtempSync(join(tmpdir(), "isyco-patch-outside-"));
+    try {
+      symlinkSync(outside, join(dir, "link"));
+      expect(() => applyCodexPatch(dir, "*** Begin Patch\n*** Add File: link/escape.txt\n+x\n*** End Patch")).toThrow(CodexPatchError);
+      expect(existsSync(join(outside, "escape.txt"))).toBe(false);
+    } finally { rmSync(outside, { recursive: true, force: true }); }
+  });
+
+  test("invalid parent in a later operation leaves earlier files unchanged", () => {
+    write("first.txt", "original\n");
+    write("blocked", "not a directory\n");
+    expect(() => applyCodexPatch(dir, "*** Begin Patch\n*** Update File: first.txt\n@@\n-original\n+changed\n*** Add File: blocked/child.txt\n+x\n*** End Patch")).toThrow(CodexPatchError);
+    expect(read("first.txt")).toBe("original\n");
+  });
+
+  test("new directory parents are created only for a fully valid patch", () => {
+    write("first.txt", "original\n");
+    applyCodexPatch(dir, "*** Begin Patch\n*** Update File: first.txt\n@@\n-original\n+changed\n*** Add File: new/nested/child.txt\n+x\n*** End Patch");
+    expect(read("first.txt")).toBe("changed\n");
+    expect(read("new/nested/child.txt")).toBe("x\n");
+  });
+
+  test("normalized duplicate paths fail before any publication", () => {
+    expect(() => applyCodexPatch(dir, "*** Begin Patch\n*** Add File: same.txt\n+x\n*** Add File: ./same.txt\n+y\n*** End Patch")).toThrow(/repetida/);
+    expect(existsSync(join(dir, "same.txt"))).toBe(false);
+  });
+
+  test("a staging IO failure does not publish an earlier update", () => {
+    if (process.getuid?.() === 0) return; // root bypasses filesystem permissions
+    write("first.txt", "original\n");
+    mkdirSync(join(dir, "read-only"));
+    chmodSync(join(dir, "read-only"), 0o555);
+    try {
+      expect(() => applyCodexPatch(dir, "*** Begin Patch\n*** Update File: first.txt\n@@\n-original\n+changed\n*** Add File: read-only/child.txt\n+x\n*** End Patch")).toThrow(CodexPatchError);
+      expect(read("first.txt")).toBe("original\n");
+    } finally { chmodSync(join(dir, "read-only"), 0o755); }
+  });
+
   test("ruta que escapa del workspace: rechazo", () => {
     expect(() => applyCodexPatch(dir, [
       "*** Begin Patch",

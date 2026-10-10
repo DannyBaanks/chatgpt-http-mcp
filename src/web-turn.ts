@@ -224,9 +224,9 @@ export function extractResponse(main: string): string {
   if (idx < 0) return "";
   let rest = main.slice(idx + markers[0].length);
   const cut = rest.search(
-    /(ChatGPT puede cometer errores|ChatGPT can make mistakes|Última respuesta|Tú dijiste:|You said:)/i,
+    /(ChatGPT puede cometer errores|ChatGPT can make mistakes|Última respuesta|Tú dijiste:|You said:|(?:^|\n)\s*¿?Te gusta esta personalidad\?|(?:^|\n)\s*Do you like this personality\?)/i,
   );
-  if (cut > 0) rest = rest.slice(0, cut);
+  if (cut >= 0) rest = rest.slice(0, cut);
   return rest.trim();
 }
 
@@ -400,7 +400,11 @@ async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text
   const extracted = extractResponse(snapshot.text);
   return {
     id: snapshot.id,
-    text: extracted || (/^(Tú dijiste|You said):/.test(snapshot.text) ? "" : snapshot.text),
+    // A marked legacy container can have no answer yet. Do not restore its
+    // surrounding UI after extractResponse deliberately returned empty.
+    text: /ChatGPT (dijo|said):/.test(snapshot.text)
+      ? extracted
+      : (/^(Tú dijiste|You said):/.test(snapshot.text) ? "" : snapshot.text),
     thought: snapshot.thought || undefined,
   };
 }

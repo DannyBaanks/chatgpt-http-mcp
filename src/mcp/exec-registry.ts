@@ -43,6 +43,7 @@ export interface LiveExec {
   exited: boolean;
   exitCode: number | null;
   stdinClosed: boolean;
+  streamsDone: boolean;
 }
 
 export interface DrainOut {
@@ -73,8 +74,8 @@ function pushBuf(rec: LiveExec, key: "out" | "err", chunk: string): void {
   }
 }
 
-function attachStream(stream: ReadableStream<Uint8Array>, rec: LiveExec, key: "out" | "err"): void {
-  (async () => {
+function attachStream(stream: ReadableStream<Uint8Array>, rec: LiveExec, key: "out" | "err"): Promise<void> {
+  return (async () => {
     const reader = stream.getReader();
     const dec = new TextDecoder();
     try {
@@ -95,6 +96,7 @@ function attachStream(stream: ReadableStream<Uint8Array>, rec: LiveExec, key: "o
 
 export function registerLiveExec(input: { sessionFp: string; command: string[]; cwd: string; proc: BgProc }): LiveExec {
   if (live.size >= MAX_LIVE) {
+    killUnregisteredProc(input.proc);
     throw new Error(`limite de procesos en segundo plano alcanzado (${MAX_LIVE}); cierra los vivos con codex_turn_complete`);
   }
   ensureSweeper();
@@ -115,10 +117,15 @@ export function registerLiveExec(input: { sessionFp: string; command: string[]; 
     exited: false,
     exitCode: null,
     stdinClosed: false,
+    streamsDone: false,
   };
   live.set(rec.id, rec);
-  attachStream(input.proc.stdout, rec, "out");
-  attachStream(input.proc.stderr, rec, "err");
+  void Promise.all([
+    attachStream(input.proc.stdout, rec, "out"),
+    attachStream(input.proc.stderr, rec, "err"),
+  ]).then(() => {
+    rec.streamsDone = true;
+  });
   input.proc.exited.then(
     (code) => {
       rec.exited = true;
@@ -137,7 +144,7 @@ export function findLive(id: string): LiveExec | null {
   if (!rec) return null;
   if (rec.expiresAt <= Date.now()) {
     // Vencido por inactividad: muere ahora y desaparece.
-    killExec(rec);
+    if (!rec.exited) killExec(rec);
     live.delete(rec.id);
     return null;
   }
@@ -145,14 +152,18 @@ export function findLive(id: string): LiveExec | null {
 }
 
 export function killExec(rec: LiveExec): void {
+  killUnregisteredProc(rec.proc);
+}
+
+function killUnregisteredProc(proc: BgProc): void {
   try {
-    rec.proc.kill();
+    proc.kill();
   } catch {
     /* ya muerto */
   }
   const hard = setTimeout(() => {
     try {
-      rec.proc.kill(9);
+      proc.kill(9);
     } catch {
       /* ya muerto */
     }
@@ -165,23 +176,21 @@ export function killSessionExecs(sessionFp: string): number {
   let killed = 0;
   for (const rec of [...live.values()]) {
     if (rec.sessionFp === sessionFp) {
-      killExec(rec);
+      if (!rec.exited) {
+        killExec(rec);
+        killed++;
+      }
       live.delete(rec.id);
-      killed++;
     }
   }
   return killed;
 }
 
-function sweep(): void {
+export function sweepLiveExecs(): void {
   const now = Date.now();
   for (const rec of [...live.values()]) {
-    if (rec.exited) {
-      live.delete(rec.id);
-      continue;
-    }
     if (rec.expiresAt <= now) {
-      killExec(rec);
+      if (!rec.exited) killExec(rec);
       live.delete(rec.id);
     }
   }
@@ -190,7 +199,7 @@ function sweep(): void {
 let sweeper: { unref?: () => void } | null = null;
 function ensureSweeper(): void {
   if (sweeper) return;
-  sweeper = setInterval(sweep, SWEEP_MS) as unknown as { unref?: () => void };
+  sweeper = setInterval(sweepLiveExecs, SWEEP_MS) as unknown as { unref?: () => void };
   sweeper.unref?.();
 }
 
@@ -228,9 +237,10 @@ export async function drain(rec: LiveExec, waitMs: number): Promise<DrainOut> {
         quietMs += 25;
       }
       if (rec.exited) {
-        // da un instante a los readers para volcar lo ultimo del pipe
-        await sleep(60);
-        break;
+        // El proceso puede terminar antes de que los readers consuman el EOF
+        // y los ultimos bytes de ambos pipes. Espera su cierre hasta el deadline.
+        if (rec.streamsDone) break;
+        continue;
       }
       if (sawNew && quietMs >= 250) break;
     }

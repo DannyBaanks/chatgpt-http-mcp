@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config";
@@ -39,6 +40,70 @@ function backend(replies: unknown[], tools: any[] = [tool], selectedModel = "GPT
   return { run, calls, dir, selections };
 }
 const call = (cmd: string) => ({ kind: "call", tool: "exec_command", arguments: { cmd } });
+const search = { type: "tool_search", execution: "client", description: "Discover client tools", parameters: {
+  type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false,
+} };
+const searchResult = (c: any, tools: any[]) => ({ type: "tool_search_output", execution: "client", call_id: c.call_id, status: "completed", tools });
+
+test("client tool search discovers a namespace and Codex executes its call before Web can finish", async () => {
+  const loaded = { type: "namespace", name: "project", tools: [{ ...tool, name: "read_status" }] };
+  const b = backend([{ kind: "call", tool: "tool_search", arguments: { query: "status" } },
+    { kind: "call", tool: "project.read_status", arguments: { cmd: "status" } }, { kind: "final", text: "real status" }], [search]);
+  const input = [msg("user", "discover and use the status tool")];
+  const first = await b.run(input); const s = first.body.output[0];
+  expect(s).toMatchObject({ type: "tool_search_call", execution: "client", arguments: { query: "status" } });
+  expect(s.name).toBeUndefined();
+  const discovered = [...input, s, searchResult(s, [loaded])];
+  const second = await b.run(discovered); const c = second.body.output[0];
+  expect(c).toMatchObject({ type: "function_call", namespace: "project", name: "read_status" });
+  expect((await b.run([...discovered, c, result(c, "real status")])).body.output_text).toBe("real status");
+  expect(new Set(b.calls.map(c => c.url)).size).toBe(1);
+  expect((await b.run(discovered))).toEqual({ body: second.body, replayed: true });
+  expect(b.calls).toHaveLength(3);
+});
+
+test("client search cannot replace a registered tool or authorize definitions from a foreign result", async () => {
+  const b = backend([{ kind: "call", tool: "tool_search", arguments: { query: "status" } }], [tool, search]);
+  const input = [msg("user", "discover")]; const s = (await b.run(input)).body.output[0];
+  for (const output of [
+    { ...searchResult(s, [{ ...tool, name: "new_tool" }]), call_id: "foreign" },
+    searchResult(s, [{ ...tool, parameters: { type: "object", properties: {} } }]),
+    { ...searchResult(s, [tool]), execution: "server" },
+  ]) await expect(b.run([...input, s, output])).rejects.toThrow();
+  await expect(b.run([...input, s, searchResult(s, [])], "t1", "A", [search, tool, { ...tool, name: "unsolicited" }])).rejects.toThrow();
+  expect(b.calls).toHaveLength(1);
+});
+
+test("client search rejects invalid arguments and hosted search before browser submission", async () => {
+  for (const declaration of [{ ...search, execution: "server" }, { ...search, execution: undefined }, { ...search, parameters: undefined }]) {
+    const b = backend([], [declaration]);
+    await expect(b.run([msg("user", "discover")])).rejects.toThrow();
+    expect(b.calls).toHaveLength(0);
+  }
+  const b = backend([{ kind: "call", tool: "tool_search", arguments: { query: 42 } }], [search]);
+  await expect(b.run([msg("user", "discover")])).rejects.toThrow("web_tool_protocol_invalid");
+});
+
+test("a pending ordinary call created before search support can finish after an upgrade", async () => {
+  const b = backend([call("printf CANARY"), { kind: "final", text: "continued legacy call" }]);
+  const input = [msg("user", "execute")]; const c = (await b.run(input)).body.output[0];
+  const path = join(b.dir, readdirSync(b.dir).find(f => f.startsWith("task-"))!);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  const stable = (v: any): string => Array.isArray(v) ? `[${v.map(stable).join(",")}]` : v && typeof v === "object"
+    ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}` : JSON.stringify(v);
+  state.awaiting.registryFingerprint = createHash("sha256").update(stable([tool])).digest("hex");
+  delete state.awaiting.registryFormat;
+  writeFileSync(path, JSON.stringify(state));
+  expect((await b.run([...input, c, result(c)])).body.output_text).toBe("continued legacy call");
+});
+
+test("search streaming emits a typed client call with object arguments and no fake function or text delta", () => {
+  const response = buildResponseBody(model, "", "prompt");
+  response.output = [{ id: "search_item", type: "tool_search_call", execution: "client", call_id: "search_call", arguments: { query: "status" }, status: "completed" }];
+  const events = responseEvents(response, "");
+  expect(events.map(e => e.type)).toEqual(["response.created", "response.in_progress", "response.output_item.added", "response.output_item.done", "response.completed"]);
+  expect(events[2].item).toMatchObject({ type: "tool_search_call", execution: "client", arguments: { query: "status" } });
+});
 
 test("GPT-6 tasks select the exact model before submitting and return its actual model metadata", async () => {
   const b = backend([{ kind: "final", text: "GPT6 answer" }], [tool], "GPT-6");
