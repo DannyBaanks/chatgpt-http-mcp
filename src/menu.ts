@@ -17,6 +17,7 @@ export const MENU: MenuItem[] = [
   { id: "status", group: "PUENTE", label: "○ Estado", hint: "server, tunel, panel, canario" },
   { id: "panel-open", group: "USAR", label: "◧ Abrir panel", hint: "chat + estado en el navegador" },
   { id: "ask", group: "USAR", label: "✎ Preguntar a ChatGPT…", hint: "turno real desde la terminal" },
+  { id: "media-prepare", group: "USAR", label: "Preparar video de YouTube…", hint: "pega URL, elige carpeta y confirma" },
   { id: "command", group: "USAR", label: "Armar comando @…", hint: "texto para pegar en chatgpt.com" },
   {
     id: "settings",

@@ -549,6 +549,8 @@ function help(): void {
   isymcp codex [args...]     ejecuta Codex con perfil ISyMCP aislado (sin mutar config.toml)
   isymcp codex launcher      instala lanzador ~/.local/bin/codex-isymcp y .desktop
   isymcp command "texto"     texto para pegar en chatgpt.com
+  isymcp media prepare      pega una URL, elige carpeta y confirma el paquete
+  isymcp media prepare <url> prepara de forma no interactiva y devuelve JSON
   isymcp tui list            TUIs detectadas (config dir y/o binario)
   isymcp tui install         dry-run del parche opencode (provider+MCP)
   isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
@@ -652,6 +654,10 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
     const text = await ask("texto de la tarea: ");
     const effort = await ask("effort [high]: ") || "high";
     if (text) command(text, effort);
+  },
+  "media-prepare": async () => {
+    const { mediaCommand } = await import("./media/cli");
+    await mediaCommand("prepare", []);
   },
   "settings-verify": () => settingsVerify(),
   "settings-sync": () => settingsSync(),

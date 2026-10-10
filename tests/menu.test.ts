@@ -20,6 +20,16 @@ describe("menu", () => {
     }
   });
 
+  test("YouTube preparation appears under USAR and dispatches to the guided media command", () => {
+    const ids = leaves(MENU);
+    expect(ids).toContain("media-prepare");
+    const item = MENU.find((entry) => entry.id === "media-prepare");
+    expect(item).toMatchObject({ group: "USAR", label: "Preparar video de YouTube…" });
+    const source = readFileSync(join(import.meta.dir, "..", "src", "isymcp.ts"), "utf8");
+    expect(source).toContain('"media-prepare":');
+    expect(source).toContain('mediaCommand("prepare", [])');
+  });
+
   test("cada hoja visible tiene accion en isymcp.ts (nada que no haga nada)", () => {
     const source = readFileSync(join(import.meta.dir, "..", "src", "isymcp.ts"), "utf8");
     const missing = leaves(MENU).filter((id) => id !== "quit" && !source.includes(`  "${id}": `));

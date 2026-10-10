@@ -113,19 +113,19 @@
 - Modify: `src/menu.ts`
 - Modify: `src/isymcp.ts`
 - Test: `tests/menu.test.ts`
-- Test: `tests/cli-help.test.ts` (create if no focused help test exists)
+- Create: `tests/cli-help.test.ts`
 
 **Interfaces:**
 - Add visible menu id `media-prepare`, label `Preparar video de YouTube…`, under `USAR`.
 - The action dispatches to the same guided `mediaCommand('prepare', [])` path; menu selection does not fork a second preparation pipeline.
 - `help()` documents both `isymcp media prepare` and `isymcp media prepare <url>`.
 
-- [ ] **Step 1: Add failing assertions that the new visible leaf maps to an action and help contains both guided and scriptable forms.**
-- [ ] **Step 2: Run focused menu/help tests and confirm they fail on the missing leaf/action/help text.**
-- [ ] **Step 3: Add the USAR leaf, dispatch handler, and help text.** Preserve existing menu behavior and error reporting.
+- [x] **Step 1: Add failing assertions that the new visible leaf maps to an action and help contains both guided and scriptable forms.**
+- [x] **Step 2: Run focused menu/help tests and confirm they fail on the missing leaf/action/help text.** RED observed for missing menu leaf/action and help lines.
+- [x] **Step 3: Add the USAR leaf, dispatch handler, and help text.** Preserve existing menu behavior and error reporting.
 - [ ] **Step 4: Test TTY menu navigation into the action using an injected guided flow or fake picker, and verify Esc/cancel exits without invoking the downloader.**
-- [ ] **Step 5: Run `bun test tests/menu.test.ts tests/cli-help.test.ts` and verify they pass.**
-- [ ] **Step 6: Commit Task 4** with `git add src/menu.ts src/isymcp.ts tests/menu.test.ts tests/cli-help.test.ts && git commit -m "feat: add guided media action to CLI menu" -- src/menu.ts src/isymcp.ts tests/menu.test.ts tests/cli-help.test.ts`.
+- [x] **Step 5: Run `bun test tests/menu.test.ts tests/cli-help.test.ts` and verify they pass.** Focused 6 pass; full suite 342 pass, 1 skip, 0 fail (343 total).
+- [ ] **Step 6: Commit Task 4** with `git add docs/superpowers/plans/2026-10-09-guided-youtube-cli.md src/menu.ts src/isymcp.ts tests/menu.test.ts tests/cli-help.test.ts && git commit -m "feat: add guided media action to CLI menu" -- docs/superpowers/plans/2026-10-09-guided-youtube-cli.md src/menu.ts src/isymcp.ts tests/menu.test.ts tests/cli-help.test.ts`.
 
 ### Task 5: Isolated process-level E2E coverage for CLI commands
 
