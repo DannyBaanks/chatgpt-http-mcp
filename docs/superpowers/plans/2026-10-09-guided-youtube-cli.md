@@ -78,7 +78,7 @@
 - [ ] **Step 4: Add tests for separators/control characters/reserved names, existing package collision, concurrent exports to the same name, same-filesystem staging, and injected copy/write/publisher failure.** Assert exactly one concurrent export can publish, collisions never overwrite, and failures do not claim success; retain any partial export location for recovery.
 - [ ] **Step 5: Implement export in a unique partial directory created directly under the selected parent and finalize only with a guaranteed atomic no-replace operation.** On Linux, use an injected publisher backed by `mv -T -n -- <partial> <final>`; treat missing `mv`, unsupported no-clobber behavior, or an ambiguous result as failure. Verify the partial path disappeared and final manifest/hashes match before reporting success. Use catalog resolution and preparation-store reads so export never trusts unverified source or artifact paths.
 - [ ] **Step 6: Run `bun test tests/media-export.test.ts` and verify all package, collision, and failure cases pass.**
-- [ ] **Step 7: Commit Task 2** with `git add src/media/export.ts tests/media-export.test.ts && git commit -m "feat: export verified media packages" -- src/media/export.ts tests/media-export.test.ts`.
+- [ ] **Step 7: Commit Task 2** with `git add src/media/catalog.ts src/media/export.ts tests/media-export.test.ts && git commit -m "feat: export verified media packages" -- src/media/catalog.ts src/media/export.ts tests/media-export.test.ts`.
 
 ### Task 3: Interactive preparation flow with explicit confirmation
 
@@ -104,7 +104,7 @@
 - [ ] **Step 4: Run `bun test tests/media-prepare-cli.test.ts` and verify the guided cases fail before implementation while legacy tests remain green.**
 - [ ] **Step 5: Implement guided orchestration by extracting the current import/prepare logic into a shared internal operation; keep the one-URL output shape unchanged and send interactive progress/summary to stderr/stdout respectively.**
 - [ ] **Step 6: Verify both guided and legacy cases with `bun test tests/media-prepare-cli.test.ts`.**
-- [ ] **Step 7: Commit Task 3** with `git add src/media/cli.ts tests/media-prepare-cli.test.ts && git commit -m "feat: guide users through media preparation" -- src/media/cli.ts tests/media-prepare-cli.test.ts`.
+- [ ] **Step 7: Commit Task 3** with `git add src/media/catalog.ts src/media/cli.ts src/media/importer.ts src/media/youtube.ts src/media/youtube-url.ts tests/media-import.test.ts tests/media-prepare-cli.test.ts && git commit -m "feat: guide users through media preparation" -- src/media/catalog.ts src/media/cli.ts src/media/importer.ts src/media/youtube.ts src/media/youtube-url.ts tests/media-import.test.ts tests/media-prepare-cli.test.ts`.
 
 ### Task 4: TUI entry point and command help
 
@@ -164,3 +164,16 @@
 - [ ] **Step 4: Run one authorized real GPT.com canary through the connected Codex ISyMCP MCP, asking it to call `media_lookup` for the canonical prepared-media URL and then retrieve authorized artifacts.** Capture actual tool results; if no callable remote connector exists, record `NOT_DEMONSTRATED` instead of substituting a local simulation.
 - [ ] **Step 5: Review `git diff --check`, verify the current catalog and real user configuration were untouched, and inspect every changed path.**
 - [ ] **Step 6: Commit Task 6** with `git add GUIA.md README.md tests/media-preview.test.ts tests/media-export.test.ts tests/media-prepare-cli.test.ts tests/menu.test.ts tests/cli-e2e.test.ts && git commit -m "docs: document guided YouTube preparation" -- GUIA.md README.md tests/media-preview.test.ts tests/media-export.test.ts tests/media-prepare-cli.test.ts tests/menu.test.ts tests/cli-e2e.test.ts` (stage only files that actually changed in this task).
+
+### Task 7: Publish the ISyMCP icon in MCP server metadata
+
+**Files:**
+- Create: `assets/isymcp-icon.png` (256×256 optimized PNG sourced from the user-provided `Descargas/Gato terminal del puente ISyMCP.png`)
+- Modify: `src/mcp/media.ts`
+- Test: `tests/media-mcp.test.ts`
+
+- [x] **Step 1: Add an assertion to the real stdio MCP handshake that `serverInfo.icons` contains the PNG data URI and its MIME type and size.**
+- [x] **Step 2: Run the focused handshake test and verify it fails because the server currently publishes no icon.** RED observed: `serverInfo.icons` was `undefined`.
+- [x] **Step 3: Add the optimized icon as a data URI in the media MCP implementation metadata.** Keep the source asset in-repository so the URI is generated from the shipped file, and do not change user MCP settings or the live tunnel.
+- [x] **Step 4: Run `bun test tests/media-mcp.test.ts -t 'real MCP stdio returns info and two inline audio images'` and verify the real protocol handshake exposes the icon.** GREEN: 1 pass.
+- [ ] **Step 5: Commit Task 7** with `git add assets/isymcp-icon.png src/mcp/media.ts tests/media-mcp.test.ts docs/superpowers/plans/2026-10-09-guided-youtube-cli.md && git commit -m "feat: publish ISyMCP icon metadata" -- assets/isymcp-icon.png src/mcp/media.ts tests/media-mcp.test.ts docs/superpowers/plans/2026-10-09-guided-youtube-cli.md`.

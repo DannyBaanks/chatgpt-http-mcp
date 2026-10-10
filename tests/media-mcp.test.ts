@@ -62,6 +62,7 @@ test('real MCP stdio returns info and two inline audio images',async()=>{
  const home=join(root,'state');const a=await new MediaCatalog(home).add(file);
  const client=new Client({name:'media-smoke',version:'1'});const transport=new StdioClientTransport({command:process.execPath,args:[join(import.meta.dir,'../src/mcp/media.ts')],env:{...process.env,ISYMCP_MEDIA_HOME:home} as Record<string,string>});
  try {await client.connect(transport);const toolNames=(await client.listTools()).tools.map(t=>t.name);expect(toolNames).toContain('media_list');expect(toolNames).toContain('audio_scan');expect(toolNames).toContain('media_lookup');
+ const serverInfo=client.getServerVersion();expect(serverInfo?.icons).toHaveLength(1);expect(serverInfo?.icons?.[0]).toMatchObject({mimeType:'image/png',sizes:['256x256']});expect(serverInfo?.icons?.[0].src).toStartWith('data:image/png;base64,');
  const lookup:any=await client.callTool({name:'media_lookup',arguments:{url:'https://www.youtube.com/watch?v=abcdefghijk'}});expect(lookup.isError).not.toBe(true);expect(JSON.parse(lookup.content[0].text)).toMatchObject({found:false,status:'not_found'});
  const info:any=await client.callTool({name:'media_info',arguments:{asset_id:a.id}});expect(info.isError).not.toBe(true);
  const audio:any=await client.callTool({name:'audio_analyze',arguments:{asset_id:a.id,start_seconds:0,end_seconds:1}});expect(audio.isError).not.toBe(true);expect(audio.content.filter((c:any)=>c.type==='image').length).toBe(2);
