@@ -37,8 +37,8 @@ export class MediaCatalog {
   const data=await boundedRead(a.realPath); if(digest(data)!==a.sha256) throw Error('Asset changed: register again'); this.get(id); return a;
  }
  findBySourceUrl(canonicalUrl:string):Asset|undefined {
-  const match=this.list().find(asset=>asset.source_url===canonicalUrl);
-  return match?this.get(match.id):undefined;
+  return this.list().filter(asset=>asset.source_url===canonicalUrl).map(asset=>this.get(asset.id))
+   .sort((a,b)=>Number(Boolean(b.downloadReceipt))-Number(Boolean(a.downloadReceipt))||b.addedAt.localeCompare(a.addedAt)||a.id.localeCompare(b.id))[0];
  }
  async snapshot<T>(id:string, work:(asset:Asset,path:string)=>Promise<T>):Promise<T> {
   const a=this.get(id);

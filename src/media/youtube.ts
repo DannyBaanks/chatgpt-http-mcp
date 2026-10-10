@@ -1,7 +1,10 @@
-import { existsSync, readdirSync, statSync, statfsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, statfsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { run } from './process';
+import { verifyDownloadedYouTubeId } from './youtube-url';
+export { verifyDownloadedYouTubeId } from './youtube-url';
+export type YouTubeDownloadResult = { path:string; video_id:string; source_url:string };
 export function youtubeDownloaderBinary(env:NodeJS.ProcessEnv=process.env):string {
  const installed=join(homedir(),'.oamaestro/bin/yt-dlp');
  return env.ISYMCP_YTDLP_BIN || (existsSync(installed)?installed:'yt-dlp');
@@ -12,20 +15,23 @@ export function downloadBudget(dir:string,maxBytes:number):string|undefined {
  if(sum>maxBytes*2)return 'Download workspace exceeds disk limit';
  const disk=statfsSync(dir);if(disk.bavail*disk.bsize<64*1024*1024)return 'Insufficient free disk space for import';
 }
-export async function downloadYouTube(url:string,dir:string,maxBytes:number):Promise<string> {
+export async function downloadYouTube(url:string,dir:string,maxBytes:number,runner:typeof run=run):Promise<YouTubeDownloadResult> {
  const command=youtubeDownloaderBinary();
  const node=process.env.ISYMCP_VIDEO_VISION_NODE||'node';
- const output=await run(command,[
+ const idPath=join(dir,'downloaded-video-id.txt');
+ const output=await runner(command,[
   '--ignore-config','--no-plugin-dirs','--no-cache-dir','--no-playlist','--no-progress','--no-warnings',
   '--socket-timeout','10','--retries','1','--fragment-retries','1','--concurrent-fragments','1',
   '--match-filters','!is_live & duration <= 1800','--max-filesize',String(maxBytes),
   '--js-runtimes',`node:${node}`,
   '-f','best[height<=720]/bestvideo[height<=720]+bestaudio','--merge-output-format','mp4',
-  '-o',join(dir,'media.%(ext)s'),'--print','after_move:%(filepath)j',url,
+  '-o',join(dir,'media.%(ext)s'),'--print-to-file','after_move:%(id)s',idPath,
+  '--print','after_move:%(filepath)j',url,
  ],8192,180000,{env:{PATH:process.env.PATH||'/usr/bin:/bin',HOME:dir,TMPDIR:dir,LANG:'C.UTF-8'},guard:()=>downloadBudget(dir,maxBytes),processGroup:true});
  const lines=output.toString().trim().split('\n');
  if(lines.length!==1)throw Error('Downloader did not return one media file');
  const path=JSON.parse(lines[0]);if(typeof path!=='string'||!isAbsolute(path))throw Error('Invalid download output');
+ const receipt=verifyDownloadedYouTubeId(url,readFileSync(idPath,'utf8').trim());
  const violation=downloadBudget(dir,maxBytes);if(violation)throw Error(violation);
- return path;
+ return {path,...receipt};
 }

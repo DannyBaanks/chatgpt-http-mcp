@@ -89,6 +89,7 @@
 - Modify: `src/media/youtube.ts`
 - Modify: `tests/media-prepare-cli.test.ts`
 - Modify: `tests/media-import.test.ts`
+- Create: `tests/media-youtube.test.ts`
 
 **Interfaces:**
 - Extend `MediaCommandDependencies` with injectable `promptUrl?: () => Promise<string | null>`, `chooseDirectory?: typeof chooseOutputDirectory`, `inspect?: typeof inspectYouTube`, `confirm?: (preview: YouTubePreview) => Promise<boolean>`, and `exportPackage?: typeof exportMediaPackage`.
@@ -101,10 +102,10 @@
 - [ ] **Step 1: Add failing tests for guided success with injected prompt/picker/preview/confirm/export; assert exact order URL → picker → preview → confirm → import → prepare → export.** The package receipt preserves canonical URL/ID, downloader-confirmed ID, registered URL, source SHA-256/bytes, and actual probed metadata; compare preview fields only when both values exist.
 - [ ] **Step 2: Add failing cancellation tests for URL prompt, picker, and confirmation; assert importer and exporter are never called and no success JSON is printed.**
 - [ ] **Step 3: Add a collision test that re-prompts for a folder or lets the user cancel, without downloading the source a second time.** Add an identity-mismatch test proving a downloader-reported ID different from the canonical ID fails before registration/export; missing preview fields remain unknown.
-- [ ] **Step 4: Run `bun test tests/media-prepare-cli.test.ts` and verify the guided cases fail before implementation while legacy tests remain green.**
+- [x] **Step 4: Run `bun test tests/media-prepare-cli.test.ts` and verify the guided cases fail before implementation while legacy tests remain green.** RED observed for guided mode and legacy-asset receipt handling before the implementation was restored.
 - [ ] **Step 5: Implement guided orchestration by extracting the current import/prepare logic into a shared internal operation; keep the one-URL output shape unchanged and send interactive progress/summary to stderr/stdout respectively.**
-- [ ] **Step 6: Verify both guided and legacy cases with `bun test tests/media-prepare-cli.test.ts`.**
-- [ ] **Step 7: Commit Task 3** with `git add src/media/catalog.ts src/media/cli.ts src/media/importer.ts src/media/youtube.ts src/media/youtube-url.ts tests/media-import.test.ts tests/media-prepare-cli.test.ts && git commit -m "feat: guide users through media preparation" -- src/media/catalog.ts src/media/cli.ts src/media/importer.ts src/media/youtube.ts src/media/youtube-url.ts tests/media-import.test.ts tests/media-prepare-cli.test.ts`.
+- [x] **Step 6: Verify both guided and legacy cases with `bun test tests/media-prepare-cli.test.ts`.** Focused importer/CLI suite passed 17 tests; downloader identity suite passed 2 tests; full suite passed 340, 1 skipped, 0 failed (341 total).
+- [ ] **Step 7: Commit Task 3** with `git add docs/superpowers/plans/2026-10-09-guided-youtube-cli.md src/media/catalog.ts src/media/cli.ts src/media/importer.ts src/media/youtube.ts src/media/youtube-url.ts tests/media-import.test.ts tests/media-prepare-cli.test.ts tests/media-youtube.test.ts && git commit -m "feat: guide users through media preparation" -- docs/superpowers/plans/2026-10-09-guided-youtube-cli.md src/media/catalog.ts src/media/cli.ts src/media/importer.ts src/media/youtube.ts src/media/youtube-url.ts tests/media-import.test.ts tests/media-prepare-cli.test.ts tests/media-youtube.test.ts`.
 
 ### Task 4: TUI entry point and command help
 
