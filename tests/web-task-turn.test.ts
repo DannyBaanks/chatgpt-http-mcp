@@ -1,8 +1,9 @@
-import { mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveTaskIdentity, runTaskTurn } from "../src/responses/task-turn";
 import { assertWebSelection } from "../src/responses/selection";
+import { findConversation, writeLaunchIntent } from "../src/codex-conversation";
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config";
 import { peekWebRequest, handleWebResponses } from "../src/web-responses";
@@ -28,7 +29,7 @@ function fakeBackend() {
   const calls: any[] = [];
   let observed = settings;
   let crash = false;
-  const deps: any = { dir, readSettings: async () => observed,
+  const deps: any = { dir, selectSettings: async () => observed,
     send: async (prompt: string, options: any) => {
       const url = options.navigate.to === "new" ? `https://chatgpt.com/c/${crypto.randomUUID()}` : options.navigate.url;
       const beforeUrl = options.navigate.to === "new" ? "https://chatgpt.com/" : url;
@@ -101,6 +102,20 @@ test("model mismatch fails before submission", async () => {
   expect(backend.calls).toHaveLength(0);
 });
 
+test("a pre-submit browser failure retains its cause privately and never retries the submit", async () => {
+  const backend = fakeBackend();
+  let attempts = 0;
+  backend.deps.send = async () => { attempts++; throw new Error("composer insertion failed at selector XYZ"); };
+  await expect(backend.run(req("A", "a1", "hello"))).rejects.toThrow("web_turn_not_submitted: browser failed before submission");
+  await expect(backend.run(req("A", "a1", "hello"))).rejects.toThrow("web_turn_not_submitted");
+  const path = join(backend.dir, readdirSync(backend.dir).find(f => f.startsWith("request-"))!);
+  const saved = JSON.parse(readFileSync(path, "utf8"));
+  expect(saved.diagnostic).toEqual({ name: "Error", message: "composer insertion failed at selector XYZ" });
+  expect(saved.error.message).not.toContain("XYZ");
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  expect(attempts).toBe(1);
+});
+
 test("ambiguous submit blocks retry and subsequent turns, including a new backend instance", async () => {
   const backend = fakeBackend(); backend.crash();
   await expect(backend.run(req("A", "a1", "hello"))).rejects.toThrow("web_turn_ambiguous");
@@ -109,6 +124,32 @@ test("ambiguous submit blocks retry and subsequent turns, including a new backen
   expect(backend.calls).toHaveLength(1);
 });
 
+test("a launch header commits one receipt and replay rebuilds the same conversation", async () => {
+  const backend = fakeBackend();
+  const launchId = "11111111-1111-4111-8111-111111111111";
+  writeLaunchIntent(backend.dir, { version: "isymcp-launch-intent/1", launchId, client: "cli", cwd: "/tmp/workspace-a", model, effort: "high" });
+  const request = new Request("http://127.0.0.1/v1/responses", { method: "POST",
+    headers: { "thread-id": "A", "x-isymcp-turn-id": "a1", "x-isymcp-launch-id": launchId, "content-type": "application/json" },
+    body: JSON.stringify({ model, reasoning: { effort: "high" }, input: "remember ALPHA" }) });
+  const first = await backend.run(request);
+  const saved = findConversation(backend.dir, launchId);
+  expect(saved).toMatchObject({ threadId: "A", state: "committed", url: first.body.metadata.isymcp_conversation, cwd: "/tmp/workspace-a" });
+  rmSync(join(backend.dir, `conversation-${launchId}.json`));
+  const replay = await backend.run(request);
+  expect(replay.replayed).toBe(true);
+  expect(findConversation(backend.dir, launchId)).toEqual(saved);
+  expect(backend.calls).toHaveLength(1);
+});
+
+test("a launch header without an intent fails closed and does not resubmit", async () => {
+  const backend = fakeBackend();
+  const request = new Request("http://127.0.0.1/v1/responses", { method: "POST",
+    headers: { "thread-id": "A", "x-isymcp-turn-id": "a1", "x-isymcp-launch-id": "33333333-3333-4333-8333-333333333333", "content-type": "application/json" },
+    body: JSON.stringify({ model, reasoning: { effort: "high" }, input: "hello" }) });
+  await expect(backend.run(request)).rejects.toThrow("web_launch_intent_missing");
+  await expect(backend.run(request)).rejects.toThrow("web_launch_intent_missing");
+  expect(backend.calls).toHaveLength(1);
+});
 
 test("private state stays private; corrupt state and stale crash leases fail closed", async () => {
   const backend = fakeBackend();

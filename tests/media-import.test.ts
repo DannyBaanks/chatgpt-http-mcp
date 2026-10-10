@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {mkdtempSync,writeFileSync} from 'node:fs';
+import {copyFileSync,mkdtempSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {MediaCatalog} from '../src/media/catalog';
@@ -26,7 +26,39 @@ test('failed, oversized and non-media downloads never register an asset',async()
   const job=importer.start('https://youtu.be/lHkDE3BahB0');const done=await importer.status(job.job_id,10);expect(done.state).toBe('failed');expect(c.list()).toHaveLength(0);
  }
 });
-import {downloadBudget} from '../src/media/youtube';
+import {downloadBudget,verifyDownloadedYouTubeId} from '../src/media/youtube';
+test('downloaded YouTube ID is canonicalized and must match the requested video',()=>{
+ expect(verifyDownloadedYouTubeId('https://www.youtube.com/shorts/abcdefghijk?utm_source=test','abcdefghijk'))
+  .toEqual({video_id:'abcdefghijk',source_url:'https://www.youtube.com/watch?v=abcdefghijk'});
+ expect(()=>verifyDownloadedYouTubeId('https://www.youtube.com/watch?v=abcdefghijk','lmnopqrstuv')).toThrow(/identity/i);
+});
+
+test('import registers the downloader identity receipt and rejects a mismatched video ID',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'isymcp-import-receipt-')),path=join(root,'audio.wav');
+ await run('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=1',path]);
+ const catalog=new MediaCatalog(join(root,'catalog'));
+ const valid=new MediaImporter(catalog,async(url,dir)=>{const copy=join(dir,'valid.wav');copyFileSync(path,copy);return {path:copy,video_id:'abcdefghijk',source_url:url};});
+ const good=await valid.status(valid.start('https://youtu.be/abcdefghijk').job_id,10);
+ expect(good.state).toBe('complete');
+ expect(catalog.get(good.asset!.id).downloadReceipt).toEqual({video_id:'abcdefghijk',source_url:'https://www.youtube.com/watch?v=abcdefghijk'});
+
+ const mismatch=new MediaImporter(catalog,async(url,dir)=>{const copy=join(dir,'mismatch.wav');copyFileSync(path,copy);return {path:copy,video_id:'lmnopqrstuv',source_url:url};});
+ const bad=await mismatch.status(mismatch.start('https://youtu.be/abcdefghijk').job_id,10);
+ expect(bad.state).toBe('failed');
+ expect(bad.error).toMatch(/identity/i);
+ expect(catalog.list()).toHaveLength(1);
+});
+
+test('source lookup prefers the newest registered asset when guided mode refreshes an unverified record',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'isymcp-source-refresh-')),path=join(root,'audio.wav');
+ await run('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=1',path]);
+ const catalog=new MediaCatalog(join(root,'catalog'));
+ const old=await catalog.add(path,'https://www.youtube.com/watch?v=abcdefghijk');
+ const current=await catalog.add(path,'https://www.youtube.com/watch?v=abcdefghijk',{video_id:'abcdefghijk',source_url:'https://www.youtube.com/watch?v=abcdefghijk'});
+ expect(catalog.findBySourceUrl('https://www.youtube.com/watch?v=abcdefghijk')?.id).toBe(current.id);
+ expect(catalog.get(old.id).downloadReceipt).toBeUndefined();
+});
+
 test('disk guard detects excessive bytes and stops a running downloader',async()=>{
  const root=mkdtempSync(join(tmpdir(),'isymcp-budget-'));writeFileSync(join(root,'media.part'),Buffer.alloc(101));
  expect(downloadBudget(root,100)).toContain('limit');

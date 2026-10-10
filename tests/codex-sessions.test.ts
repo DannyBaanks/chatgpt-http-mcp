@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import {
   findSessionByToken,
   fingerprint,
   mintSession,
+  mintTurnToken,
+  readSessionRequest,
   patchPaths,
   readSessions,
   registryPath,
@@ -29,6 +33,56 @@ afterEach(() => {
 });
 
 describe("codex-sessions registry", () => {
+  test("CLI binds a local task and emits a four-line MCP command without pasting task content", () => {
+    const task = "PRIVATE_LOCAL_TASK_ONLY_4_LINES";
+    writeFileSync(join(workspace, "TASK.md"), task);
+    const result = Bun.spawnSync([process.execPath, "run", fileURLToPath(new URL("../src/isymcp.ts", import.meta.url)),
+      "session", "mint", "--cwd", workspace, "--request-file", "TASK.md"],
+      { env: { ...process.env, CODEX_WEB_HTTP_HOME: home } });
+    const output = result.stdout.toString();
+    expect(result.exitCode).toBe(0);
+    expect(output).not.toContain(task);
+    const command = output.split("pegar:\n")[1]!.trim().split("\n");
+    expect(command).toHaveLength(4);
+    expect(command[0]).toContain("@CODEX ISYMCP");
+    expect(command[1]).toContain("turn_token:");
+    expect(command[2]).toContain("bootstrap.content");
+    expect(command[3]).toContain("request.content");
+    const session = readSessions()[0]!;
+    expect(readSessionRequest(session)?.content).toBe(task);
+    const invalid = Bun.spawnSync([process.execPath, "run", fileURLToPath(new URL("../src/isymcp.ts", import.meta.url)),
+      "session", "mint", "--cwd", workspace, "--request-file"],
+      { env: { ...process.env, CODEX_WEB_HTTP_HOME: home } });
+    expect(invalid.exitCode).not.toBe(0);
+    expect(readSessions()).toHaveLength(1);
+  });
+  test("an explicitly linked local request is hash-pinned and inherited by its turn", () => {
+    writeFileSync(join(workspace, "TASK.md"), "Read the local project status.");
+    const session = mintSession(workspace, { requestFile: "TASK.md" });
+    expect(readSessionRequest(session)).toMatchObject({ filename: "TASK.md", content: "Read the local project status." });
+    const turn = mintTurnToken(session.fp, "turn-with-request");
+    expect(readSessionRequest(turn)).toEqual(readSessionRequest(session));
+    writeFileSync(join(workspace, "TASK.md"), "Different task not authorized by this token.");
+    expect(() => readSessionRequest(session)).toThrow("request_changed");
+  });
+  test("a UTF-8 BOM is preserved so returned content matches the recorded SHA", () => {
+    const task = "\uFEFFRead the local project status.";
+    writeFileSync(join(workspace, "TASK.md"), task);
+    const request = readSessionRequest(mintSession(workspace, { requestFile: "TASK.md" }))!;
+    expect(request.content).toBe(task);
+    expect(createHash("sha256").update(request.content).digest("hex")).toBe(request.sha256);
+  });
+
+  test("local requests reject paths outside the workspace, links, binary and oversized content", () => {
+    const outside = join(home, "outside.md"); writeFileSync(outside, "secret task");
+    symlinkSync(outside, join(workspace, "linked.md"));
+    writeFileSync(join(workspace, "binary.md"), Buffer.from([0xff, 0xfe]));
+    writeFileSync(join(workspace, "large.md"), "x".repeat(65537));
+    for (const requestFile of [outside, "../outside.md", "linked.md", "binary.md", "large.md", "missing.md"])
+      expect(() => mintSession(workspace, { requestFile })).toThrow();
+    expect(readSessions()).toHaveLength(0);
+    expect(readSessionRequest(mintSession(workspace))).toBeNull();
+  });
   test("mint crea registro 0600 con token opaco y fingerprint estable", () => {
     const session = mintSession(workspace, { label: "test", writable: false });
     expect(session.token.length).toBeGreaterThanOrEqual(32);

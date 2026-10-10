@@ -16,7 +16,7 @@ describe("assertWebSelection", () => {
     expect(() => assertWebSelection("chatgpt-web/gpt-5.6-sol", "high", seen("Instant", 1, 3))).toThrow(/web_model_state_mismatch/);
     expect(() => assertWebSelection("chatgpt-web/gpt-5.6-sol", "high", seen("High", 3, 3, "GPT-5.5"))).toThrow(/web_model_state_mismatch/);
   });
-  test("solo Sol/high esta soportado en esta entrega", () => {
+  test("rechaza esfuerzos no verificados incluso en Sol", () => {
     expect(() => assertWebSelection("chatgpt-web/gpt-5.6-sol", "medium")).toThrow(/web_model_selection_unsupported/);
   });
 });

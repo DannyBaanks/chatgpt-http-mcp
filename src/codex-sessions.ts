@@ -10,7 +10,7 @@
 // Regla de secretos: el token completo solo se muestra al crearlo. En
 // receipts, listados y logs se usa siempre el fingerprint sha256[:12].
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
@@ -33,6 +33,8 @@ export interface CodexSession {
   parent?: string;
   /** id del turno del chat local que lo acuño (solo kind "turn"). */
   turnId?: string;
+  /** Explicit CLI authorization of one local task; changed content fails closed. */
+  request?: { filename: string; sha256: string };
 }
 
 interface Registry {
@@ -87,7 +89,7 @@ function writeRegistry(reg: Registry): void {
 
 export function mintSession(
   cwd: string,
-  options: { label?: string; writable?: boolean; ttlHours?: number } = {},
+  options: { label?: string; writable?: boolean; ttlHours?: number; requestFile?: string } = {},
 ): CodexSession {
   if (!cwd || !isAbsolute(cwd)) throw new Error(`cwd debe ser una ruta absoluta: ${cwd || "(vacio)"}`);
   const abs = resolve(cwd);
@@ -108,10 +110,50 @@ export function mintSession(
     // asi que por defecto caduca.
     expiresAt: ttlHours > 0 ? new Date(Date.now() + ttlHours * 3_600_000).toISOString() : null,
   };
+  if (options.requestFile !== undefined) {
+    const filename = relative(abs, resolve(abs, options.requestFile));
+    const local = readLocalRequest(session, filename);
+    session.request = { filename, sha256: local.sha256 };
+  }
   const reg = readRegistry();
   reg.sessions.push(session);
   writeRegistry(reg);
   return session;
+}
+
+/** No MCP path argument: the local user binds the file when minting the token. */
+function readLocalRequest(session: CodexSession, filename: string): { filename: string; sha256: string; content: string } {
+  if (!filename || filename.length > 4096 || filename.includes("\0") || isAbsolute(filename) || filename.split(/[\\/]/).includes(".."))
+    throw new Error("session_request_outside_workspace: request must be a file within the authorized workspace");
+  const root = realpathSync(session.cwd);
+  const path = resolve(root, filename);
+  if (!resolveWithin(root, filename)) throw new Error("session_request_outside_workspace");
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    // Bind the safety check to the opened file, including symlink parents.
+    const opened = realpathSync(`/proc/self/fd/${fd}`);
+    const inside = relative(root, opened);
+    if (!inside || isAbsolute(inside) || inside.split(/[\\/]/).includes("..")) throw new Error("session_request_outside_workspace");
+    if (!fstatSync(fd).isFile()) throw new Error("session_request_invalid: request must be a regular text file");
+    const bytes = Buffer.alloc(65537);
+    let size = 0, count = 0;
+    while (size < bytes.length && (count = readSync(fd, bytes, size, bytes.length - size, null)) > 0) size += count;
+    if (size > 65536) throw new Error("session_request_too_large: maximum 64 KiB");
+    const data = bytes.subarray(0, size);
+    let content: string;
+    try { content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data); }
+    catch { throw new Error("session_request_invalid: request must be UTF-8 text"); }
+    if (!content.trim() || content.includes("\0")) throw new Error("session_request_invalid: request must contain usable text");
+    return { filename, content, sha256: createHash("sha256").update(data).digest("hex") };
+  } finally { if (fd !== undefined) closeSync(fd); }
+}
+
+export function readSessionRequest(session: CodexSession): { filename: string; sha256: string; content: string } | null {
+  if (!session.request) return null;
+  const local = readLocalRequest(session, session.request.filename);
+  if (local.sha256 !== session.request.sha256) throw new Error("session_request_changed: mint a new token to authorize the changed task");
+  return local;
 }
 
 export function readSessions(): CodexSession[] {
@@ -147,6 +189,7 @@ export function mintTurnToken(parentFp: string, turnId: string, ttlMinutes = TUR
     kind: "turn",
     parent: parent.fp,
     turnId,
+    ...(parent.request ? { request: parent.request } : {}),
   };
   reg.sessions = reg.sessions.filter((s) => !(s.kind === "turn" && isExpired(s)));
   reg.sessions.push(turn);

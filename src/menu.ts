@@ -11,12 +11,14 @@ export interface MenuItem {
 }
 
 export const MENU: MenuItem[] = [
-  { id: "up", group: "PUENTE", label: "▶ Levantar todo", hint: "server + tunel + instalar en Codex" },
+  { id: "up", group: "PUENTE", label: "▶ Levantar todo", hint: "server + tunel" },
   { id: "down", group: "PUENTE", label: "■ Detener todo", hint: "cierre del server y del tunel" },
   { id: "restart", group: "PUENTE", label: "↻ Reiniciar", hint: "down + up" },
   { id: "status", group: "PUENTE", label: "○ Estado", hint: "server, tunel, panel, canario" },
   { id: "panel-open", group: "USAR", label: "◧ Abrir panel", hint: "chat + estado en el navegador" },
   { id: "ask", group: "USAR", label: "✎ Preguntar a ChatGPT…", hint: "turno real desde la terminal" },
+  { id: "media-prepare", group: "USAR", label: "Preparar video de YouTube…", hint: "pega URL, elige carpeta y confirma" },
+  { id: "conversation-new", group: "USAR", label: "Nueva conversación Codex…", hint: "CLI con proveedor propio; la App se rechaza" },
   { id: "command", group: "USAR", label: "Armar comando @…", hint: "texto para pegar en chatgpt.com" },
   {
     id: "settings",
@@ -61,7 +63,7 @@ export const MENU: MenuItem[] = [
     hint: "catalogo web",
     children: [
       { id: "models-dry", group: "MODELOS", label: "○ Dry-run", hint: "no escribe" },
-      { id: "models-apply", group: "MODELOS", label: "▶ Aplicar", hint: "backup antes; cierra Codex" },
+      { id: "models-apply", group: "MODELOS", label: "▶ Preparar perfil", hint: "privado; se activa con isymcp codex" },
       { id: "models-restore", group: "MODELOS", label: "↩ Restaurar" },
       { id: "hook.models", hidden: true, label: "hook.models" },
     ],

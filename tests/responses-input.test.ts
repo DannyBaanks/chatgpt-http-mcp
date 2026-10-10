@@ -34,8 +34,6 @@ for (const input of [undefined, null, 7, {}, [null], [user([text("ok"), { type: 
 for (const item of [
   user([text("do not submit this partial text"), { type: "input_image", image_url: "data:image/png;base64,AA==" }]),
   { type: "future_item", text: "must not disappear" },
-  { type: "function_call_output", call_id: "call1", output: "result" },
-  { type: "custom_tool_call_output", call_id: "call1", output: "result" },
 ]) {
   test(`unsupported item is explicit: ${item.type}`, () => {
     expect(() => extractPrompt({ input: [item] })).toThrow("web_unsupported_input");

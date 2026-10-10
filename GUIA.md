@@ -1,5 +1,22 @@
 # Guía del Operador Humano — ISyMCP (ISyCo ChatGPT HTTP Bridge)
 
+```bash
+isymcp
+```
+
+**Regla:** el puente Web solo se activa para la sesión que lo eligió; levantar
+ISyMCP no cambia la ruta global de Codex.
+
+Salida real del menú instalado, recortada, verificada en una terminal PTY:
+
+```text
+¿Qué hacemos?
+  PUENTE
+❯ ▶ Levantar todo  server + tunel
+  ■ Detener todo  cierre del server y del tunel
+  ↻ Reiniciar  down + up
+```
+
 **ISyMCP** convierte tu suscripción de ChatGPT en una interfaz de chat local en localhost, un API compatible con OpenAI / Responses, y una herramienta MCP para tus agentes de código (Codex, Claude Code, Cursor, OpenCode, Copilot CLI, Hermes, OpenClaw, Pi, Gemini).
 
 ---
@@ -54,13 +71,72 @@ Dispones de dos entornos completamente independientes que pueden coexistir en si
 | Entorno | Comando | Comportamiento |
 |---|---|---|
 | 🟢 **Codex Nativo** | `codex` | Conecta directo a OpenAI. No depende de ISyMCP ni del bridge local. |
-| 🟣 **Codex ISyMCP** | `codex-isymcp` o `isymcp codex` | Inyecta efímeramente `openai_base_url=http://127.0.0.1:8791/v1`. Accede a modelos Web y verifica que el bridge esté activo. |
+| 🟣 **Codex ISyMCP** | `codex-isymcp` o `isymcp codex` | Selecciona el proveedor propio `isymcp_web` para ese proceso. Un `-m` nativo explícito pasa al Codex normal. |
+
+Comprobación real del acceso instalado, sin iniciar el puente:
+
+```bash
+isymcp codex --version
+```
+
+```text
+codex-cli 0.162.0
+```
+
+**Regla:** levantar o reiniciar ISyMCP no debe cambiar la ruta global de Codex.
+`models apply` prepara únicamente el perfil y catálogo privados del puente;
+`models restore` restaura ese perfil, no un respaldo global antiguo.
 
 ### Instalación de lanzadores de escritorio:
 ```bash
 isymcp codex launcher
 ```
 Esto genera el wrapper ejecutable `~/.local/bin/codex-isymcp` y la entrada de escritorio `Codex (ISyMCP Web)`.
+El acceso abre el CLI en una terminal y usa el icono de ISyMCP. No abre la App
+de Codex ni crea una conversación Web por sí solo.
+
+### Si una sesión vieja sigue en «Reconectando»
+
+Un proceso que ya estaba abierto puede conservar la ruta anterior. Cambiar
+`config.toml` no demuestra que ese proceso la haya vuelto a leer. Interrumpe
+la petición atascada y cierra el cliente que tiene abierto ese hilo; conserva
+su historial. Si otro app-server aún retiene el hilo, no borres su archivo de
+candado ni intentes abrirlo simultáneamente desde otro runtime.
+
+Esta variante de recuperación está **NO PROBADA en el hilo retenido**; requiere
+que su dueño haya liberado el hilo:
+
+```bash
+env -u OPENAI_BASE_URL codex resume --no-daemon -m gpt-6-luna \
+  -c 'model_provider="openai"' <id-del-hilo>
+```
+
+### Alcance comprobado de esta corrección
+
+Codex CLI 0.162.0 nativo ejecutó un comando y terminó el turno con el puente
+apagado. Los tests del lanzador comprueban por separado la selección Web y
+el paso de modelos nativos sin cambiar los archivos globales.
+
+**Comprobado el 2026-10-09, sin enviar mensaje:** el selector real quedó en
+GPT-6, High, posición 3 de 3. La evidencia privada está en
+`~/.codex-web-http/evidence/composer-live/81b981e2-40a3-4e25-aee8-fe5dd9d517fa`
+(SHA-256 `cc70b0071894c276d6f46176c2e9a04959cadb58815b0fab5107216c1e9e613f`).
+
+**Estado histórico de 2026-10-09:** no se había probado una conversación Web
+cuyo comando nativo lo ejecutase Codex, ni el conector en la App. El canario CLI de esa noche no llegó al puente:
+Codex respondió el límite de uso de la cuenta y hubo cero peticiones locales.
+`isymcp conversation new` abre el CLI interactivo con proveedor propio y
+`--no-daemon`. `isymcp conversation new --client app` se rechaza. Reanudar dos
+hilos reales sigue sin demostrarse.
+[Resultados y límites](docs/verification/2026-10-09-codex-isolation.md).
+
+**Actualización 2026-10-10:** el conector Codex ISyMCP ejecutó sus ocho
+herramientas desde Codex App; un CLI nativo real también abrió una sesión,
+consultó su inventario, ejecutó un comando y completó el turno. Esto comprueba
+el MCP como herramientas. Elegir ChatGPT Web como modelo de una tarea de la
+App sigue siendo un flujo distinto y no está disponible. El informe nuevo
+separa esos caminos y conserva los intentos fallidos:
+[pruebas App, CLI y transporte Web](docs/verification/2026-10-10-native-mcp-live.md).
 
 ---
 
@@ -280,19 +356,95 @@ Si ejecutas de nuevo el script genérico `connect-tunnel.ts` con su comando pred
 
 ## Preparar una vez y consultar después
 
-Para dejar listo un video y reutilizar el análisis entre conversaciones, ejecuta en una terminal:
+Para dejar listo un video y reutilizar el análisis entre conversaciones, inicia el flujo guiado desde una terminal:
 
 ```bash
-isymcp media prepare 'https://www.youtube.com/shorts/VIDEO_ID'
+isymcp media prepare
 ```
 
-También puedes usar `bun src/isymcp.ts media prepare '<url>'`. El comando valida y canonicaliza la URL pública de YouTube/Shorts. Si ya existe un registro para esa URL, lo reutiliza; si no, descarga con yt-dlp sin cookies y aplica los límites actuales de 500 MiB y 30 minutos. Después verifica el archivo y guarda localmente metadatos, el `audio_scan` completo en chunks de hasta 120 segundos y hojas 4×4 de 1920×1080 para ventanas consecutivas de hasta 60 segundos.
+Pega una URL pública de YouTube o Shorts. Después se abre el selector nativo de carpeta (`zenity` o `kdialog` ya instalado), se consulta una vista previa de los metadatos y se pide confirmación antes de descargar. Cancelar cualquiera de esos pasos no inicia una descarga. El flujo solo admite videos públicos individuales: no usa cookies ni listas, y mantiene los límites de 500 MiB y 30 minutos.
 
-El comando informa las fases por `stderr` y al terminar imprime una sola línea JSON con `asset_id`, `status`, `duration_seconds`, `sheet_count` y `segment_count`. Si se interrumpe, conserva el origen y los resultados parciales verificados; repetir el comando con la misma URL reanuda lo que se pueda reutilizar. Cambios al algoritmo de audio o al renderizador regeneran solo esa clase de artefactos. Una preparación incompleta nunca reemplaza una generación lista.
+El paquete se prepara en tu computadora e incluye el video original, `manifest.json`, el análisis completo de audio en chunks de hasta 120 segundos y hojas 4×4 de 1920×1080 para ventanas consecutivas de hasta 60 segundos. Las hojas contienen fotogramas muestreados y ordenados; no son una extracción exhaustiva ni una reproducción del video. El manifiesto registra URL/ID canónicos, el ID confirmado después de la descarga, datos reales de `ffprobe` y SHA-256 de los archivos. La publicación es atómica, no reemplaza un paquete existente y falla si el sistema no puede garantizarlo.
+
+El catálogo privado continúa siendo la fuente de verdad local. La exportación es una copia en la carpeta elegida; el servidor MCP no acepta rutas arbitrarias. Si se interrumpe la preparación, conserva el origen y los resultados parciales verificados; repetirla puede reutilizar lo válido. Una preparación incompleta nunca reemplaza una generación lista. Al terminar imprime una línea JSON con `asset_id`, `status`, `duration_seconds`, `sheet_count`, `segment_count`, `package_directory`, `source_sha256` y `manifest_sha256`.
+
+También puedes usar el formulario anterior `isymcp media prepare '<url>'` o `bun src/isymcp.ts media prepare '<url>'` para automatizaciones: conserva su ejecución no interactiva y su resumen JSON, pero no abre selector ni exporta paquete. En el menú interactivo `isymcp`, la opción está en **USAR → Preparar video de YouTube…**.
 
 Los manifiestos y artefactos se guardan bajo `~/.local/state/isymcp/media/preparations/` (o bajo `ISYMCP_MEDIA_HOME`) con permisos privados. No se agregan herramientas para aceptar rutas arbitrarias ni se borran originales, generaciones antiguas o resultados parciales.
 
-En ChatGPT, selecciona **Codex ISyMCP** y pide primero `media_lookup(url)`. Si aparece `status: ready`, el modelo recibe el audio segmentado completo y el índice de hojas, pero no las imágenes hasta que solicite `sheet_index`; cada llamada devuelve como máximo una hoja. Si recibe `not_prepared`, puede usar la importación de una sola vez o indicarte que ejecutes `isymcp media prepare <url>`. Si recibe `not_found`, el enlace aún no está registrado. `media_lookup` es de solo lectura: no descarga ni vuelve a calcular. Las mediciones acústicas no son transcripción ni escucha nativa.
+En ChatGPT, selecciona **Codex ISyMCP** y pide primero `media_lookup(url)`. Si aparece `status: ready`, el modelo recibe el audio segmentado completo y el índice de hojas, pero no las imágenes hasta que solicite `sheet_index`; cada llamada devuelve como máximo una hoja. Si recibe `not_prepared`, puede usar la importación de una sola vez o indicarte que ejecutes `isymcp media prepare`. Si recibe `not_found`, el enlace aún no está registrado. `media_lookup` es de solo lectura: no descarga ni vuelve a calcular. Las mediciones acústicas no son transcripción ni escucha nativa.
+
+Codex ISyMCP es un servidor de herramientas; la respuesta en lenguaje natural la genera el modelo de ChatGPT. Las herramientas de medios se invocan directamente y no necesitan `turn_token`. Las herramientas `codex_*` sí requieren un token de sesión válido: créalo con `isymcp session mint --cwd <directorio>` y pega el `turn_token` junto con `COMANDO: @CODEX ISYMCP`. `codex_turn_start` no crea ese token. Un token inventado o desconocido solo recibe un recibo de compatibilidad y no ejecuta comandos; `codex_tool_inventory` en ese modo responde `tools: []` con la razón, en vez de anunciar herramientas que no corren.
+
+## Las ocho herramientas codex_* (completas)
+
+Desde 2026-10-10 las ocho herramientas `codex_*` ejecutan con un token de sesión válido, dentro del sandbox bwrap del workspace. Una sesión propia probó las ocho mediante el complemento remoto desde Codex App, incluida la imagen, el parche y el intercambio stdin/EOF. El CLI nativo real probó cuatro llamadas principales. ChatGPT.com también pasó su prueba independiente: leyó la guía y tarea locales, consultó el inventario, ejecutó, aplicó un parche, comprobó el archivo y cerró el turno. [Evidencia y límites](docs/verification/2026-10-10-native-mcp-live.md).
+
+| Herramienta | Qué hace |
+|---|---|
+| `codex_turn_start` | Abre el turno y devuelve guía local y tarea vinculada, con sus hashes |
+| `codex_exec` | Comando foreground; con `background: true` devuelve `exec_id` y stdin abierto |
+| `codex_write_stdin` | Escribe al stdin de un proceso vivo; devuelve la salida nueva desde la última lectura |
+| `codex_apply_patch` | Parche en formato nativo Codex (`*** Begin Patch`) o diff unificado (`git diff`); solo writable |
+| `codex_view_image` | Imagen del workspace (png/jpg/jpeg/webp/gif, máx 8 MiB) |
+| `codex_tool_inventory` | Las 8 ejecutables + `capabilities` con esquemas y requisitos |
+| `codex_tool_call` | Invoca una tool nativa por `wire_name` exacto (o alias corto) con la sesión del turno |
+| `codex_turn_complete` | Cierra el turno y mata los procesos background de esa sesión |
+
+**Parches en dos formatos.** `codex_apply_patch` acepta el formato nativo de Codex:
+
+```
+*** Begin Patch
+*** Update File: probe.txt
+@@
+ primera linea
++PATCHED
+*** End Patch
+```
+
+y el diff unificado de git (`--- a/x` / `+++ b/x`). Ambos producen el mismo contenido final para un caso equivalente. El formato nativo valida el contenido y las rutas antes de publicar, rechaza escapes por enlaces simbólicos y prepara todos los archivos antes de reemplazarlos. Si falla una publicación, intenta recuperar los originales; si esa recuperación falla, informa la ruta del respaldo conservado. Cada reemplazo es atómico, pero varios archivos no forman una transacción del sistema de archivos: evita escritores concurrentes en el mismo workspace. Con sesión read-only se niega.
+
+**Procesos persistentes.** `codex_exec` con `background: true` devuelve `exec_id`, `alive`, la salida inicial y `expires_at`. `codex_write_stdin` devuelve solo el delta de stdout/stderr; `close_stdin` manda EOF y `signal: "TERM"|"KILL"` termina el proceso. Un polling con `data: ""` puede recuperar la salida final después del exit; escribir datos nuevos a un proceso terminado se rechaza. Los IDs pertenecen a su sesión. Hay terminación por TTL de 15 minutos, cierre del turno y bwrap `--die-with-parent`; también se termina el proceso recién creado si excede el límite del registro. `live_execs_killed` cuenta únicamente procesos que seguían vivos, no los que ya habían finalizado.
+
+**Invocación nativa por wire_name.** `codex_tool_call(wire_name, arguments | input, call_id?)` comparte sesión, sandbox y validación con la herramienta destino. Acepta el nombre del inventario o los alias locales documentados; no despacha herramientas remotas arbitrarias del harness. La caché de `call_id` pertenece a esa sesión: reintentos simultáneos ejecutan una sola vez, el resultado conserva imágenes y cambiar argumentos con el mismo ID se rechaza. La caché dura diez minutos, tiene límite de 64 entradas y no es un registro durable de ejecución tras reiniciar el MCP.
+
+**Catálogo desactualizado del complemento.** Reiniciar el servidor carga código nuevo, pero un cliente ya abierto puede conservar el esquema anterior. Reconecta/actualiza el complemento para recibir los parámetros nuevos. Consulta `codex_tool_inventory.capabilities` para ver el esquema real; mientras tanto, `codex_tool_call.arguments` permite enviar las opciones del destino, por ejemplo `background` o `close_stdin`.
+
+**Inventario fiel.** `codex_tool_inventory` con sesión real lista las 8 herramientas y además `capabilities`: descripción, esquema JSON de argumentos y requisitos (`turn_token`, `writable`). Con token desconocido responde `tools: []` y la razón. El soak en vivo espera **8** elementos (antes 6, `scripts/soak-tools.ts`).
+
+**Bootstrap mínimo.** Las instructions del connector (lo que ve el modelo de ChatGPT al abrir el app) se redujeron a la orden de ejecución y una nota de medios; el contrato JSON largo `ISYMCP CODEX RESPONSE CONTRACT` sigue existiendo SOLO en el transporte Codex externo (`src/responses/tools.ts`) y jamás se inyecta en el connector.
+
+## Una tarea local y un mensaje de cuatro líneas
+
+Escribe la tarea autorizada en `TASK.md` dentro de tu proyecto y ejecuta:
+
+```bash
+isymcp session mint --cwd "$PWD" --write --request-file TASK.md
+```
+
+El comando se probó con un workspace temporal. Devuelve la sesión, el nombre
+del archivo, su SHA-256 y este bloque para pegar, con el token real en la
+segunda línea. Selecciona **Codex ISyMCP** en el composer antes de enviarlo:
+
+```text
+COMANDO: @CODEX ISYMCP
+turn_token: <token generado por el comando>
+Primero llama codex_turn_start y lee bootstrap.content.
+Ejecuta la tarea local verificada de request.content y devuelve evidencia real.
+```
+
+La primera llamada lee `src/mcp/SKILL.md`, la guía del complemento instalada
+en tu PC, y el archivo vinculado. Ambas respuestas incluyen su SHA-256. El
+modelo recibe esos documentos mediante MCP; no hay que pegarlos en el mensaje.
+El archivo de tarea admite texto UTF-8 de hasta 64 KiB dentro del workspace.
+Si cambias la tarea, genera otro token; si falta el archivo, cambia su hash o
+escapa del workspace, el inicio devuelve un error y no debe continuar.
+Sin `--request-file`, puedes seguir escribiendo la tarea directamente en el
+chat. Sin `--write`, la sesión queda en modo de solo lectura.
+
+La prueba de ChatGPT.com envió exactamente cuatro líneas: el archivo final
+contuvo `primera linea` y `MCP_PATCHED`; las llamadas de ejecución y parche
+terminaron con código 0 y el cierre informó `live_execs_killed: 0`.
 
 ## Pegar un enlace para importarlo y analizarlo ahora
 

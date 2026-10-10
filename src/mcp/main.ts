@@ -1,13 +1,22 @@
 // src/mcp/main.ts — entry point del servidor MCP stdio para el túnel.
 //
 // Protocolo: Model Context Protocol sobre stdio (lo que tunnel-client espera
-// como --mcp-command). Expone las 8 tools del Codex GPT MCP (contrato native)
-// que ChatGPT invoca en un turno. V1: las tools responden con receipts sin
-// broker real; el broker se agrega cuando exista el turn dispatcher.
+// como --mcp-command). Expone las 8 tools del Codex GPT MCP (contrato native).
+//
+// Con un turn_token que coincide con una sesion del registro
+// (~/.codex-web-http/codex-sessions.json) TODAS las tools ejecutan de verdad
+// con la politica de esa sesion (read-only | writable) y sandbox bwrap:
+//   - codex_exec: comando foreground, o background=true → exec_id persistente
+//   - codex_write_stdin: stdin de un proceso vivo + delta de salida
+//   - codex_apply_patch: formato nativo Codex (*** Begin Patch) o git diff
+//   - codex_view_image, codex_tool_inventory, codex_tool_call (dispatch
+//     local a las tools nativas, mismo sandbox y sesion)
+// Un token DESCONOCIDO conserva los receipts stub (compat OpenISy): nada
+// ejecuta y codex_tool_inventory lo declara (tools: []).
 //
 // El nombre publico del app ("Codex ISyMCP"), el token @CODEX ISYMCP y las
-// instructions viven en ./identity.ts — un solo lugar, para que la pagina y el
-// server no puedan divergir.
+// instructions viven en ./identity.ts; las shapes/descripciones/capacidades
+// de las tools en ./catalog.ts — un solo lugar cada cosa, sin deriva.
 //
 //   bun run src/mcp/main.ts --contract native --broker-socket /tmp/codex-web-http-broker.sock
 //
@@ -23,6 +32,7 @@ import { tmpdir } from "node:os";
 import { z } from "zod";
 import {
   bridgeHome,
+  readSessionRequest,
   findSessionByToken,
   fingerprint,
   patchPaths,
@@ -32,7 +42,12 @@ import {
   sandboxAvailable,
   type CodexSession,
 } from "../codex-sessions";
-import { buildInstructions } from "./identity";
+import { readMcpBootstrap } from "./bootstrap";
+import { applyCodexPatch, CodexPatchError } from "./codex-patch";
+import { capabilities, shapesFor, TOOL_DESCRIPTIONS, WIRE_ALIASES, type ToolName } from "./catalog";
+import { drain, findLive, killSessionExecs, registerLiveExec, writeStdin as stdinWrite, type BgProc } from "./exec-registry";
+import { CODEX_TOOLS, buildInstructions } from "./identity";
+import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
 
 const args = process.argv.slice(2);
@@ -51,11 +66,14 @@ if (contract !== "native" && contract !== "safe") {
 const brokerSocketPath = option("--broker-socket", "/tmp/codex-web-http-broker.sock");
 
 const turnKey = contract === "safe" ? "request_id" : "turn_token";
-const turnTokenSchema = z.string().min(20).max(256);
+
+/** Shapes registradas y anunciadas salen del catalogo: una sola fuente. */
+const S = shapesFor(contract);
 
 const server = new McpServer({
   name: "codex-web-http",
   version: "0.3.0",
+  icons: [serverIcon()],
 }, {
   instructions: buildInstructions(contract),
 });
@@ -139,7 +157,13 @@ function clip(text: string, max = 64 * 1024): string {
   return text.length <= max ? text : `${text.slice(0, max)}\n…[truncado ${text.length - max} bytes]`;
 }
 
-async function runExec(session: CodexSession, command: unknown, cwdArg: unknown) {
+function clampInt(v: unknown, min: number, max: number, dflt: number): number {
+  const n = typeof v === "number" ? v : Number(v ?? "");
+  if (!Number.isFinite(n)) return dflt;
+  return Math.min(max, Math.max(min, Math.trunc(n)));
+}
+
+async function runExec(session: CodexSession, command: unknown, cwdArg: unknown, background?: unknown, captureMs?: unknown) {
   if (!Array.isArray(command) || command.length === 0 || command.some((c) => typeof c !== "string" || !c.trim())) {
     return fail("command debe ser un argv no vacio de strings");
   }
@@ -152,6 +176,39 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown)
     return fail("fail-closed: bwrap no disponible (sin sandbox no se ejecuta; CODEX_WEB_HTTP_SANDBOX=off solo habilita sesiones writable)", { session: sessionMeta(session) });
   }
   const started = Date.now();
+  if (background === true) {
+    // Proceso persistente: stdin abierto, exec_id para codex_write_stdin.
+    // NO sufre el timeout de foreground; lo limita el TTL del registro.
+    try {
+      const proc = Bun.spawn(argv, {
+        cwd: workdir,
+        stdout: "pipe",
+        stderr: "pipe",
+        stdin: "pipe",
+        env: process.env,
+      }) as unknown as BgProc;
+      const rec = registerLiveExec({ sessionFp: session.fp, command: command as string[], cwd: workdir, proc });
+      trace("exec.bg.spawn", { exec_id: rec.id, writable: session.writable, workdir });
+      const initial = await drain(rec, clampInt(captureMs, 0, 5000, 1500));
+      return jsonText({
+        executed: true,
+        background: true,
+        exec_id: rec.id,
+        sandbox: sandboxAvailable() ? (session.writable ? "bwrap-workspace-write" : "bwrap-read-only") : "none",
+        session: sessionMeta(session),
+        command,
+        cwd: workdir,
+        stdout: clip(initial.stdout),
+        stderr: clip(initial.stderr),
+        alive: initial.alive,
+        exit_code: initial.exitCode,
+        expires_at: new Date(rec.expiresAt).toISOString(),
+        duration_ms: Date.now() - started,
+      });
+    } catch (err) {
+      return fail(`background spawn fallo: ${String(err)}`, { session: sessionMeta(session) });
+    }
+  }
   const execTimeoutMs = Number(process.env.CODEX_WEB_HTTP_EXEC_TIMEOUT_MS ?? "") || 60_000;
   let timedOut = false;
   try {
@@ -198,7 +255,23 @@ async function runApplyPatch(session: CodexSession, patch: unknown) {
   if (!session.writable) return fail("sesion read-only: apply_patch denegado", { session: sessionMeta(session) });
   const { paths, codexFormat } = patchPaths(patch);
   if (codexFormat) {
-    return fail("formato *** Begin Patch no soportado en v0; usa diff unificado (git diff)", { session: sessionMeta(session) });
+    // Formato nativo Codex (*** Begin Patch): validacion completa en memoria
+    // antes de escribir; un patch invalido no toca disco.
+    try {
+      const files = applyCodexPatch(session.cwd, patch);
+      return jsonText({
+        executed: true,
+        format: "codex-native",
+        session: sessionMeta(session),
+        files,
+        exit_code: 0,
+        stdout: "",
+        stderr: "",
+      });
+    } catch (err) {
+      if (err instanceof CodexPatchError) return fail(err.message, { format: "codex-native", session: sessionMeta(session) });
+      throw err;
+    }
   }
   if (paths.length === 0) return fail("no se detectaron paths en el patch", { session: sessionMeta(session) });
   for (const p of paths) {
@@ -269,19 +342,183 @@ function runViewImage(session: CodexSession, pathArg: unknown) {
   };
 }
 
+/** Cuerpo de codex_write_stdin (tambien lo usa codex_tool_call). */
+async function runWriteStdin(session: CodexSession, input: Record<string, unknown>) {
+  const id = String(input.exec_id ?? "");
+  if (!id) return fail("exec_id requerido", { session: sessionMeta(session) });
+  const rec = findLive(id);
+  if (!rec) return fail("exec_id desconocido o expirado", { session: sessionMeta(session) });
+  if (rec.sessionFp !== session.fp) return fail("exec_id pertenece a otra sesion", { session: sessionMeta(session) });
+  const signal = input.signal === "TERM" || input.signal === "KILL" ? (input.signal as "TERM" | "KILL") : undefined;
+  const data = String(input.data ?? "");
+  if (rec.exited && !signal && (data.length > 0 || input.close_stdin === true)) {
+    return fail("el proceso ya termino", { exec_id: id, exit_code: rec.exitCode, session: sessionMeta(session) });
+  }
+  if (rec.stdinClosed && !signal && data.length > 0) {
+    return fail("el stdin ya esta cerrado", { exec_id: id, session: sessionMeta(session) });
+  }
+  const out = await stdinWrite(rec, data, {
+    close: input.close_stdin === true,
+    signal,
+    waitMs: clampInt(input.wait_ms, 0, 10_000, 2_000),
+  });
+  return jsonText({
+    executed: true,
+    exec_id: id,
+    wrote: out.wrote,
+    alive: out.alive,
+    exit_code: out.exitCode,
+    stdout: clip(out.stdout),
+    stderr: clip(out.stderr),
+    close_stdin: input.close_stdin === true,
+    signal,
+    session: sessionMeta(session),
+  });
+}
+
+/** Inventario real de la sesion: solo tools ejecutables, con capacidades. */
+function sessionInventory(session: CodexSession) {
+  return jsonText({
+    session: sessionMeta(session),
+    tools: [...CODEX_TOOLS],
+    capabilities: capabilities(contract),
+    source: "codex-web-http sessions",
+    sandbox: sandboxAvailable() ? "bwrap" : "none",
+  });
+}
+
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`).join(",")}}`;
+}
+
+type ToolCallResult = Awaited<ReturnType<typeof dispatchTool>>;
+interface CachedToolCall {
+  at: number;
+  signature: string;
+  pending: Promise<ToolCallResult>;
+  settled: boolean;
+}
+/** Retry identity belongs to a session; concurrent retries share the same result. */
+const toolCallCache = new Map<string, CachedToolCall>();
+const TOOL_CALL_TTL_MS = 10 * 60_000;
+const TOOL_CALL_MAX = 64;
+
+function replayToolCall(out: ToolCallResult, wire: string): ToolCallResult {
+  return {
+    ...out,
+    content: out.content.map((item) => {
+      if (item.type !== "text") return item;
+      try {
+        return { ...item, text: JSON.stringify({ ...JSON.parse(item.text), replayed: true, wire_name: wire }) };
+      } catch {
+        return item;
+      }
+    }),
+  };
+}
+
+/** Dispatch local de codex_tool_call a las tools nativas ejecutables. */
+async function dispatchTool(session: CodexSession, tool: "codex_exec" | "codex_write_stdin" | "codex_apply_patch" | "codex_view_image" | "codex_tool_inventory", args: Record<string, unknown>) {
+  switch (tool) {
+    case "codex_exec":
+      return runExec(session, args.command, args.cwd, args.background, args.capture_ms);
+    case "codex_apply_patch":
+      return runApplyPatch(session, args.patch);
+    case "codex_view_image":
+      return runViewImage(session, args.path);
+    case "codex_write_stdin":
+      return runWriteStdin(session, args);
+    case "codex_tool_inventory":
+      return sessionInventory(session);
+  }
+}
+
+async function runToolCall(session: CodexSession, input: Record<string, unknown>) {
+  const wire = String(input.wire_name ?? "");
+  const tool = WIRE_ALIASES[wire] as ToolName | undefined;
+  if (!tool || (tool !== "codex_exec" && tool !== "codex_write_stdin" && tool !== "codex_apply_patch" && tool !== "codex_view_image" && tool !== "codex_tool_inventory")) {
+    return fail(`tool no soportada por el harness: ${wire}; usa codex_tool_inventory para ver las disponibles`, { session: sessionMeta(session) });
+  }
+  // arguments: objeto directo, o JSON de arguments en input (tool "custom").
+  let args: Record<string, unknown> = {};
+  if (input.arguments !== undefined && input.arguments !== null && typeof input.arguments === "object" && !Array.isArray(input.arguments)) {
+    args = input.arguments as Record<string, unknown>;
+  } else if (typeof input.input === "string" && input.input.trim()) {
+    try {
+      const parsed: unknown = JSON.parse(input.input);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return fail("input debe ser un objeto JSON de arguments", { session: sessionMeta(session) });
+      }
+      args = parsed as Record<string, unknown>;
+    } catch {
+      return fail("input no es un JSON valido de arguments", { session: sessionMeta(session) });
+    }
+  }
+  // Validar contra el contrato de la tool (misma shape que el registro).
+  const check = z.object(S[tool]).safeParse({ [turnKey]: input[turnKey], ...args });
+  if (!check.success) {
+    const detail = check.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    return fail(`arguments no validos para ${tool}: ${detail}`, { session: sessionMeta(session) });
+  }
+  const callId = typeof input.call_id === "string" ? input.call_id : null;
+  if (!callId) return dispatchTool(session, tool, args);
+  const cacheKey = `${session.fp}|${callId}`;
+  // Ignore nested tokens: authority always comes from the outer authorized session.
+  const validatedArgs = { ...check.data };
+  delete validatedArgs[turnKey];
+  const signature = `${tool}|${stableStringify(validatedArgs)}`;
+  const now = Date.now();
+  for (const [key, entry] of toolCallCache) {
+    if (entry.settled && now - entry.at >= TOOL_CALL_TTL_MS) toolCallCache.delete(key);
+  }
+  const hit = toolCallCache.get(cacheKey);
+  if (hit) {
+    if (hit.signature !== signature) {
+      return fail("call_id ya utilizado con otra tool o arguments", { session: sessionMeta(session) });
+    }
+    return replayToolCall(await hit.pending, wire);
+  }
+  if (toolCallCache.size >= TOOL_CALL_MAX) {
+    const removable = [...toolCallCache].find(([, entry]) => entry.settled);
+    if (removable) toolCallCache.delete(removable[0]);
+    else return fail("limite de tool calls pendientes alcanzado", { session: sessionMeta(session) });
+  }
+  // Publish before dispatch starts so a retry cannot cross the await boundary twice.
+  const entry: CachedToolCall = {
+    at: now, signature, settled: false,
+    pending: Promise.resolve().then(() => dispatchTool(session, tool, validatedArgs)),
+  };
+  toolCallCache.set(cacheKey, entry);
+  try {
+    return await entry.pending;
+  } finally {
+    entry.settled = true;
+    entry.at = Date.now();
+  }
+}
+
 server.registerTool(
   "codex_turn_start",
   {
-    description: "Inicia un turno Codex. Devuelve el turn_token para las demas tools.",
-    inputSchema: contract === "safe"
-      ? { request_id: turnTokenSchema }
-      : { turn_token: turnTokenSchema },
+    description: TOOL_DESCRIPTIONS.codex_turn_start,
+    inputSchema: S.codex_turn_start,
   },
   async (input: Record<string, unknown>) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
     const session = sessionFrom(input, "codex_turn_start");
-    if (session) return jsonText({ started: true, session: sessionMeta(session) });
+    if (session) {
+      try {
+        const bootstrap = readMcpBootstrap();
+        const request = readSessionRequest(session);
+        return jsonText({ started: true, session: sessionMeta(session), bootstrap, ...(request ? { request } : {}) });
+      } catch (err) {
+        return fail(`local bootstrap failed: ${String(err)}`, { session: sessionMeta(session) });
+      }
+    }
     return jsonText({ started: true, turn_token: token });
   },
 );
@@ -289,18 +526,14 @@ server.registerTool(
 server.registerTool(
   "codex_exec",
   {
-    description: "Ejecuta un comando en el runtime Codex.",
-    inputSchema: {
-      [turnKey]: turnTokenSchema,
-      command: z.array(z.string()),
-      cwd: z.string().optional(),
-    },
+    description: TOOL_DESCRIPTIONS.codex_exec,
+    inputSchema: S.codex_exec,
   },
   async (input: Record<string, unknown>) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
     const session = sessionFrom(input, "codex_exec");
-    if (session) { const out = await runExec(session, input.command, input.cwd); traceResult(session, "codex_exec", out); return out; }
+    if (session) { const out = await runExec(session, input.command, input.cwd, input.background, input.capture_ms); traceResult(session, "codex_exec", out); return out; }
     const command = input.command as string[];
     return jsonText({
       turn_token: token,
@@ -317,11 +550,8 @@ server.registerTool(
 server.registerTool(
   "codex_turn_complete",
   {
-    description: "Envia la respuesta completa al turno conectado.",
-    inputSchema: {
-      [turnKey]: turnTokenSchema,
-      response: z.string(),
-    },
+    description: TOOL_DESCRIPTIONS.codex_turn_complete,
+    inputSchema: S.codex_turn_complete,
   },
   async (input: Record<string, unknown>) => {
     const token = String(input[turnKey] ?? "");
@@ -330,7 +560,11 @@ server.registerTool(
       return fail(`${turnKey} y response requeridos`);
     }
     const session = sessionFrom(input, "codex_turn_complete");
-    if (session) return jsonText({ completed: true, session: sessionMeta(session) });
+    if (session) {
+      // Cerrar el turno no deja procesos huérfanos de esa sesion.
+      const killed = killSessionExecs(session.fp);
+      return jsonText({ completed: true, session: sessionMeta(session), live_execs_killed: killed });
+    }
     return jsonText({ completed: true, turn_token: token });
   },
 );
@@ -338,23 +572,22 @@ server.registerTool(
 server.registerTool(
   "codex_tool_inventory",
   {
-    description: "Lista las tools disponibles en el runtime conectado.",
-    inputSchema: { [turnKey]: turnTokenSchema },
+    description: TOOL_DESCRIPTIONS.codex_tool_inventory,
+    inputSchema: S.codex_tool_inventory,
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_tool_inventory");
     if (session) {
-      traceResult(session, "codex_tool_inventory", jsonText({ executed: true }));
-      return jsonText({
-        session: sessionMeta(session),
-        tools: ["codex_exec", "codex_apply_patch", "codex_view_image", "codex_tool_inventory", "codex_turn_start", "codex_turn_complete"],
-        source: "codex-web-http sessions",
-        sandbox: sandboxAvailable() ? "bwrap" : "none",
-      });
+      const out = sessionInventory(session);
+      traceResult(session, "codex_tool_inventory", out);
+      return out;
     }
+    // Modo stub (token sin sesion): NADA es ejecutable. No se anuncian
+    // tools que no corren; se dice como conseguir una sesion real.
     return jsonText({
-      tools: ["codex_exec", "codex_write_stdin", "codex_apply_patch", "codex_view_image"],
+      tools: [],
       source: "codex-web-http V1 stub",
+      reason: `${turnKey} no corresponde a una sesion registrada: en modo stub nada es ejecutable (isymcp session mint --cwd <dir> --write)`,
     });
   },
 );
@@ -362,22 +595,12 @@ server.registerTool(
 server.registerTool(
   "codex_write_stdin",
   {
-    description: "Escribe al stdin de un proceso en ejecucion.",
-    inputSchema: {
-      [turnKey]: turnTokenSchema,
-      exec_id: z.string(),
-      data: z.string(),
-    },
+    description: TOOL_DESCRIPTIONS.codex_write_stdin,
+    inputSchema: S.codex_write_stdin,
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_write_stdin");
-    if (session) {
-      return jsonText({
-        session: sessionMeta(session),
-        executed: false,
-        receipt: "write_stdin no implementado en v0 (no hay registro de procesos)",
-      });
-    }
+    if (session) { const out = await runWriteStdin(session, input); traceResult(session, "codex_write_stdin", out); return out; }
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
@@ -388,11 +611,8 @@ server.registerTool(
 server.registerTool(
   "codex_apply_patch",
   {
-    description: "Aplica un patch diff a un archivo.",
-    inputSchema: {
-      [turnKey]: turnTokenSchema,
-      patch: z.string(),
-    },
+    description: TOOL_DESCRIPTIONS.codex_apply_patch,
+    inputSchema: S.codex_apply_patch,
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_apply_patch");
@@ -407,11 +627,8 @@ server.registerTool(
 server.registerTool(
   "codex_view_image",
   {
-    description: "Devuelve una imagen para inspeccion del modelo.",
-    inputSchema: {
-      [turnKey]: turnTokenSchema,
-      path: z.string(),
-    },
+    description: TOOL_DESCRIPTIONS.codex_view_image,
+    inputSchema: S.codex_view_image,
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_view_image");
@@ -427,28 +644,13 @@ server.registerTool(
   "codex_tool_call",
   {
     title: "Call any tool from the current Codex harness",
-    description: [
-      "Invoke an exact wire_name returned by codex_tool_inventory.",
-      "El harness Codex externo ejecuta la llamada, las aprobaciones y el ciclo de vida.",
-    ].join(" "),
-    inputSchema: {
-      [turnKey]: turnTokenSchema,
-      wire_name: z.string().min(1).max(1_000),
-      arguments: z.record(z.string(), z.unknown()).optional(),
-      input: z.string().max(5_000_000).optional(),
-    },
+    description: TOOL_DESCRIPTIONS.codex_tool_call,
+    inputSchema: S.codex_tool_call,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_tool_call");
-    if (session) {
-      return jsonText({
-        session: sessionMeta(session),
-        wire_name: input.wire_name,
-        executed: false,
-        receipt: "tool_call no implementado en v0; usa codex_exec/codex_apply_patch/codex_view_image",
-      });
-    }
+    if (session) { const out = await runToolCall(session, input); traceResult(session, "codex_tool_call", out); return out; }
     return jsonText({
       turn_token: input[turnKey],
       wire_name: input.wire_name,

@@ -39,7 +39,39 @@ Import a public YouTube video/Short or register a local file, then inspect **tim
 ### 🟢 Isolated & Decoupled Codex Profiles
 No more mutating your global `~/.codex/config.toml`! ISyMCP provides isolated, side-by-side environments:
 - **Native Codex (`codex`)**: talks directly to OpenAI, completely independent of the bridge.
-- **ISyMCP Codex (`codex-isymcp` / `isymcp codex`)**: launches with dynamic, ephemeral `-c openai_base_url=http://127.0.0.1:8791/v1` and desktop entry.
+- **ISyMCP Codex (`codex-isymcp` / `isymcp codex`)**: selects the named `isymcp_web` Responses provider for that process. An explicit native `-m` bypasses the bridge. The desktop shortcut opens this CLI in a terminal.
+
+`isymcp up` and menu restart start services without installing global routing.
+`isymcp models apply` prepares a private profile/catalog under
+`~/.codex-web-http/codex-profiles/isymcp-web`; it preserves Codex's global
+configuration, model cache and other applications' integration journals.
+
+The native tool adapter translates supplied function/custom declarations into
+Responses calls; **Codex executes them** and returns their real results. Calls
+are correlated to a task, turn and call ID, with durable replay and explicit
+handling of interrupted calls. WebSocket events use one JSON event per frame.
+The MCP connector has been exercised through Codex App, the native Codex CLI
+and ChatGPT.com. Selecting the Web bridge as a Codex App model and the complete
+Web-provider CLI loop remain **NOT_DEMONSTRATED**; these are separate paths.
+[Current verification scope and evidence](docs/verification/2026-10-10-native-mcp-live.md).
+
+### A four-line ChatGPT command with a local task
+
+Write your authorized task in `TASK.md` inside the project, then run:
+
+```bash
+isymcp session mint --cwd "$PWD" --write --request-file TASK.md
+```
+
+Select **Codex ISyMCP** in ChatGPT's composer and paste the four lines printed
+by the command. `codex_turn_start` returns the installed local guide in
+`bootstrap.content` and the bound task in `request.content`, with SHA-256
+hashes. You do not need to paste either document. A changed task requires a new
+token; files outside the authorized workspace are rejected. Omit `--write`
+for a read-only task. Existing sessions without a task file remain supported.
+
+The ChatGPT.com canary used exactly four lines and performed real command
+execution, patching, file verification and turn completion.
 
 ### 🤝 ChatGPT inside your other agents (9 Harnesses Ready)
 `chatgpt_ask` is an MCP tool. It lets **Claude Code, Codex, Cursor IDE, OpenCode TUI, GitHub Copilot CLI, Hermes Agent, OpenClaw, Pi, and Gemini CLI** ask *your* ChatGPT (GPT-5.6 Sol, your plan) for a second opinion halfway through a task.
@@ -169,7 +201,8 @@ Process explicitly registered audio and video locally, then inspect the evidence
 | Start with | What to do |
 |---|---|
 | **Local file** | Register it with `bun src/isymcp.ts media add <file>`; keep the returned asset ID. |
-| **Prepare a reusable YouTube analysis** | Run `bun src/isymcp.ts media prepare <url>`. This reuses an exact registered source or downloads it under the existing public-video policy, then saves the complete audio scan and contact-sheet pages locally. |
+| **Prepare a reusable YouTube analysis** | Run `isymcp media prepare` (or `bun src/isymcp.ts media prepare`) to paste a URL, choose a folder, review metadata and confirm before download. It creates a hash-verified package and keeps the private catalog. |
+| **Script an existing flow** | Keep using `isymcp media prepare <url>` for the existing noninteractive JSON command; it does not open the picker or export a package. |
 | **Look up a YouTube source in ChatGPT** | Call read-only `media_lookup(url)` first. If it is `ready`, inspect its stored audio results and request one relevant sheet with `sheet_index`; `not_found` and `not_prepared` never download or analyze. |
 | **One-off public YouTube video or Short** | Call `media_import(url)`, poll `media_import_status(job_id, wait_seconds: 10)` until `complete`, and use `asset.id`. |
 | **Inspect video** | Use `media_info`, `video_contact_sheet` for an overview and `video_frame` for a specific timestamp. |
@@ -181,11 +214,17 @@ For step-by-step commands and the verified ChatGPT prompt, see **[GUIA.md — Me
 
 The independent `src/mcp/media.ts` entry point processes only explicitly registered local assets. The main **Codex ISyMCP** entry point exposes the media tools alongside its existing `codex_*` tools; both share `src/media/register.ts`. `media_list` discovers only user-registered assets, paginated in groups of 20. `media_lookup` resolves only a canonical public YouTube URL already in the catalog and never starts work. Codex session authorization and sandbox behavior remain enforced.
 
+Both MCP entry points publish the bundled ISyMCP PNG through `serverInfo.icons` during initialization. ChatGPT or another MCP client may need to reconnect after upgrading the server before it refreshes the icon and tool catalog.
+
 Audio activity windows, channel-aware waveforms, spectrograms, RMS, peaks and silence intervals run locally through **FFmpeg/ffprobe**. Video frames use a separately installed MIT **Video Vision** provider configured through `ISYMCP_VIDEO_VISION_ENTRY` (absolute `dist/index.js`) and optionally `ISYMCP_VIDEO_VISION_NODE`. Requires Bun and FFmpeg/ffprobe.
 
 Original files remain local and read-only; requested images and statistics are returned to the MCP client. Limits: **500 MiB per file**, **120 seconds per audio window**, **60 seconds for ordinary queries**, **300 seconds for full-track `audio_scan`**, **one concurrent job** and **1 MiB per output image** (up to four images for separated stereo). Neither entry point provides an arbitrary filesystem path tool or audio transcription.
 
 `media prepare` stores versioned manifests, verified audio-scan JSON and consecutive contact sheets privately under the media catalog. Audio is segmented in chunks of at most 120 seconds; video is sampled in gapless windows of at most 60 seconds. Failed runs can resume verified partial outputs, and only a complete generation becomes current. A later `media_lookup` returns the saved scan and sheet index; each call transfers at most one JPEG. Acoustic segments are energy measurements, not speech recognition or native listening.
+
+The guided command exports a second copy only after the local preparation is `ready`. It records the canonical source and downloader-confirmed video ID, hashes the original and every artifact, stages under the selected destination filesystem, and publishes with an atomic no-replace operation. Existing packages are never overwritten. The contact sheets are chronological samples, not exhaustive frame extraction.
+
+The MCP itself is a tool server, not a standalone chat model. The selected ChatGPT model produces the conversational response and decides when to call tools. Media tools do not require `turn_token`; `codex_*` execution tools require a real token from `isymcp session mint --cwd <directory>` and the explicit `COMANDO: @CODEX ISYMCP` marker. `codex_turn_start` consumes the supplied token; it does not mint one.
 
 The standalone media stdio entry point has local compatibility coverage. Remote GPT.com calls documented below used the main Codex ISyMCP connection; they do not establish remote E2E compatibility for every standalone media tool.
 

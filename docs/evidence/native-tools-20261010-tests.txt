@@ -1,0 +1,41 @@
+bun test v1.4.2 (744846f84)
+[codex-web-http MCP] contract=native broker=/tmp/isymcp-main-icon-64XopP/broker.sock sessions=bwrap
+
+tests/media-prepare-cli.test.ts:
+import: downloading
+27 |   const stream = new ReadableStream<Uint8Array>({
+28 |     start(controller) {
+29 |       controller.enqueue(enc.encode(text));
+30 |       setTimeout(() => {
+31 |         try {
+32 |           controller.error(new Error("ECONNRESET"));
+                                    ^
+error: ECONNRESET
+      at <anonymous> (/home/danny/Development/ISyCo Git/chatgpt-http-mcp-impl/tests/parity.test.ts:32:32)
+27 |   const stream = new ReadableStream<Uint8Array>({
+28 |     start(controller) {
+29 |       controller.enqueue(enc.encode(text));
+30 |       setTimeout(() => {
+31 |         try {
+32 |           controller.error(new Error("ECONNRESET"));
+                                    ^
+error: ECONNRESET
+      at <anonymous> (/home/danny/Development/ISyCo Git/chatgpt-http-mcp-impl/tests/parity.test.ts:32:32)
+42 |       } catch (error) {
+43 |         if (completed) {
+44 |           controller.close();
+45 |           return;
+46 |         }
+47 |         controller.error(new UpstreamStreamError(bytes, error));
+                              ^
+UpstreamStreamError: upstream corto el stream tras 63 bytes: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()
+ bytes: 63,
+  type: "upstream_reset_mid_stream",
+
+      at pull (/home/danny/Development/ISyCo Git/chatgpt-http-mcp-impl/src/responses/stream.ts:47:26)
+
+ 454 pass
+ 1 skip
+ 0 fail
+ 2086 expect() calls
+Ran 455 tests across 65 files. [69.62s]

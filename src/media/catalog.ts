@@ -4,7 +4,8 @@ import { open, mkdtemp, writeFile, unlink, rmdir } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve, extname } from 'node:path';
-export type Asset = { id:string; path:string; realPath:string; sha256:string; bytes:number; name:string; revoked:boolean; addedAt:string; sourceUrl?:string };
+export type MediaDownloadReceipt = { video_id:string; source_url:string };
+export type Asset = { id:string; path:string; realPath:string; sha256:string; bytes:number; name:string; revoked:boolean; addedAt:string; sourceUrl?:string; downloadReceipt?:MediaDownloadReceipt };
 const extensions = new Set(['.wav','.flac','.mp3','.m4a','.mp4','.mov','.webm']);
 export const digest = (b:Buffer) => createHash('sha256').update(b).digest('hex');
 export async function boundedRead(path:string):Promise<Buffer> {
@@ -23,11 +24,12 @@ export class MediaCatalog {
  private file(id:string) { if(!/^media_[a-f0-9-]{36}$/.test(id)) throw Error('Invalid asset ID'); return join(this.home,id+'.json'); }
  private save(a:Asset) { const file=this.file(a.id); const temp=file+'.'+randomUUID()+'.tmp'; writeFileSync(temp,JSON.stringify(a),{mode:0o600,flag:'wx'}); renameSync(temp,file); }
  get(id:string):Asset { const a=JSON.parse(readFileSync(this.file(id),'utf8')) as Asset; if(a.revoked) throw Error('Asset revoked'); return a; }
- async add(input:string,sourceUrl?:string):Promise<Asset> {
+ async add(input:string,sourceUrl?:string,downloadReceipt?:MediaDownloadReceipt):Promise<Asset> {
+  if(downloadReceipt&&(!sourceUrl||downloadReceipt.source_url!==sourceUrl||!/^[-_A-Za-z0-9]{11}$/.test(downloadReceipt.video_id)))throw Error('Invalid media download receipt');
   const path=resolve(input), realPath=realpathSync(path); if(!extensions.has(extname(path).toLowerCase())) throw Error('Unsupported media extension');
   const s=statSync(realPath); if(!s.isFile() || s.size>500*1024*1024) throw Error('Media must be a file of at most 500 MiB');
   const bytes=await boundedRead(realPath); if(bytes.length>500*1024*1024 || realpathSync(path)!==realPath) throw Error('Asset changed during registration');
-  const a:Asset={id:'media_'+randomUUID(),path,realPath,sha256:digest(bytes),bytes:bytes.length,name:path.split('/').pop()!,revoked:false,addedAt:new Date().toISOString(),sourceUrl}; remaining(); this.save(a); return a;
+  const a:Asset={id:'media_'+randomUUID(),path,realPath,sha256:digest(bytes),bytes:bytes.length,name:path.split('/').pop()!,revoked:false,addedAt:new Date().toISOString(),sourceUrl,downloadReceipt}; remaining(); this.save(a); return a;
  }
  async resolve(id:string):Promise<Asset> {
   const a=this.get(id); if(realpathSync(a.path)!==a.realPath) throw Error('Asset changed: register again');
@@ -35,8 +37,8 @@ export class MediaCatalog {
   const data=await boundedRead(a.realPath); if(digest(data)!==a.sha256) throw Error('Asset changed: register again'); this.get(id); return a;
  }
  findBySourceUrl(canonicalUrl:string):Asset|undefined {
-  const match=this.list().find(asset=>asset.source_url===canonicalUrl);
-  return match?this.get(match.id):undefined;
+  return this.list().filter(asset=>asset.source_url===canonicalUrl).map(asset=>this.get(asset.id))
+   .sort((a,b)=>Number(Boolean(b.downloadReceipt))-Number(Boolean(a.downloadReceipt))||b.addedAt.localeCompare(a.addedAt)||a.id.localeCompare(b.id))[0];
  }
  async snapshot<T>(id:string, work:(asset:Asset,path:string)=>Promise<T>):Promise<T> {
   const a=this.get(id);

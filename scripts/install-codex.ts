@@ -1,11 +1,8 @@
-// install-codex.ts — integra este server como openai_base_url de Codex.
-//
-// Seguro por defecto: sin --apply solo muestra el cambio (dry-run). Con
-// --apply hace backup del config antes de escribir; --restore restaura el
-// backup mas reciente. Nunca toca auth.json ni otros archivos de ~/.codex.
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// Legacy TOML helpers remain available to callers. Global bridge installation
+// is disabled: the executable prepares an isolated ISyMCP profile instead.
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 const DEFAULT_URL = "http://127.0.0.1:8791/v1";
 
@@ -62,51 +59,32 @@ export function install(options: {
   restore?: boolean;
   backupDir?: string;
 }): InstallResult {
-  const configPath = resolve(options.configPath ?? defaultConfigPath());
-  const backupDir = resolve(options.backupDir ?? join(import.meta.dir, "..", "backups"));
-  const url = options.url ?? DEFAULT_URL;
-
-  if (options.restore) {
-    const latest = join(backupDir, "latest.json");
-    if (!existsSync(latest)) throw new Error(`no hay backup en ${backupDir}`);
-    const journal = JSON.parse(readFileSync(latest, "utf8")) as { backupPath: string; configPath: string };
-    copyFileSync(journal.backupPath, journal.configPath);
-    return {
-      action: "restore",
-      configPath: journal.configPath,
-      url,
-      previous: null,
-      backupPath: journal.backupPath,
-    };
+  if (options.apply || options.restore) {
+    throw new Error("instalacion global desactivada; usa isymcp models apply para preparar un perfil aislado");
   }
-
+  const configPath = resolve(options.configPath ?? defaultConfigPath());
+  const url = options.url ?? DEFAULT_URL;
   const original = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
   const previous = getTopLevelTomlString(original, "openai_base_url");
-  if (!options.apply) {
-    return { action: "dry-run", configPath, url, previous };
-  }
-
-  mkdirSync(dirname(configPath), { recursive: true });
-  mkdirSync(backupDir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupPath = join(backupDir, `config.toml.${stamp}`);
-  writeFileSync(backupPath, original);
-  writeFileSync(configPath, setTopLevelTomlString(original, "openai_base_url", url));
-  writeFileSync(join(backupDir, "latest.json"), JSON.stringify({ configPath, backupPath, previous }, null, 2));
-
-  return { action: "apply", configPath, url, previous, backupPath };
+  return { action: "dry-run", configPath, url, previous };
 }
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  const result = install({
-    configPath: argValue(args, "--config"),
+  if (args.includes("--config")) throw new Error("--config global desactivado; usa --codex-home (solo lectura) y --profile-dir para el perfil aislado");
+  const { installWebModels } = await import("./install-web-models");
+  const result = installWebModels({
+    codexHome: argValue(args, "--codex-home"),
+    profileDir: argValue(args, "--profile-dir"),
     url: argValue(args, "--url"),
+    model: argValue(args, "--model"),
+    effort: argValue(args, "--effort"),
+    caps: argValue(args, "--caps"),
     apply: args.includes("--apply"),
     restore: args.includes("--restore"),
   });
   console.log(JSON.stringify(result, null, 2));
   if (result.action === "dry-run") {
-    console.log("(dry-run: usa --apply para escribir, con backup)");
+    console.log("(dry-run: --apply prepara el perfil aislado de ISyMCP; Codex nativo conserva su configuracion)");
   }
 }

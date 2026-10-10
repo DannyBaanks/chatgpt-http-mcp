@@ -33,6 +33,18 @@ test("identical OK replies from distinct containers are accepted", async () => {
   expect(snapshot).toEqual({ id: "new", text: "OK" });
   expect(isNewAssistantTurn("old", "OK", snapshot.id, snapshot.text)).toBe(true);
 });
+test("an empty marked assistant ignores its surrounding personality survey", async () => {
+  const empty = turn("new", "ChatGPT dijo:\n¿Te gusta esta personalidad?", false);
+  empty.querySelectorAll = (selector?: string) => selector?.includes("assistant-message") ? [{ innerText: "" }] : [];
+  expect(await reader(pageFor([empty]))).toEqual({ id: "new", text: "" });
+});
+test("legacy marker containers never return a survey as an assistant answer", async () => {
+  const survey = "¿Te gusta esta personalidad?";
+  expect(extractResponse(`ChatGPT dijo:\n${survey}`)).toBe("");
+  expect(await reader(pageFor([turn("new", `ChatGPT dijo:\n${survey}`, false)]))).toEqual({ id: "new", text: "" });
+  expect(await reader(pageFor([turn("new", `ChatGPT dijo:\nOK\n${survey}`, false)]))).toEqual({ id: "new", text: "OK" });
+  expect(extractResponse("ChatGPT said:\nDo you like this personality?")).toBe("");
+});
 test("missing identity is not evidence that the old answer is new", () => {
   expect(isNewAssistantTurn("old", "OLD", "", "OLD")).toBe(false);
 });

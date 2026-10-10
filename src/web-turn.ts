@@ -106,7 +106,9 @@ export function isNewAssistantTurn(beforeId: string, beforeText: string, idNow: 
 /** A donde hay que ir (o null si la pestana ya esta donde debe). */
 export function navigationTarget(currentUrl: string, nav: WebNavigation | undefined): string | null {
   if (!nav) return null;
-  if (nav.to === "new") return CHATGPT_HOME;
+  // openSession already loads the homepage. Repeating that navigation tears
+  // down its hydrated composer before the first turn can use it.
+  if (nav.to === "new") return currentUrl === CHATGPT_HOME ? null : CHATGPT_HOME;
   const target = canonicalConversationUrl(nav.url);
   if (!target) throw new Error(`web_bad_conversation_url: ${nav.url}`);
   return canonicalConversationUrl(currentUrl) === target ? null : target;
@@ -222,13 +224,46 @@ export function extractResponse(main: string): string {
   if (idx < 0) return "";
   let rest = main.slice(idx + markers[0].length);
   const cut = rest.search(
-    /(ChatGPT puede cometer errores|ChatGPT can make mistakes|Última respuesta|Tú dijiste:|You said:)/i,
+    /(ChatGPT puede cometer errores|ChatGPT can make mistakes|Última respuesta|Tú dijiste:|You said:|(?:^|\n)\s*¿?Te gusta esta personalidad\?|(?:^|\n)\s*Do you like this personality\?)/i,
   );
-  if (cut > 0) rest = rest.slice(0, cut);
+  if (cut >= 0) rest = rest.slice(0, cut);
   return rest.trim();
 }
 
-let session: { browser: Browser; page: Page; key: string } | undefined;
+interface OwnedBrowser { close(): Promise<void> }
+
+/** Initialization transfers ownership only when all required steps succeed. */
+export async function initializeOwnedBrowser<T>(browser: OwnedBrowser, initialize: () => Promise<T>): Promise<T> {
+  try { return await initialize(); }
+  catch (error) {
+    await browser.close().catch(() => {});
+    throw error;
+  }
+}
+
+/** A detached or failed resource can never be returned as the cached session. */
+export class BrowserSessionOwner<T extends { browser: OwnedBrowser; key: string }> {
+  private active: T | undefined;
+  constructor(private readonly valid: (session: T) => boolean = () => true) {}
+  get current(): T | undefined { return this.active && this.valid(this.active) ? this.active : undefined; }
+  async close(): Promise<void> {
+    const previous = this.active;
+    this.active = undefined;
+    if (previous) await previous.browser.close().catch(() => {});
+  }
+  async open(key: string, create: () => Promise<T>): Promise<T> {
+    const current = this.current;
+    if (current?.key === key) return current;
+    await this.close();
+    const created = await create();
+    this.active = created;
+    return created;
+  }
+}
+
+const sessionOwner = new BrowserSessionOwner<{ browser: Browser; page: Page; key: string }>(
+  current => current.browser.isConnected() && !current.page.isClosed(),
+);
 
 function isCrashError(err: unknown): boolean {
   const m = err instanceof Error ? err.message : String(err);
@@ -237,10 +272,7 @@ function isCrashError(err: unknown): boolean {
 
 /** M13c: cierra la sesion rota para que openSession relance el browser. */
 async function reviveSession(): Promise<void> {
-  if (!session) return;
-  const current = session;
-  session = undefined;
-  await current.browser.close().catch(() => {});
+  await sessionOwner.close();
 }
 
 /** Lanza Chrome con la sesion de ChatGPT (mismo perfil para headless y visible). */
@@ -257,14 +289,16 @@ export async function launchChatGPTBrowser(
     ignoreDefaultArgs: ["--enable-automation"],
     args: ["--disable-blink-features=AutomationControlled"],
   });
-  const context = await browser.newContext({
-    storageState: statePath,
-    locale: "es-ES",
-    userAgent: normalUA,
-    viewport: opts.viewport === undefined ? { width: 1280, height: 800 } : opts.viewport,
+  return initializeOwnedBrowser(browser, async () => {
+    const context = await browser.newContext({
+      storageState: statePath,
+      locale: "es-ES",
+      userAgent: normalUA,
+      viewport: opts.viewport === undefined ? { width: 1280, height: 800 } : opts.viewport,
+    });
+    const page = await context.newPage();
+    return { browser, context, page };
   });
-  const page = await context.newPage();
-  return { browser, context, page };
 }
 
 async function openSession(options: WebTurnOptions): Promise<{ browser: Browser; page: Page }> {
@@ -274,28 +308,28 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
     throw new Error(`web_session_missing: no existe ${statePath}; corre scripts/import-cookies.ts`);
   }
   const key = `${which}|${statePath}|${options.headed ? "headed" : "headless"}`;
-  if (session && session.key === key) return session;
+  const current = sessionOwner.current;
+  if (current?.key === key) return current;
 
   const executablePath = which === "shell" ? shellBinary() : CHROME_BINARY;
   if (!existsSync(executablePath)) {
     throw new Error(`web_browser_missing: binario no encontrado: ${executablePath}`);
   }
-  if (session) await session.browser.close().catch(() => {});
-  const { browser, page } = await launchChatGPTBrowser(executablePath, statePath, {
-    headless: !options.headed,
-    sandbox: which !== "shell",
+  return sessionOwner.open(key, async () => {
+    const { browser, page } = await launchChatGPTBrowser(executablePath, statePath, {
+      headless: !options.headed,
+      sandbox: which !== "shell",
+    });
+    return initializeOwnedBrowser(browser, async () => {
+      const startUrl = options.conversationUrl?.includes("/c/") ? options.conversationUrl : "https://chatgpt.com/";
+      await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
+      await composer.waitFor({ state: "visible", timeout: 60_000 });
+      const loggedIn = (await page.locator('[data-testid="login-button"], a[href="/auth/login"]').count()) === 0;
+      if (!loggedIn) throw new Error("web_session_expired: ChatGPT no aparece logueado (cookies vencidas o bloqueadas)");
+      return { browser, page, key };
+    });
   });
-  const startUrl = options.conversationUrl?.includes("/c/") ? options.conversationUrl : "https://chatgpt.com/";
-  await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
-  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
-  await composer.waitFor({ state: "visible", timeout: 60_000 });
-  const loggedIn = (await page.locator('[data-testid="login-button"], a[href="/auth/login"]').count()) === 0;
-  if (!loggedIn) {
-    await browser.close().catch(() => {});
-    throw new Error("web_session_expired: ChatGPT no aparece logueado (cookies vencidas o bloqueadas)");
-  }
-  session = { browser, page, key };
-  return session;
 }
 
 /**
@@ -366,7 +400,11 @@ async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text
   const extracted = extractResponse(snapshot.text);
   return {
     id: snapshot.id,
-    text: extracted || (/^(Tú dijiste|You said):/.test(snapshot.text) ? "" : snapshot.text),
+    // A marked legacy container can have no answer yet. Do not restore its
+    // surrounding UI after extractResponse deliberately returned empty.
+    text: /ChatGPT (dijo|said):/.test(snapshot.text)
+      ? extracted
+      : (/^(Tú dijiste|You said):/.test(snapshot.text) ? "" : snapshot.text),
     thought: snapshot.thought || undefined,
   };
 }
@@ -495,7 +533,7 @@ export function sendWebTurn(prompt: string, options: WebTurnOptions = {}): Promi
 
 async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {}): Promise<WebTurnResult> {
   if (!prompt.trim()) throw new Error("web_empty_prompt: prompt vacio");
-  const reused = Boolean(session);
+  const reused = Boolean(sessionOwner.current);
   const { page } = await openSession(options);
   const target = navigationTarget(page.url(), options.navigate);
   if (target) {
@@ -692,8 +730,5 @@ export async function withSessionPage<T>(options: WebTurnOptions, fn: (page: Pag
 
 /** Cierra la sesion perezosa (tests, scripts, apagado). */
 export async function closeWebSession(): Promise<void> {
-  if (!session) return;
-  const current = session;
-  session = undefined;
-  await current.browser.close().catch(() => {});
+  await sessionOwner.close();
 }

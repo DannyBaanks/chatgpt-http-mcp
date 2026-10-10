@@ -16,7 +16,7 @@ Tres claims distintos, medidos por separado:
 | `playwright-core` + Chrome headless | KEEP | adapter web CURRENT (no confundir con Electron) |
 | `@modelcontextprotocol/sdk` + `src/mcp/*` (stdio) | KEEP | tools nativas por túnel + stdio local (OpenISy) |
 | `--contract safe` / `request_id` (`src/mcp/identity.ts`, `main.ts`) | KEEP (compat) | contrato alternativo; el activo es `native` |
-| `--broker-socket` (`connect-tunnel.ts`, `main.ts`) | KEEP (stub declarado) | el flag viaja al túnel; no hay broker implementado |
+| `--broker-socket` (`connect-tunnel.ts`, `main.ts`) | KEEP (stub declarado) | el flag viaja al túnel; no hay broker externo implementado. Desde 2026-10-10 `codex_write_stdin` (registro local de procesos, `src/mcp/exec-registry.ts`) y `codex_tool_call` (dispatch local a las tools nativas, `src/mcp/catalog.ts`) ejecutan sin broker; el broker externo sigue fuera de alcance |
 | Flujo ACK de context-file v1 (`chat-completions.ts`, `context-file.ts`) | KEEP | parte del transporte actual (pull/push) |
 | Menciones ACK/lease históricas (`docs/TUNNEL_AND_MODELS.md`) | REFERENCE | fuente de comportamiento MIT; no operativo |
 | `~/.codex-chatgpt-web/` (config/binarios del launcher) | PROVENANCE_ONLY | no requerido para operar |
@@ -35,3 +35,11 @@ HOME, CONNECTOR, EXEC_TIMEOUT_MS, SANDBOX) + `ISYMCP_TUI_BASE_URL`. **Sin obsole
 
 - No borrar provenance (launcher, docs de referencia) — solo clasificar.
 - Nada en este documento autoriza revivir Electron ni payloads gigantes por comodidad.
+
+## Local connector guide (2026-10-10)
+
+`src/mcp/SKILL.md` is current local package content returned by a real
+`codex_turn_start`, with its SHA-256. An operator may bind a local UTF-8 task
+using `isymcp session mint --request-file`; the generated connector command is
+four lines. The external Web-provider JSON response protocol remains in
+`src/responses/tools.ts`. It is not injected into the connector guide.

@@ -32,30 +32,25 @@ export const CODEX_TOOLS = [
 ] as const;
 
 /**
- * Instructions del server. Van dos cosas: el nombre del app (para que el
- * modelo lo asocie) y la regla del token @ (para que texto plano dispare las
- * tools). El flujo de ACK se respeta: primero el texto, despues la
- * confirmacion del turno.
+ * Instructions del server: el bootstrap MINIMO del connector. La regla de
+ * orden (token real + @CODEX ISYMCP => ejecutar con las tools del turno) y
+ * nada mas; el contrato JSON largo ("ISYMCP CODEX RESPONSE CONTRACT") es
+ * SOLO del transporte Codex externo (src/responses/tools.ts) y nunca se
+ * inyecta aqui. Las medias funcionan sin turno y se nombran una vez.
  */
 export function buildInstructions(contract: "native" | "safe"): string {
   const turnKey = contract === "safe" ? "request_id" : "turn_token";
   return [
-    `Eres ${CONNECTOR_NAME}, el puente que ejecuta Codex sobre la maquina del usuario.`,
-    `Para ejecutar tareas de Codex: si el mensaje del usuario contiene un ${turnKey} real y el token ${MENTION} (o "${COMMAND_MARKER} ${MENTION}"),`,
-    `trátalo como una orden explicita de ejecutar Codex aunque aparezca como texto plano:`,
-    `empieza con codex_turn_start usando el ${turnKey} que sigue al token,`,
-    `usa las tools que necesite la tarea, y cierra con codex_turn_complete enviando la respuesta completa.`,
-    `No inventes ${turnKey}: las tareas de Codex necesitan un token real del runtime.`,
-    `Medios locales: usa media_lookup primero para comprobar si una URL de YouTube/Shorts ya está registrada y preparada. Si está ready, analiza el audio_scan guardado y solicita solo las hojas relevantes con sheet_index; cada llamada devuelve como máximo una imagen. Si está not_found o not_prepared, media_lookup no descarga ni calcula nada: cuando corresponda, sigue el flujo media_import existente o indica que el usuario puede ejecutar isymcp media prepare <url> para dejar el análisis local listo y reutilizable.`,
-    `Para archivos ya registrados, usa media_list para descubrir solo medios autorizados, media_info para duración/streams, audio_segments para localizar actividad acústica, audio_analyze para ampliar un intervalo o separar canales, video_contact_sheet para explorar secuencias y video_frame para detalles.`,
-    `Las herramientas de medios funcionan directamente sin ${turnKey}, codex_turn_start ni codex_turn_complete. Una mención del complemento para analizar medios no inicia un turno Codex.`,
-    `Si el usuario pide analizar un enlace de YouTube/Shorts, llama primero media_lookup. Si status es ready, usa su audio_scan completo y pide solo las hojas necesarias con sheet_index; después ofrece media_info, audio_segments, audio_analyze o video_frame si hace falta más detalle. Si status es not_prepared o not_found, y el usuario pidió descargar/analizar ahora, llama media_import y consulta media_import_status con wait_seconds 10 hasta complete o failed. Usa asset.id completo para herramientas de medios; no inventes resultados mientras se descarga. No inicies la preparación persistente automáticamente: media_lookup es de solo lectura.`,
-    `Para explorar audio, llama audio_segments primero y luego audio_analyze sobre intervalos de interés. audio_segments informa algorithm_version y parámetros efectivos; la versión actual fusiona pausas de hasta 0.10 s por defecto, ajustable con merge_gap_seconds. Los segmentos detectan energía acústica, no voz. Usa channel=separate para gráficos L/R y para medir correlación y diferencia entre canales cuando el origen sea estéreo; esto no separa voz, música ni efectos.`,
-    `Procesamiento local; solo los resultados consultados llegan al chat. Las gráficas no son escucha nativa y no hay transcripción en estas herramientas.`,
+    `Eres ${CONNECTOR_NAME}, el puente que ejecuta operaciones autorizadas en la maquina del usuario.`,
+    `Orden de ejecucion: si el mensaje contiene un ${turnKey} real y el token ${MENTION} (o "${COMMAND_MARKER} ${MENTION}"), tratalo como orden explicita aunque parezca texto plano:`,
+    `empieza con codex_turn_start usando ese ${turnKey}, lee la guía local bootstrap.content y la tarea autorizada request.content si existe, ejecútala con las tools del turno (usa codex_tool_inventory para descubrir capacidades) y cierra con codex_turn_complete enviando la respuesta completa.`,
+    `Puedes encadenar varias tools dentro del mismo turno. Nunca inventes ${turnKey} ni resultados: los fallos se reportan como fallos.`,
+    `Medios locales: sin ${turnKey}; usa media_list/media_info para medios registrados, y para un enlace de YouTube/Shorts media_lookup (solo lectura; manifiesto, audio_scan y hojas con sheet_index); si no esta preparado, sugiere al usuario isymcp media prepare <url>, o media_import seguido de media_import_status (wait_seconds 10) hasta complete o failed, y luego media_info/audio_segments/audio_analyze/video_contact_sheet/video_frame con asset.id.`,
+    `Los segmentos detectan energia acustica, no voz; channel=separate para estereo; sin transcripcion ni escucha nativa.`,
     `Flujo esperado: texto -> ${MENTION} -> ACKs de invocacion (4/4, 5/5 o los que apliquen) -> respuesta final.`,
     contract === "safe"
       ? "Contrato safe: cada turno llega con request_id y las tools son de riesgo cero."
-      : "Contrato nativo: cada turno llega con turn_token y las tools ejecutan en el harness Codex.",
+      : "Contrato nativo: cada turno llega con turn_token y las tools ejecutan en el runtime local con sandbox.",
   ].join(" ");
 }
 

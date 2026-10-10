@@ -104,6 +104,28 @@ export function responseEvents(response: Record<string, unknown>, text: string):
   const itemId = message.id as string;
   const { output: _output, output_text: _outputText, ...rest } = response;
   const pending = { ...rest, status: "in_progress", output: [] };
+  if (message.type === "tool_search_call") {
+    return [
+      { type: "response.created", response: pending },
+      { type: "response.in_progress", response: pending },
+      { type: "response.output_item.added", output_index: 0, item: { ...message, status: "in_progress" } },
+      { type: "response.output_item.done", output_index: 0, item: message },
+      { type: "response.completed", response },
+    ].map((event, sequence_number) => ({ ...event, sequence_number }));
+  }
+  if (message.type === "function_call" || message.type === "custom_tool_call") {
+    const field = message.type === "function_call" ? "arguments" : "input";
+    const prefix = message.type === "function_call" ? "response.function_call_arguments" : "response.custom_tool_call_input";
+    return [
+      { type: "response.created", response: pending },
+      { type: "response.in_progress", response: pending },
+      { type: "response.output_item.added", output_index: 0, item: { ...message, status: "in_progress", [field]: "" } },
+      { type: `${prefix}.delta`, item_id: itemId, output_index: 0, delta: message[field] },
+      { type: `${prefix}.done`, item_id: itemId, output_index: 0, [field]: message[field] },
+      { type: "response.output_item.done", output_index: 0, item: message },
+      { type: "response.completed", response },
+    ].map((event, sequence_number) => ({ ...event, sequence_number }));
+  }
   const part = { type: "output_text", text, annotations: [] };
   const at = { item_id: itemId, output_index: 0, content_index: 0 };
   const events: Array<Record<string, unknown>> = [

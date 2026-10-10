@@ -12,7 +12,7 @@ import { augmentCatalog, openAiWebModelList } from "./web-models";
 import { handleWebResponses, peekWebRequest } from "./web-responses";
 import { handleChatCompletions } from "./chat-completions";
 import { runIdempotent } from "./turn-idempotency";
-import { parseWsTurn, toJsonl, wsFrames } from "./ws-responses";
+import { parseWsTurn, wsFrames } from "./ws-responses";
 import { guardLocalRequest } from "./local-guard";
 import { forwardHeaders, NativeWsProxy, upstreamWsUrl } from "./ws-native-proxy";
 import { ChatTurnError, chatStatus, runChatTurn } from "./chat-turn";
@@ -168,7 +168,8 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
   };
 }
 
-export function startServer(config: AppConfig = loadConfig()) {
+export function startServer(config: AppConfig = loadConfig(), options: { webResponse?: typeof handleWebResponses } = {}) {
+  const webResponse = options.webResponse ?? handleWebResponses;
   const handler = createHandler(config);
   const server = Bun.serve({
     hostname: config.hostname,
@@ -218,10 +219,10 @@ export function startServer(config: AppConfig = loadConfig()) {
           headers.set("content-type", "application/json");
           const request = new Request("http://127.0.0.1/v1/responses", { method: "POST", headers,
             body: JSON.stringify({ ...turn.body, stream: false }) });
-          const response = await handleWebResponses(request, config, { ...turn, stream: false });
+          const response = await webResponse(request, config, { ...turn, stream: false });
           const body = await response.json();
           if (!response.ok) { ws.send(JSON.stringify({ type: "error", error: body.error })); return; }
-          ws.send(toJsonl(wsFrames(turn.model, body.output_text, body).map((line) => JSON.parse(line))));
+          for (const frame of wsFrames(turn.model, body.output_text, body)) ws.send(frame);
         } catch {
           ws.send(JSON.stringify({ type: "error", error: { type: "web_task_state_unavailable", message: "Web task request could not be completed" } }));
         }
