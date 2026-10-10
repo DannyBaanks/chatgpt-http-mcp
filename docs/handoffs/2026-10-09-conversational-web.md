@@ -198,3 +198,48 @@ claiming the subsystem. Previous agent was
 `codex_isymcp_recover_81f462e1ab`, topic
 `isymcp/conversational-native-tools`; the handoff commit precedes release.
 No new task or automation was created and no user conversation was archived.
+
+## Continuation after the handoff commit
+
+The next session continued from `d511cd0` without restoring a global
+`openai_base_url`. `~/.codex/config.toml` still selects `gpt-6-luna`; its
+SHA-256 stayed `dc56c54a75e3aeac23ab5ef1857e0d2852c7725af2926780946c277dea469f23`.
+
+### Slider readiness — fixed and checked live
+
+`selectComposerSettings` waits until the owned power row is visible and its
+slider exposes one 3-step scale, then presses ArrowRight. It does not click
+inert model rows. The delayed-slider DOM regression failed first with
+`web_effort_control_unavailable: expected one reasoning control`, then passed.
+
+Targeted suite after the fix: **88 pass, 0 fail across the same 9 files**.
+Read-only live probe, no message submitted, observed GPT-6 / High / 3 / 3:
+
+`/home/danny/.codex-web-http/evidence/composer-live/81b981e2-40a3-4e25-aee8-fe5dd9d517fa/raw.json`
+
+SHA-256: `cc70b0071894c276d6f46176c2e9a04959cadb58815b0fab5107216c1e9e613f`.
+
+### Task 2 CLI canary — NOT_DEMONSTRATED
+
+`/tmp/isymcp-web-cli-real-canary.ts` was run once against current code. Codex
+exited 1 in about 15 s, before the temporary bridge received any request:
+
+`You’ve hit your usage limit ... try again at Oct 10th, 2026 3:59 AM.`
+
+Evidence:
+`/home/danny/.codex-web-http/evidence/web-cli-live/59ee7ebc-1849-4a1d-a2b5-be1e6de3757f/receipt.json`
+
+SHA-256: `c6176d564f4a275d6b5263f03978976b65c13f4b362919c6d3b6b8c8aa12866b`.
+
+This is an account quota stop, not a Web transport pass. It was not retried.
+
+### Task 3 — CLI entry added, live resume still open
+
+`isymcp conversation new|list|resume` and the TUI item "Nueva conversación
+Codex…" are implemented. The launch is interactive, uses `--no-daemon`, and
+sends `x-isymcp-launch-id` through the process environment. A committed turn
+writes an idempotent receipt; replay rebuilds that receipt. Resume uses the
+saved thread id, model and workspace. `--client app` fails closed. Two real
+chats, a native command and a fresh-process resume were not run: the same
+Codex quota blocked the client. Full suite, App gate and a "100%" claim remain
+open.

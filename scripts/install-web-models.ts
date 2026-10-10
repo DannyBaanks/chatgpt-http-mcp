@@ -61,12 +61,16 @@ function validateBridgeUrl(url: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
-export function isolatedProvider(url: string, tokenEnv?: string): Record<string, unknown> {
+export function isolatedProvider(url: string, tokenEnv?: string, extraEnvHeaders?: Record<string, string>): Record<string, unknown> {
   if (tokenEnv && !/^[A-Z][A-Z0-9_]*$/.test(tokenEnv)) throw new Error("nombre de variable de token invalido");
+  for (const [header, envName] of Object.entries(extraEnvHeaders ?? {})) {
+    if (!/^[a-z0-9-]+$/.test(header) || !/^[A-Z][A-Z0-9_]*$/.test(envName)) throw new Error("cabecera de proveedor invalida");
+  }
+  const envHeaders = { ...(tokenEnv ? { [TOKEN_HEADER]: tokenEnv } : {}), ...extraEnvHeaders };
   return {
     name: "ISyMCP Web", base_url: validateBridgeUrl(url), wire_api: "responses", requires_openai_auth: false,
     supports_websockets: false, stream_idle_timeout_ms: 300_000,
-    ...(tokenEnv ? { env_http_headers: { [TOKEN_HEADER]: tokenEnv } } : {}),
+    ...(Object.keys(envHeaders).length ? { env_http_headers: envHeaders } : {}),
   };
 }
 
@@ -74,9 +78,10 @@ export function isolatedProvider(url: string, tokenEnv?: string): Record<string,
 export function buildIsolatedCodexArgs(
   url: string, model = "chatgpt-web/gpt-5.6-sol", effort = "high", catalogPath?: string,
   tokenEnv = bridgeToken() ? "CODEX_WEB_HTTP_TOKEN" : undefined,
+  extraEnvHeaders?: Record<string, string>,
 ): string[] {
   if (!VERIFIED_WEB_ROUTES[model]?.includes(effort as CodexEffort)) throw new Error("el perfil aislado requiere un modelo y esfuerzo Web verificado");
-  const provider = isolatedProvider(url, tokenEnv);
+  const provider = isolatedProvider(url, tokenEnv, extraEnvHeaders);
   const fields = Object.entries(provider).map(([key, value]) => {
     const tomlValue = key === "env_http_headers"
       ? `{ ${Object.entries(value as Record<string, string>).map(([header, env]) => `${JSON.stringify(header)}=${JSON.stringify(env)}`).join(", ")} }`

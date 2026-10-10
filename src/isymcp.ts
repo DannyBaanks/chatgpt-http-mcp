@@ -549,6 +549,11 @@ function help(): void {
   isymcp models apply        prepara perfil aislado; no cambia Codex global
   isymcp models restore      restaura solo el perfil Web propio
   isymcp codex [args...]     ejecuta Codex con perfil ISyMCP aislado (sin mutar config.toml)
+  isymcp conversation new [--client cli|app] [--cwd dir] [--model alias]
+                             CLI interactivo, proveedor solo de ese proceso.
+                             --client app falla: la App no tiene entrada verificada
+  isymcp conversation list   hilos confirmados, con id completo
+  isymcp conversation resume <launch-id|thread-id>
   isymcp codex launcher      instala lanzador ~/.local/bin/codex-isymcp y .desktop
                              es un CLI en terminal, no la app de Codex
   isymcp command "texto"     texto para pegar en chatgpt.com
@@ -654,6 +659,12 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
   "media-prepare": async () => {
     const { mediaCommand } = await import("./media/cli");
     await mediaCommand("prepare", []);
+  },
+  "conversation-new": async () => {
+    const client = (await ask("cliente [cli/app]: ")) || "cli";
+    const cwd = (await ask(`workspace (${process.cwd()}): `)) || process.cwd();
+    const model = (await ask("modelo [chatgpt-web/gpt-5.6-sol]: ")) || "chatgpt-web/gpt-5.6-sol";
+    await conversationCommand("new", ["--client", client, "--cwd", cwd, "--model", model]);
   },
   "settings-verify": () => settingsVerify(),
   "settings-sync": () => settingsSync(),
@@ -771,6 +782,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   tunnel(sub);
 } else if (cmd === "codex") {
   await codexCommand(sub, rest);
+} else if (cmd === "conversation") {
+  await conversationCommand(sub, rest);
 } else if (cmd === "models") {
   if (sub === "restore") modelsRestore();
   else if (sub === "apply") installIntoCodex(true);
@@ -1030,6 +1043,76 @@ async function canaryCommand(sub: string, rest: string[]): Promise<void> {
     sh(["systemctl", "--user", "daemon-reload"]);
     console.log("timer quitado");
   }
+}
+
+function spawnCodex(args: string[], extraEnv: Record<string, string> = {}): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn("codex", args, { stdio: "inherit", env: { ...process.env, ...extraEnv } });
+    child.once("error", (error) => { console.error(`no se pudo iniciar Codex: ${error.message}`); resolve(1); });
+    child.once("exit", (status, signal) => resolve(status ?? (signal ? 1 : 0)));
+  });
+}
+
+async function ensureWebBridge(): Promise<void> {
+  if (await isBridgeAlive(PORT)) return;
+  console.log(`[isymcp] Bridge local apagado en http://127.0.0.1:${PORT}. Iniciando...`);
+  startServer();
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (await isBridgeAlive(PORT)) return;
+  }
+  throw new Error(`bridge Web no disponible o no autorizado en ${BRIDGE}; no se inicio Codex`);
+}
+
+function commandPositionals(args: string[]): string[] {
+  const valued = new Set(["--client", "--cwd", "--model"]);
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (valued.has(arg)) { i += 1; continue; }
+    if (!arg.startsWith("--")) out.push(arg);
+  }
+  return out;
+}
+
+async function conversationCommand(sub: string | undefined, rest: string[]): Promise<void> {
+  const {
+    conversationsDir, findConversation, listConversations, planNewConversation, planResumeConversation, writeLaunchIntent,
+  } = await import("./codex-conversation");
+  const dir = conversationsDir();
+  if (sub === "list") {
+    const rows = listConversations(dir);
+    if (!rows.length) console.log("sin conversaciones confirmadas");
+    for (const row of rows) console.log(`${row.launchId}\t${row.threadId}\t${row.model}\t${row.cwd}\t${row.url}`);
+    return;
+  }
+  if (sub === "new") {
+    const client = flag("--client", rest) ?? "cli";
+    const cwd = flag("--cwd", rest) ?? process.cwd();
+    const model = flag("--model", rest) ?? "chatgpt-web/gpt-5.6-sol";
+    const plan = planNewConversation({ client, cwd, model });
+    if (!existsSync(cwd)) throw new Error(`web_conversation_cwd_invalid: no existe ${cwd}`);
+    writeLaunchIntent(dir, plan.intent);
+    await ensureWebBridge();
+    const profile = installWebModels({ apply: true, url: `${BRIDGE}/v1`, model, effort: "high", caps: process.env.CODEX_WEB_HTTP_CAPS });
+    const code = await spawnCodex(plan.args({ port: PORT, catalogPath: profile.catalogReady ? profile.catalogPath : undefined }), plan.env);
+    if (code !== 0) process.exitCode = code;
+    return;
+  }
+  if (sub === "resume") {
+    const id = commandPositionals(rest)[0];
+    if (!id) throw new Error("uso: isymcp conversation resume <launch-id|thread-id>");
+    const receipt = findConversation(dir, id);
+    await ensureWebBridge();
+    const profile = installWebModels({
+      apply: true, url: `${BRIDGE}/v1`, model: receipt.model, effort: receipt.effort, caps: process.env.CODEX_WEB_HTTP_CAPS,
+    });
+    const args = planResumeConversation(receipt, { port: PORT, catalogPath: profile.catalogReady ? profile.catalogPath : undefined });
+    const code = await spawnCodex(args, { ISYMCP_LAUNCH_ID: receipt.launchId });
+    if (code !== 0) process.exitCode = code;
+    return;
+  }
+  throw new Error("uso: isymcp conversation new [--client cli|app] [--cwd dir] [--model alias] | list | resume <launch-id|thread-id>");
 }
 
 async function codexCommand(sub: string | undefined, rest: string[]): Promise<void> {

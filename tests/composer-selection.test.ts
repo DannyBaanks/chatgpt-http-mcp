@@ -47,6 +47,41 @@ test("explicit model selection sets High and confirms the exact model in the com
   } finally { await page.close(); }
 });
 
+// The live simple view paints the power row before its slider mounts. The row
+// is attached with an empty child and no box, so an immediate visible count is 0.
+async function delayedSliderComposer(): Promise<Page> {
+  const page = await browser.newPage();
+  await page.setContent(`<form><div contenteditable="true" id="prompt-textarea"></div>
+    <button type="button" disabled aria-haspopup="menu" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning">Medium</button></form>
+    <div role="menu" hidden><div data-model-picker-view="simple">
+    <div role="menuitem" data-model-picker-view-toggle="true" tabindex="0" aria-label="Seleccionar modelo">Medium</div>
+    <div data-model-choices aria-hidden="true" inert><div role="menuitemradio" aria-checked="true">GPT-6</div><div role="menuitemradio" aria-checked="false">GPT-5.6 Sol</div></div>
+    <div role="menuitem" data-reasoning-slider="true" tabindex="-1" aria-keyshortcuts="ArrowLeft ArrowRight" aria-label="Potencia" style="width:0;height:0;overflow:hidden"><span></span></div></div></div>
+    <script>
+    const trigger=document.querySelector('form button'),menu=document.querySelector('[role="menu"]');
+    const power=menu.querySelector('[data-reasoning-slider]');
+    setTimeout(()=>trigger.disabled=false,50);
+    let mounted=false;
+    function mount(){if(mounted)return;mounted=true;power.style.cssText='';power.textContent='';
+      power.append('Potencia');
+      const slider=document.createElement('span');
+      slider.setAttribute('role','slider');slider.setAttribute('aria-valuemin','0');slider.setAttribute('aria-valuemax','2');slider.setAttribute('aria-valuenow','1');slider.setAttribute('aria-valuetext','Medium');
+      power.append(slider);}
+    trigger.onclick=()=>{menu.hidden=!menu.hidden;trigger.setAttribute('aria-expanded',String(!menu.hidden));if(!menu.hidden)setTimeout(mount,700)};
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'){menu.hidden=true;trigger.setAttribute('aria-expanded','false')}});
+    power.onkeydown=e=>{if(e.key==='ArrowRight'){const slider=power.querySelector('[role="slider"]');if(!slider)return;slider.setAttribute('aria-valuenow','2');slider.setAttribute('aria-valuetext','High');trigger.textContent='High'}};
+    </script>`);
+  return page;
+}
+
+test("reasoning selection waits until the owned slider is usable", async () => {
+  const page = await delayedSliderComposer();
+  try {
+    expect(await settings.selectComposerSettings(page, "GPT-6", "high", { timeoutMs: 3000 })).toMatchObject({ model: "GPT-6", effort: "High", effortPosition: 3, effortSteps: 3 });
+    expect(await page.locator('[role="menu"]').isVisible()).toBe(false);
+  } finally { await page.close(); }
+}, 20000);
+
 test("an unavailable requested model fails without selecting a different model", async () => {
   const page = await composer();
   try {

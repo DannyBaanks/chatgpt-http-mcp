@@ -117,10 +117,18 @@ Codex CLI 0.162.0 nativo ejecutó un comando y terminó el turno con el puente
 apagado. Los tests del lanzador comprueban por separado la selección Web y
 el paso de modelos nativos sin cambiar los archivos globales.
 
-**NO PROBADO:** conversación completa de GPT-5.6 Web con herramientas nativas
-y flujo de la App. Las comprobaciones del navegador siguen viendo una página
-con «Cargando perfil», sin selector de modelo verificable. No se ha demostrado
-que la sesión esté vencida. [Resultados y límites](docs/verification/2026-10-09-codex-isolation.md).
+**Comprobado el 2026-10-09, sin enviar mensaje:** el selector real quedó en
+GPT-6, High, posición 3 de 3. La evidencia privada está en
+`~/.codex-web-http/evidence/composer-live/81b981e2-40a3-4e25-aee8-fe5dd9d517fa`
+(SHA-256 `cc70b0071894c276d6f46176c2e9a04959cadb58815b0fab5107216c1e9e613f`).
+
+**NO PROBADO:** una conversación Web cuyo comando nativo lo ejecute Codex, y
+cualquier flujo de la App. El canario CLI de esa noche no llegó al puente:
+Codex respondió el límite de uso de la cuenta y hubo cero peticiones locales.
+`isymcp conversation new` abre el CLI interactivo con proveedor propio y
+`--no-daemon`. `isymcp conversation new --client app` se rechaza. Reanudar dos
+hilos reales sigue sin demostrarse.
+[Resultados y límites](docs/verification/2026-10-09-codex-isolation.md).
 
 ---
 

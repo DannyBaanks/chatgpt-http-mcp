@@ -18,6 +18,7 @@ export const MENU: MenuItem[] = [
   { id: "panel-open", group: "USAR", label: "◧ Abrir panel", hint: "chat + estado en el navegador" },
   { id: "ask", group: "USAR", label: "✎ Preguntar a ChatGPT…", hint: "turno real desde la terminal" },
   { id: "media-prepare", group: "USAR", label: "Preparar video de YouTube…", hint: "pega URL, elige carpeta y confirma" },
+  { id: "conversation-new", group: "USAR", label: "Nueva conversación Codex…", hint: "CLI con proveedor propio; la App se rechaza" },
   { id: "command", group: "USAR", label: "Armar comando @…", hint: "texto para pegar en chatgpt.com" },
   {
     id: "settings",

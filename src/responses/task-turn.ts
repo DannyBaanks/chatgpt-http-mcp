@@ -8,6 +8,7 @@ import { canonicalConversationUrl, sendWebTurn, withWebLock } from "../web-turn"
 import { normalizeTaskInput, parseResponsesInput, type TaskInputItem } from "./input";
 import { assertWebSelection, webModelLabel, WebTaskError } from "./selection";
 import { decodeToolReply, nativeToolChoice, nativeTools, toolPrompt, type NativeCall } from "./tools";
+import { commitConversationReceipt } from "../codex-conversation";
 
 export interface TaskIdentity { key: string; threadId: string; turnId: string }
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -78,6 +79,17 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
   const fingerprint = hash(stable({ ...semanticBody, input }));
   const dir = deps.dir ?? join(bridgeHome(), "codex-responses");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const rememberConversation = (response: Record<string, any>) => {
+    const launchId = req.headers.get("x-isymcp-launch-id")?.trim() ?? "";
+    if (!launchId) return;
+    const url = response.metadata?.isymcp_conversation;
+    if (typeof url !== "string") throw new WebTaskError("web_conversation_receipt_invalid", 409, "committed response has no conversation");
+    try {
+      commitConversationReceipt(dir, { launchId, threadId: identity.threadId, taskKey: identity.key, url, model: body.model, effort: "high" });
+    } catch (error) {
+      throw new WebTaskError("web_conversation_receipt_invalid", 409, error instanceof Error ? error.message : String(error));
+    }
+  };
   const taskPath = join(dir, `task-${identity.key}.json`);
   const turnPath = join(dir, `turn-${hash(identity.key + identity.turnId)}.json`);
   const requestPath = join(dir, `request-${hash(JSON.stringify([identity.key, identity.turnId, fingerprint]))}.json`);
@@ -95,7 +107,10 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
         throw new WebTaskError("web_task_state_invalid", 503, "invalid durable turn record");
       if (previous) {
         if (previous.fingerprint !== fingerprint) throw new WebTaskError("web_turn_identity_conflict", 409, "same turn has different request content");
-        if (previous.phase === "done" && previous.response) return { body: previous.response, replayed: true };
+        if (previous.phase === "done" && previous.response) {
+          rememberConversation(previous.response);
+          return { body: previous.response, replayed: true };
+        }
         if (previous.phase === "failed" && previous.error) throw new WebTaskError(previous.error.type, previous.error.status, previous.error.message);
         throw new WebTaskError("web_turn_ambiguous", 409, "previous request did not commit a response; it will not be resent");
       }
@@ -107,7 +122,10 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
       if (priorRound) {
         if (priorRound.fingerprint === fingerprint) {
           // Also recognizes durable records created by the older text-only adapter.
-          if (priorRound.phase === "done" && priorRound.response) return { body: priorRound.response, replayed: true };
+          if (priorRound.phase === "done" && priorRound.response) {
+            rememberConversation(priorRound.response);
+            return { body: priorRound.response, replayed: true };
+          }
           if (priorRound.phase === "failed" && priorRound.error) throw new WebTaskError(priorRound.error.type, priorRound.error.status, priorRound.error.message);
           throw new WebTaskError("web_turn_ambiguous", 409, "previous round did not commit; it will not be resent");
         }
@@ -149,6 +167,7 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
       persistRound();
       let attempted = false;
       let target = task?.url;
+      let committed: { body: Record<string, any>; replayed: false } | undefined;
       const pendingState = () => ({ ...(task ?? { input: [], instructions }), url: target ?? "", pending: identity.turnId });
       try {
         let nextPrompt = protocol + prompt;
@@ -208,7 +227,7 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
         response.metadata = { isymcp_conversation: url, isymcp_model_state: "visible_state_verified", isymcp_model: webModelLabel(body.model), isymcp_effort: "High" };
         write(taskPath, { url, input: [...input, emitted], instructions, ...(awaiting ? { awaiting } : {}) });
         record.phase = "done"; record.response = response; persistRound();
-        return { body: response, replayed: false };
+        committed = { body: response, replayed: false };
       } catch (error) {
         if (attempted) {
           // Even a partial commit must keep later requests blocked.
@@ -220,6 +239,9 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
         record.phase = "failed"; record.error = { type: typed.type, status: typed.status, message: typed.message }; persistRound();
         throw typed;
       }
+      if (!committed) throw new WebTaskError("web_turn_not_submitted", 502, "turn ended without a response");
+      rememberConversation(committed.body);
+      return committed;
     } finally { closeSync(fd); unlinkSync(leasePath); }
   });
 }

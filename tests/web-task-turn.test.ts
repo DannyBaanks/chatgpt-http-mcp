@@ -1,8 +1,9 @@
-import { mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveTaskIdentity, runTaskTurn } from "../src/responses/task-turn";
 import { assertWebSelection } from "../src/responses/selection";
+import { findConversation, writeLaunchIntent } from "../src/codex-conversation";
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config";
 import { peekWebRequest, handleWebResponses } from "../src/web-responses";
@@ -109,6 +110,32 @@ test("ambiguous submit blocks retry and subsequent turns, including a new backen
   expect(backend.calls).toHaveLength(1);
 });
 
+test("a launch header commits one receipt and replay rebuilds the same conversation", async () => {
+  const backend = fakeBackend();
+  const launchId = "11111111-1111-4111-8111-111111111111";
+  writeLaunchIntent(backend.dir, { version: "isymcp-launch-intent/1", launchId, client: "cli", cwd: "/tmp/workspace-a", model, effort: "high" });
+  const request = new Request("http://127.0.0.1/v1/responses", { method: "POST",
+    headers: { "thread-id": "A", "x-isymcp-turn-id": "a1", "x-isymcp-launch-id": launchId, "content-type": "application/json" },
+    body: JSON.stringify({ model, reasoning: { effort: "high" }, input: "remember ALPHA" }) });
+  const first = await backend.run(request);
+  const saved = findConversation(backend.dir, launchId);
+  expect(saved).toMatchObject({ threadId: "A", state: "committed", url: first.body.metadata.isymcp_conversation, cwd: "/tmp/workspace-a" });
+  rmSync(join(backend.dir, `conversation-${launchId}.json`));
+  const replay = await backend.run(request);
+  expect(replay.replayed).toBe(true);
+  expect(findConversation(backend.dir, launchId)).toEqual(saved);
+  expect(backend.calls).toHaveLength(1);
+});
+
+test("a launch header without an intent fails closed and does not resubmit", async () => {
+  const backend = fakeBackend();
+  const request = new Request("http://127.0.0.1/v1/responses", { method: "POST",
+    headers: { "thread-id": "A", "x-isymcp-turn-id": "a1", "x-isymcp-launch-id": "33333333-3333-4333-8333-333333333333", "content-type": "application/json" },
+    body: JSON.stringify({ model, reasoning: { effort: "high" }, input: "hello" }) });
+  await expect(backend.run(request)).rejects.toThrow("web_launch_intent_missing");
+  await expect(backend.run(request)).rejects.toThrow("web_launch_intent_missing");
+  expect(backend.calls).toHaveLength(1);
+});
 
 test("private state stays private; corrupt state and stale crash leases fail closed", async () => {
   const backend = fakeBackend();

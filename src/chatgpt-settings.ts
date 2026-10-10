@@ -83,6 +83,56 @@ async function openComposerMenu(page: Page, button: Locator, timeoutMs: number) 
   return menu;
 }
 
+const REASONING_CONTROL = '[data-reasoning-slider="true"], [role="menuitem"][aria-keyshortcuts="ArrowLeft ArrowRight"]';
+
+function integerAttribute(value: string | null): number {
+  return value !== null && /^-?\d+$/.test(value) ? Number(value) : Number.NaN;
+}
+
+/** The simple view paints the power row before its slider mounts. Count and
+ * press only after that owned control is visible and exposes a 3-step scale.
+ */
+async function waitForUsableReasoningControl(menu: Locator, timeoutMs: number): Promise<{ power: Locator; max: number; now: number }> {
+  const shells = menu.locator(REASONING_CONTROL);
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const visible = shells.filter({ visible: true });
+    const count = await visible.count();
+    if (count > 1) throw new Error("web_effort_control_unavailable: expected one reasoning control");
+    if (count === 1) {
+      let snapshot: { sliders: number; min: string | null; max: string | null; now: string | null } | null = null;
+      try {
+        snapshot = await visible.evaluate(root => {
+          const sliders = Array.from(root.querySelectorAll('[role="slider"]'));
+          const slider = sliders.length === 1 ? sliders[0] : null;
+          return {
+            sliders: sliders.length,
+            min: slider?.getAttribute("aria-valuemin") ?? null,
+            max: slider?.getAttribute("aria-valuemax") ?? null,
+            now: slider?.getAttribute("aria-valuenow") ?? null,
+          };
+        });
+      } catch {
+        snapshot = null;
+      }
+      if (snapshot?.sliders === 1) {
+        const min = integerAttribute(snapshot.min);
+        const max = integerAttribute(snapshot.max);
+        const now = integerAttribute(snapshot.now);
+        if (Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(now)) {
+          if (max - min !== 2 || now < min || now > max) {
+            throw new Error("web_effort_control_unavailable: unsupported reasoning scale");
+          }
+          return { power: visible, max, now };
+        }
+      }
+    }
+    if (Date.now() >= deadline) break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw new Error("web_effort_control_unavailable: expected one reasoning control");
+}
+
 /** Lee el selector de modelo sin cambiar nada (abre el menu y lo cierra con Escape). */
 export async function readComposerSettings(page: Page, options: { timeoutMs?: number } = {}): Promise<ComposerSettings> {
   const empty: ComposerSettings = { pill: null, model: null, effort: null, effortPosition: null, effortSteps: null };
@@ -179,14 +229,7 @@ export async function selectComposerSettings(page: Page, model: string, effort: 
       await menu.getByRole("menuitemradio", { name: model, exact: true }).click({ timeout: timeoutMs });
       menu = await openComposerMenu(page, button, timeoutMs);
     }
-    const power = menu.locator('[data-reasoning-slider="true"], [role="menuitem"][aria-keyshortcuts="ArrowLeft ArrowRight"]').filter({ visible: true });
-    if (await power.count() !== 1) throw new Error("web_effort_control_unavailable: expected one reasoning control");
-    const slider = power.locator('[role="slider"]');
-    const min = Number(await slider.getAttribute("aria-valuemin"));
-    const max = Number(await slider.getAttribute("aria-valuemax"));
-    const now = Number(await slider.getAttribute("aria-valuenow"));
-    if (!Number.isFinite(min) || max - min !== 2 || !Number.isFinite(now) || now < min || now > max)
-      throw new Error("web_effort_control_unavailable: unsupported reasoning scale");
+    const { power, max, now } = await waitForUsableReasoningControl(menu, timeoutMs);
     for (let step = now; step < max; step++) await power.press("ArrowRight", { timeout: timeoutMs });
   } finally { await page.keyboard.press("Escape").catch(() => {}); }
   const seen = await readComposerSettings(page, options);
