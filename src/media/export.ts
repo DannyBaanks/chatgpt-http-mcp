@@ -114,6 +114,10 @@ export async function exportMediaPackage(
   if (verifiedAsset.sha256 !== current.source_sha256 || verifiedAsset.sourceUrl !== canonicalUrl) {
     throw Error('Media package source failed catalog verification');
   }
+  const downloadReceipt = verifiedAsset.downloadReceipt;
+  if (!downloadReceipt || downloadReceipt.source_url !== canonicalUrl || downloadReceipt.video_id !== videoId) {
+    throw Error('Media package requires a verified download receipt for this canonical video');
+  }
   const parent = resolve(parentDirectory);
   if (!statSync(parent).isDirectory()) throw Error('Media package destination is not a directory');
   const extension = extname(verifiedAsset.realPath).toLowerCase();
@@ -154,6 +158,7 @@ export async function exportMediaPackage(
         asset_id: verifiedAsset.id,
         source_url: canonicalUrl,
         video_id: videoId,
+        download_receipt: downloadReceipt,
         source_name: verifiedAsset.name,
         sha256: verifiedAsset.sha256,
         bytes: verifiedAsset.bytes,

@@ -12,7 +12,7 @@ const sourceUrl = 'https://www.youtube.com/watch?v=abcdefghijk';
 const preview = { url: sourceUrl, video_id: 'abcdefghijk', title: 'Angel Engine Part 63', duration_seconds: 2, resolution: '128x72' };
 const root = () => mkdtempSync(join(tmpdir(), 'isymcp-media-export-'));
 
-async function fixture() {
+async function fixture(verified = true) {
   const base = root(), parent = join(base, 'output'), home = join(base, 'catalog'), file = join(base, 'source.mp4');
   mkdirSync(parent);
   await run('ffmpeg', [
@@ -20,7 +20,7 @@ async function fixture() {
     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2', '-c:v', 'mpeg4', '-q:v', '31',
     '-c:a', 'aac', '-shortest', file,
   ], 1024 * 1024, 30000);
-  const catalog = new MediaCatalog(home), asset = await catalog.add(file, sourceUrl);
+  const catalog = new MediaCatalog(home), asset = await catalog.add(file, sourceUrl, verified ? { video_id: 'abcdefghijk', source_url: sourceUrl } : undefined);
   const store = new MediaPreparationStore(home), manifest = await prepareMedia(catalog, asset, store);
   expect(manifest.status).toBe('ready');
   return { base, parent, catalog, asset, store, manifest };
@@ -34,6 +34,7 @@ test('export publishes source and verified full audio/contact-sheet artifacts wi
   expect(dirname(result.directory)).toBe(state.parent);
   expect(exported).toMatchObject({ schema_version: 'isymcp-media-package/1', source: {
     asset_id: state.asset.id, source_url: sourceUrl, video_id: 'abcdefghijk', sha256: state.asset.sha256, bytes: state.asset.bytes,
+    download_receipt: { video_id: 'abcdefghijk', source_url: sourceUrl },
   }, preview, preparation: { status: 'ready', generation_id: state.manifest.generation_id } });
   expect(result.manifest_sha256).toBe(digest(readFileSync(result.manifest_path)));
   expect(exported.files.map((file: any) => file.kind)).toEqual(['source', 'audio_scan', 'contact_sheet']);
@@ -56,6 +57,13 @@ test('export sanitizes an untrusted title and refuses an existing package withou
   await expect(exportMediaPackage(state.catalog, state.asset, state.manifest, state.store, state.parent, hostile))
     .rejects.toBeInstanceOf(PackageCollisionError);
   expect(readFileSync(result.manifest_path)).toEqual(originalManifest);
+});
+
+test('export refuses a legacy catalog asset without a verified downloader receipt', async () => {
+  const state = await fixture(false);
+  await expect(exportMediaPackage(state.catalog, state.asset, state.manifest, state.store, state.parent, preview))
+    .rejects.toThrow(/verified download receipt/i);
+  expect(existsSync(join(state.parent, 'Angel Engine Part 63 [abcdefghijk]'))).toBe(false);
 });
 
 test('concurrent exports to one package name publish once and preserve same-filesystem atomic staging', async () => {
