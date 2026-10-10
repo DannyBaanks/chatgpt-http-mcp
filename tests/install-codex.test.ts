@@ -22,7 +22,7 @@ test("setTopLevelTomlString reemplaza o inserta antes de las tablas", () => {
   expect(inserted.indexOf("openai_base_url")).toBeLessThan(inserted.indexOf("[model_providers]"));
 });
 
-test("dry-run no escribe; apply hace backup; restore vuelve al original", () => {
+test("legacy dry-run reads configuration but global apply and restore fail before writes", () => {
   const dir = mkdtempSync(join(tmpdir(), "cwh-install-"));
   const configPath = join(dir, "config.toml");
   const backupDir = join(dir, "backups");
@@ -34,15 +34,8 @@ test("dry-run no escribe; apply hace backup; restore vuelve al original", () => 
   expect(dry.previous).toBe("https://old.example/v1");
   expect(readFileSync(configPath, "utf8")).toBe(original);
 
-  const applied = install({ configPath, backupDir, apply: true, url: "http://127.0.0.1:9999/v1" });
-  expect(applied.action).toBe("apply");
-  expect(applied.backupPath && existsSync(applied.backupPath)).toBe(true);
-  const after = readFileSync(configPath, "utf8");
-  expect(after).toContain('openai_base_url = "http://127.0.0.1:9999/v1"');
-  expect(after).toContain("[model_providers]");
-  expect(after).not.toContain("old.example");
-
-  const restored = install({ configPath, backupDir, restore: true });
-  expect(restored.action).toBe("restore");
+  expect(() => install({ configPath, backupDir, apply: true, url: "http://127.0.0.1:9999/v1" })).toThrow(/global desactivada/);
+  expect(() => install({ configPath, backupDir, restore: true })).toThrow(/global desactivada/);
+  expect(existsSync(backupDir)).toBe(false);
   expect(readFileSync(configPath, "utf8")).toBe(original);
 });

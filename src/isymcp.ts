@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { buildCodexArgs, installDesktopLauncher, isBridgeAlive, removeDesktopLauncher } from "./codex-launcher";
+import { buildCodexArgs, installDesktopLauncher, isBridgeAlive, removeDesktopLauncher, usesWebBridge } from "./codex-launcher";
 // isymcp — consola del bridge, y la UNICA entrada: en una terminal, `isymcp`
 // a secas abre el menu con todo (panel, chat, ajustes, harnesses, canario...).
 // Se puede cerrar: server y panel quedan detached.
@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { bindCookies } from "./sessions";
-import { isExpired, listUserSessions, mintSession, revokeSession } from "./codex-sessions";
+import { bridgeHome, isExpired, listUserSessions, mintSession, revokeSession } from "./codex-sessions";
 import { startPanel } from "./panel";
 import { createChat, loadChat } from "./chats";
 import { runHook } from "./hooks";
@@ -33,10 +33,11 @@ import { detectTuis, installIntoOpencode } from "./tui";
 import { bridgeAuthHeaders } from "./local-guard";
 
 const ROOT = join(import.meta.dir, "..");
-const RUN = join(homedir(), ".codex-web-http", "run");
-const PID = join(RUN, "server.pid");
-const LOG = join(RUN, "server.log");
 const PORT = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
+const RUN = join(bridgeHome(), "run");
+const SERVER_SUFFIX = PORT === "8791" ? "" : `-${PORT}`;
+const PID = join(RUN, `server${SERVER_SUFFIX}.pid`);
+const LOG = join(RUN, `server${SERVER_SUFFIX}.log`);
 const PANEL_PID = join(RUN, "panel.pid");
 const PANEL_LOG = join(RUN, "panel.log");
 const PANEL_PORT = process.env.ISYMCP_PANEL_PORT?.trim() || "8798";
@@ -449,17 +450,18 @@ function installIntoCodex(apply: boolean): void {
   const result = installWebModels({
     apply,
     restore: false,
-    caps: "sol,pro,extrahigh,bigger",
+    url: `${BRIDGE}/v1`,
+    caps: process.env.CODEX_WEB_HTTP_CAPS,
     model: apply ? "chatgpt-web/gpt-5.6-sol" : undefined,
     effort: apply ? "high" : undefined,
   });
   console.log(JSON.stringify(result, null, 2));
   if (!apply) {
-    console.log("(dry-run: no escribio. Levantar todo, o Modelos → Aplicar, si lo instala)");
+    console.log("(dry-run: no escribio. Modelos → Preparar perfil crea archivos privados de ISyMCP)");
     return;
   }
-  console.log("instalado en Codex: ruta 8791, models_cache borrado para que Codex lo vuelva a pedir");
-  console.log("cierra la app de Codex por completo y vuelve a abrirla");
+  console.log("perfil Web preparado: isymcp codex lo activa solo en ese proceso");
+  console.log("configuracion y catalogo global de Codex conservados");
 }
 
 function command(text: string, effort?: string): void {
@@ -543,11 +545,12 @@ function help(): void {
   isymcp down                para server y tunel
   isymcp server start|stop
   isymcp tunnel connect|stop|status
-  isymcp models              dry-run del catalogo en Codex
-  isymcp models apply        escribe la ruta (backup). Cierra Codex antes.
-  isymcp models restore      vuelve al backup
+  isymcp models              dry-run del perfil Web privado
+  isymcp models apply        prepara perfil aislado; no cambia Codex global
+  isymcp models restore      restaura solo el perfil Web propio
   isymcp codex [args...]     ejecuta Codex con perfil ISyMCP aislado (sin mutar config.toml)
   isymcp codex launcher      instala lanzador ~/.local/bin/codex-isymcp y .desktop
+                             es un CLI en terminal, no la app de Codex
   isymcp command "texto"     texto para pegar en chatgpt.com
   isymcp media prepare      pega una URL, elige carpeta y confirma el paquete
   isymcp media prepare <url> prepara de forma no interactiva y devuelve JSON
@@ -622,12 +625,6 @@ async function ask(question: string): Promise<string> {
   return answer.trim();
 }
 
-const reinstall = () => {
-  try { installIntoCodex(true); } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-  }
-};
-
 // Una entrada por hoja visible del menu (tests/menu.test.ts lo exige).
 const ACTIONS: Record<string, () => Promise<void> | void> = {
   "up": async () => {
@@ -636,10 +633,9 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
     console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
     tunnel("connect");
     guardarSesion("default");
-    reinstall();
   },
   "down": () => { tunnel("stop"); stopServer(); },
-  "restart": () => { tunnel("stop"); stopServer(); startServer(); tunnel("connect"); reinstall(); },
+  "restart": () => { tunnel("stop"); stopServer(); startServer(); tunnel("connect"); },
   "status": () => status(),
   "panel-open": () => openPanel(),
   "panel-start": async () => { await startPanelDetached(); },
@@ -764,7 +760,6 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await new Promise((r) => setTimeout(r, 800));
   console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
   tunnel("connect");
-  installIntoCodex(true);
 } else if (cmd === "down") {
   tunnel("stop");
   stopServer();
@@ -1052,22 +1047,31 @@ async function codexCommand(sub: string | undefined, rest: string[]): Promise<vo
     return;
   }
 
-  // Verificar si el bridge está arriba; si no, levantarlo
-  const alive = await isBridgeAlive(PORT);
-  if (!alive) {
+  const userArgs = [sub, ...rest].filter((p): p is string => Boolean(p));
+  let catalogPath: string | undefined;
+  if (usesWebBridge(userArgs)) {
+    if (!(await isBridgeAlive(PORT))) {
     console.log(`[isymcp] Bridge local apagado en http://127.0.0.1:${PORT}. Iniciando...`);
     startServer();
-    // Esperar hasta 3s a que responda
     for (let i = 0; i < 6; i++) {
       await new Promise((r) => setTimeout(r, 500));
       if (await isBridgeAlive(PORT)) break;
     }
+    }
+    if (!(await isBridgeAlive(PORT))) {
+      console.error(`bridge Web no disponible o no autorizado en ${BRIDGE}; no se inicio Codex`);
+      process.exitCode = 1;
+      return;
+    }
+    const profile = installWebModels({ apply: true, url: `${BRIDGE}/v1` });
+    if (profile.catalogReady) catalogPath = profile.catalogPath;
   }
-
-  const userArgs = [sub, ...rest].filter((p): p is string => Boolean(p));
-  const fullArgs = buildCodexArgs(userArgs, PORT);
-
-  const { spawnSync } = await import("node:child_process");
-  const proc = spawnSync("codex", fullArgs, { stdio: "inherit", env: process.env });
-  process.exit(proc.status ?? 0);
+  const fullArgs = buildCodexArgs(userArgs, PORT, catalogPath);
+  const code = await new Promise<number>((resolve) => {
+    const child = spawn("codex", fullArgs, { stdio: "inherit", env: process.env });
+    child.once("error", (error) => { console.error(`no se pudo iniciar Codex: ${error.message}`); resolve(1); });
+    child.once("exit", (status, signal) => resolve(status ?? (signal ? 1 : 0)));
+  });
+  // La invocacion desde el menu vuelve al menu; no termina todo isymcp.
+  if (code !== 0) process.exitCode = code;
 }

@@ -139,10 +139,11 @@ export async function runE2EAll(options: { quiet?: boolean; port?: number; ephem
     // 4. Codex launcher arguments isolation
     const t3 = Date.now();
     try {
-      const args = buildCodexArgs(["run", "task.txt"], 8791);
+      const args = buildCodexArgs(["exec", "task.txt"], "8791");
       const ok =
         args.includes("-c") &&
-        args.some((a) => a.includes("openai_base_url=")) &&
+        args.includes('model_provider="isymcp_web"') &&
+        !args.some((a) => a.startsWith("openai_base_url=")) &&
         args.includes("task.txt");
       checks.push({
         name: "codex_launcher",

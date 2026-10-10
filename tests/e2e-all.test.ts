@@ -18,5 +18,5 @@ describe("Unified E2E Smoke Suite", () => {
     for (const check of result.checks) {
       expect(check.ok).toBe(true);
     }
-  });
+  }, 30_000); // Native harness probes can each take five seconds; keep the integration gate bounded.
 });

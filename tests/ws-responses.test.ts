@@ -80,3 +80,32 @@ test("Web compaction is rejected before native forwarding", async () => {
   expect(response.status).toBe(400);
   expect((await response.json()).error.type).toBe("web_compaction_unsupported");
 });
+
+test("real WebSocket delivers one JSON event per frame to the client", async () => {
+  const { startServer } = await import("../src/server");
+  const { loadConfig } = await import("../src/config");
+  const { buildResponseBody } = await import("../src/web-responses");
+  const server = startServer(loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on" }), {
+    webResponse: async () => Response.json(buildResponseBody("chatgpt-web/gpt-5.6-sol", "WS_FRAME_CANARY", "")),
+  });
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/v1/responses`);
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    const frames = await new Promise<Record<string, any>[]>((resolve, reject) => {
+      const received: Record<string, any>[] = [];
+      timer = setTimeout(() => reject(new Error("WebSocket did not complete")), 1500);
+      ws.onopen = () => ws.send(JSON.stringify({ model: "chatgpt-web/gpt-5.6-sol", input: "hello" }));
+      ws.onmessage = (event) => {
+        try {
+          const frame = JSON.parse(String(event.data));
+          received.push(frame);
+          if (frame.type === "response.completed") resolve(received);
+        } catch (error) { reject(error); }
+      };
+      ws.onerror = () => reject(new Error("socket failed"));
+    });
+    expect(frames).toHaveLength(9);
+    expect(frames.map(frame => frame.sequence_number)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(frames.at(-1)!.response.output_text).toBe("WS_FRAME_CANARY");
+  } finally { clearTimeout(timer!); ws.close(); server.stop(true); }
+});

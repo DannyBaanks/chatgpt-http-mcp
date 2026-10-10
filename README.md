@@ -39,7 +39,20 @@ Import a public YouTube video/Short or register a local file, then inspect **tim
 ### 🟢 Isolated & Decoupled Codex Profiles
 No more mutating your global `~/.codex/config.toml`! ISyMCP provides isolated, side-by-side environments:
 - **Native Codex (`codex`)**: talks directly to OpenAI, completely independent of the bridge.
-- **ISyMCP Codex (`codex-isymcp` / `isymcp codex`)**: launches with dynamic, ephemeral `-c openai_base_url=http://127.0.0.1:8791/v1` and desktop entry.
+- **ISyMCP Codex (`codex-isymcp` / `isymcp codex`)**: selects the named `isymcp_web` Responses provider for that process. An explicit native `-m` bypasses the bridge. The desktop shortcut opens this CLI in a terminal.
+
+`isymcp up` and menu restart start services without installing global routing.
+`isymcp models apply` prepares a private profile/catalog under
+`~/.codex-web-http/codex-profiles/isymcp-web`; it preserves Codex's global
+configuration, model cache and other applications' integration journals.
+
+The native tool adapter translates supplied function/custom declarations into
+Responses calls; **Codex executes them** and returns their real results. Calls
+are correlated to a task, turn and call ID, with durable replay and explicit
+handling of interrupted calls. WebSocket events use one JSON event per frame.
+The full ChatGPT Web CLI canary and Codex App integration remain
+**NOT_DEMONSTRATED**: passing local protocol tests does not close those gates.
+[Verification scope and evidence](docs/verification/2026-10-09-codex-isolation.md).
 
 ### 🤝 ChatGPT inside your other agents (9 Harnesses Ready)
 `chatgpt_ask` is an MCP tool. It lets **Claude Code, Codex, Cursor IDE, OpenCode TUI, GitHub Copilot CLI, Hermes Agent, OpenClaw, Pi, and Gemini CLI** ask *your* ChatGPT (GPT-5.6 Sol, your plan) for a second opinion halfway through a task.

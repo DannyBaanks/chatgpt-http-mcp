@@ -1,5 +1,22 @@
 # Guía del Operador Humano — ISyMCP (ISyCo ChatGPT HTTP Bridge)
 
+```bash
+isymcp
+```
+
+**Regla:** el puente Web solo se activa para la sesión que lo eligió; levantar
+ISyMCP no cambia la ruta global de Codex.
+
+Salida real del menú instalado, recortada, verificada en una terminal PTY:
+
+```text
+¿Qué hacemos?
+  PUENTE
+❯ ▶ Levantar todo  server + tunel
+  ■ Detener todo  cierre del server y del tunel
+  ↻ Reiniciar  down + up
+```
+
 **ISyMCP** convierte tu suscripción de ChatGPT en una interfaz de chat local en localhost, un API compatible con OpenAI / Responses, y una herramienta MCP para tus agentes de código (Codex, Claude Code, Cursor, OpenCode, Copilot CLI, Hermes, OpenClaw, Pi, Gemini).
 
 ---
@@ -54,13 +71,56 @@ Dispones de dos entornos completamente independientes que pueden coexistir en si
 | Entorno | Comando | Comportamiento |
 |---|---|---|
 | 🟢 **Codex Nativo** | `codex` | Conecta directo a OpenAI. No depende de ISyMCP ni del bridge local. |
-| 🟣 **Codex ISyMCP** | `codex-isymcp` o `isymcp codex` | Inyecta efímeramente `openai_base_url=http://127.0.0.1:8791/v1`. Accede a modelos Web y verifica que el bridge esté activo. |
+| 🟣 **Codex ISyMCP** | `codex-isymcp` o `isymcp codex` | Selecciona el proveedor propio `isymcp_web` para ese proceso. Un `-m` nativo explícito pasa al Codex normal. |
+
+Comprobación real del acceso instalado, sin iniciar el puente:
+
+```bash
+isymcp codex --version
+```
+
+```text
+codex-cli 0.162.0
+```
+
+**Regla:** levantar o reiniciar ISyMCP no debe cambiar la ruta global de Codex.
+`models apply` prepara únicamente el perfil y catálogo privados del puente;
+`models restore` restaura ese perfil, no un respaldo global antiguo.
 
 ### Instalación de lanzadores de escritorio:
 ```bash
 isymcp codex launcher
 ```
 Esto genera el wrapper ejecutable `~/.local/bin/codex-isymcp` y la entrada de escritorio `Codex (ISyMCP Web)`.
+El acceso abre el CLI en una terminal y usa el icono de ISyMCP. No abre la App
+de Codex ni crea una conversación Web por sí solo.
+
+### Si una sesión vieja sigue en «Reconectando»
+
+Un proceso que ya estaba abierto puede conservar la ruta anterior. Cambiar
+`config.toml` no demuestra que ese proceso la haya vuelto a leer. Interrumpe
+la petición atascada y cierra el cliente que tiene abierto ese hilo; conserva
+su historial. Si otro app-server aún retiene el hilo, no borres su archivo de
+candado ni intentes abrirlo simultáneamente desde otro runtime.
+
+Esta variante de recuperación está **NO PROBADA en el hilo retenido**; requiere
+que su dueño haya liberado el hilo:
+
+```bash
+env -u OPENAI_BASE_URL codex resume --no-daemon -m gpt-6-luna \
+  -c 'model_provider="openai"' <id-del-hilo>
+```
+
+### Alcance comprobado de esta corrección
+
+Codex CLI 0.162.0 nativo ejecutó un comando y terminó el turno con el puente
+apagado. Los tests del lanzador comprueban por separado la selección Web y
+el paso de modelos nativos sin cambiar los archivos globales.
+
+**NO PROBADO:** conversación completa de GPT-5.6 Web con herramientas nativas
+y flujo de la App. Las comprobaciones del navegador siguen viendo una página
+con «Cargando perfil», sin selector de modelo verificable. No se ha demostrado
+que la sesión esté vencida. [Resultados y límites](docs/verification/2026-10-09-codex-isolation.md).
 
 ---
 

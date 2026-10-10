@@ -11,7 +11,7 @@ export interface MenuItem {
 }
 
 export const MENU: MenuItem[] = [
-  { id: "up", group: "PUENTE", label: "▶ Levantar todo", hint: "server + tunel + instalar en Codex" },
+  { id: "up", group: "PUENTE", label: "▶ Levantar todo", hint: "server + tunel" },
   { id: "down", group: "PUENTE", label: "■ Detener todo", hint: "cierre del server y del tunel" },
   { id: "restart", group: "PUENTE", label: "↻ Reiniciar", hint: "down + up" },
   { id: "status", group: "PUENTE", label: "○ Estado", hint: "server, tunel, panel, canario" },
@@ -62,7 +62,7 @@ export const MENU: MenuItem[] = [
     hint: "catalogo web",
     children: [
       { id: "models-dry", group: "MODELOS", label: "○ Dry-run", hint: "no escribe" },
-      { id: "models-apply", group: "MODELOS", label: "▶ Aplicar", hint: "backup antes; cierra Codex" },
+      { id: "models-apply", group: "MODELOS", label: "▶ Preparar perfil", hint: "privado; se activa con isymcp codex" },
       { id: "models-restore", group: "MODELOS", label: "↩ Restaurar" },
       { id: "hook.models", hidden: true, label: "hook.models" },
     ],
