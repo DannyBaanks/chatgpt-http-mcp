@@ -60,6 +60,7 @@
 
 **Files:**
 - Create: `src/media/export.ts`
+- Modify: `src/media/catalog.ts`
 - Test: `tests/media-export.test.ts`
 
 **Interfaces:**
@@ -67,6 +68,8 @@
 - `PackageCollisionError` signals that the intended final package directory already exists.
 - `PackageExportError` reports the preserved `partial_directory` when copying or publication fails.
 - `exportMediaPackage(catalog: MediaCatalog, asset: Asset, manifest: PreparationManifest, store: MediaPreparationStore, parentDirectory: string, preview: YouTubePreview, options?: { publisher?: (partial: string, final: string) => Promise<void> }): Promise<PackageExportResult>` copies only the verified source and ready-generation artifacts.
+- `MediaDownloadReceipt = { video_id: string; source_url: string }`; `Asset.downloadReceipt` is optional for existing/direct assets, and `MediaCatalog.add(path: string, sourceUrl?: string, downloadReceipt?: MediaDownloadReceipt): Promise<Asset>` persists it.
+- The exporter requires `asset.downloadReceipt` to match the canonical URL and preview ID; it fails closed for older catalog entries without a verified download receipt.
 - Export layout: `<safe-title> [<youtube-id>]/source.<original-extension>`, `manifest.json`, `audio-scan/<artifact-id>.json`, and `contact-sheets/<artifact-id>.jpg`.
 
 - [ ] **Step 1: Add failing tests for package contents and hashes using a generated media file and a ready preparation fixture.** Assert source, audio scan, contact sheets, and package manifest hashes match their catalog/preparation metadata.
@@ -81,11 +84,18 @@
 
 **Files:**
 - Modify: `src/media/cli.ts`
+- Modify: `src/media/importer.ts`
+- Modify: `src/media/catalog.ts`
+- Modify: `src/media/youtube.ts`
 - Modify: `tests/media-prepare-cli.test.ts`
+- Modify: `tests/media-import.test.ts`
 
 **Interfaces:**
 - Extend `MediaCommandDependencies` with injectable `promptUrl?: () => Promise<string | null>`, `chooseDirectory?: typeof chooseOutputDirectory`, `inspect?: typeof inspectYouTube`, `confirm?: (preview: YouTubePreview) => Promise<boolean>`, and `exportPackage?: typeof exportMediaPackage`.
 - `mediaCommand('prepare', [], dependencies)` enters guided mode; `mediaCommand('prepare', [url], dependencies)` remains non-interactive and retains its current one-line JSON contract.
+- `YouTubeDownloadResult = { path: string; video_id: string; source_url: string }`; `downloadYouTube(url, dir, maxBytes, runner?): Promise<YouTubeDownloadResult>` records yt-dlp's post-download ID and rejects any mismatch with the canonical URL.
+- `MediaCatalog.add` persists the `MediaDownloadReceipt` produced by the downloader; `Asset.downloadReceipt` stays optional for older/directly added assets.
+- `Downloader = (url: string, dir: string, maxBytes: number) => Promise<string | YouTubeDownloadResult>`; `MediaImporter` validates the receipt before catalog registration. A guided flow re-downloads an existing URL if its catalog record lacks a verified receipt; the legacy URL form preserves its existing reuse behavior.
 - The guided mode prompts for a valid URL, chooses a directory, displays preview fields and unavailable values, confirms, then reuses the existing import/prepare flow and exports only after a `ready` manifest.
 
 - [ ] **Step 1: Add failing tests for guided success with injected prompt/picker/preview/confirm/export; assert exact order URL → picker → preview → confirm → import → prepare → export.** The package receipt preserves canonical URL/ID, downloader-confirmed ID, registered URL, source SHA-256/bytes, and actual probed metadata; compare preview fields only when both values exist.
