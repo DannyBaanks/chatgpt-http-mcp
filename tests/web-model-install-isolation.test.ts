@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildIsolatedCodexArgs, installWebModels } from "../scripts/install-web-models";
+import { buildCodexArgs } from "../src/codex-launcher";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "isymcp-web-profile-"));
@@ -34,6 +35,22 @@ test("models apply prepares an isolated provider and leaves native Codex bytes u
   expect(result.launcherArgs).not.toContain('openai_base_url="http://127.0.0.1:8791/v1"');
   expect(JSON.parse(readFileSync(result.catalogPath, "utf8")).models.map((m: any) => m.slug)).toEqual(["chatgpt-web/gpt-5.6-sol"]);
   for (const path of [result.profilePath, result.catalogPath, result.journalPath]) expect(statSync(path).mode & 0o777).toBe(0o600);
+});
+
+test("Web profiles disable backend web_search while native search settings and launches stay intact", () => {
+  const f = fixture();
+  const nativeConfig = 'web_search = "live"\n' + f.config;
+  writeFileSync(f.configPath, nativeConfig);
+  const result = installWebModels({ ...f, apply: true });
+  const parseArgs = (args: string[]) => Bun.TOML.parse(args.filter((_, index) => index % 2 === 1).join("\n")) as any;
+  expect(parseArgs(buildIsolatedCodexArgs("http://127.0.0.1:9999/v1")).web_search).toBe("disabled");
+  expect(parseArgs(result.launcherArgs).web_search).toBe("disabled");
+  const profile = JSON.parse(readFileSync(result.profilePath, "utf8"));
+  expect(parseArgs(profile.launcherArgs).web_search).toBe("disabled");
+  expect(readFileSync(f.configPath, "utf8")).toBe(nativeConfig);
+  expect(readFileSync(f.cachePath, "utf8")).toBe(f.cache);
+  const nativeArgs = ["exec", "--model=gpt-6-luna", "--search", "search canary"];
+  expect(buildCodexArgs(nativeArgs, "9999")).toEqual(nativeArgs);
 });
 
 test("dry run writes no isolated or global files; unsupported routes fail before writes", () => {

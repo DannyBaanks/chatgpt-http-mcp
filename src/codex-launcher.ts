@@ -36,8 +36,10 @@ function configString(args: string[], key: string): string | undefined {
     const assignment = arg === "-c" || arg === "--config" ? args[++i]
       : arg.startsWith("--config=") ? arg.slice(9)
       : arg.startsWith("-c") ? arg.slice(2).replace(/^=/, "") : undefined;
-    if (!assignment?.startsWith(`${key}=`)) continue;
-    const raw = assignment.slice(key.length + 1).trim();
+    if (assignment === undefined) continue;
+    const equals = assignment.indexOf("=");
+    if (equals < 0 || assignment.slice(0, equals).trim() !== key) continue;
+    const raw = assignment.slice(equals + 1).trim();
     try { const parsed = JSON.parse(raw); if (typeof parsed === "string") value = parsed; }
     catch { value = raw.replace(/^'|'$/g, ""); }
   }
@@ -60,7 +62,10 @@ export function usesWebBridge(args: string[]): boolean {
   const options = args.slice(0, args.indexOf("--") < 0 ? args.length : args.indexOf("--"));
   if (options.some(arg => ["--help", "-h", "--version", "-V"].includes(arg))) return false;
   const model = requestedCodexModel(args);
-  return !model || model.startsWith("chatgpt-web/");
+  if (model) return model.startsWith("chatgpt-web/");
+  // A profile owns its model/provider configuration; only an explicit Web
+  // model above may opt it into the bridge. Never infer its contents here.
+  return !options.some(arg => arg === "--profile" || arg.startsWith("--profile=") || arg.startsWith("-p"));
 }
 
 export function buildCodexArgs(userArgs: string[], port = DEFAULT_PORT, catalogPath?: string): string[] {

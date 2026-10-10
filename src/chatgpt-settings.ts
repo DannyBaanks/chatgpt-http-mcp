@@ -17,7 +17,7 @@
 //   - El headless se relanza solo en el siguiente turno con el estado nuevo.
 import { chmodSync, existsSync, readdirSync, renameSync, unlinkSync, writeFileSync, copyFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { Page } from "playwright-core";
+import type { Locator, Page } from "playwright-core";
 import type { AppConfig } from "./config";
 import {
   CHATGPT_HOME, chromeExecutable, closeWebSession, launchChatGPTBrowser, withSessionPage, withWebLock,
@@ -55,6 +55,7 @@ export function settingsStatus() {
 
 /** Selectores del botón de modelo - ordenados por prioridad (más específico primero). */
 const MODEL_BUTTON_SELECTORS = [
+  'button[data-codex-intelligence-trigger="true"][data-composer-navigation-target="reasoning"][aria-haspopup="menu"]',
   'button[aria-label="Seleccionar modelo de ChatGPT"]',
   'button[data-testid="model-switcher-dropdown-button"]',
   'button[aria-label*="modelo" i]',
@@ -64,26 +65,46 @@ const MODEL_BUTTON_SELECTORS = [
 
 const MODEL_BUTTON = MODEL_BUTTON_SELECTORS.join(", ");
 
+async function composerModelButton(page: Page, timeoutMs: number) {
+  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').filter({ visible: true }).first();
+  await composer.waitFor({ state: "visible", timeout: timeoutMs });
+  const form = composer.locator("xpath=ancestor::form[1]");
+  const button = (await form.count() ? form : page).locator(MODEL_BUTTON).filter({ visible: true });
+  await button.first().waitFor({ state: "visible", timeout: timeoutMs });
+  if (await button.count() !== 1) throw new Error("web_model_control_ambiguous: expected one composer model control");
+  return button;
+}
+
+async function openComposerMenu(page: Page, button: Locator, timeoutMs: number) {
+  if (await button.getAttribute("aria-expanded") !== "true") await button.click({ timeout: timeoutMs });
+  const menu = page.getByRole("menu").filter({ visible: true });
+  await menu.first().waitFor({ state: "visible", timeout: timeoutMs });
+  if (await menu.count() !== 1) throw new Error("web_model_control_ambiguous: expected one open composer menu");
+  return menu;
+}
+
 /** Lee el selector de modelo sin cambiar nada (abre el menu y lo cierra con Escape). */
-export async function readComposerSettings(page: Page): Promise<ComposerSettings> {
+export async function readComposerSettings(page: Page, options: { timeoutMs?: number } = {}): Promise<ComposerSettings> {
   const empty: ComposerSettings = { pill: null, model: null, effort: null, effortPosition: null, effortSteps: null };
   const debug = process.env.ISYMCP_DEBUG === "1";
   const log = debug ? (msg: string) => console.error(`[readComposerSettings] ${msg}`) : () => {};
   
   try {
-    const button = page.locator(MODEL_BUTTON).first();
-    await button.waitFor({ state: "visible", timeout: 15_000 });
+    const timeoutMs = options.timeoutMs ?? 70_000;
+    const button = await composerModelButton(page, timeoutMs);
     log("Botón de modelo encontrado");
     
     const pill = ((await button.innerText()) || "").trim().replace(/\s+/g, " ") || null;
     log(`Pill inicial: ${pill}`);
 
-    const readMenu = () => page.evaluate(() => {
-      const radios = Array.from(document.querySelectorAll('[role="menuitemradio"], [role="menuitem"], [role="option"]')) as HTMLElement[];
+    const ownedMenu = await openComposerMenu(page, button, timeoutMs);
+    const readMenu = () => ownedMenu.evaluate(root => {
+      // The simple power view retains checked model metadata in an inert panel.
+      // Read it within this owned menu; selection must reveal the panel first.
+      const radios = (Array.from(root.querySelectorAll('[role="menuitemradio"], [role="menuitem"], [role="option"]')) as HTMLElement[]);
       const checked = radios.find((r) => r.getAttribute("aria-checked") === "true");
       const texts = radios.map((r) => (r.innerText || "").trim().replace(/\s+/g, " "));
-      const scopes = Array.from(document.querySelectorAll('[data-radix-popper-content-wrapper], [role="menu"]'));
-      const slider = (scopes.map((s) => s.querySelector('[role="slider"], [aria-valuenow]')).find(Boolean) ?? null) as HTMLElement | null;
+      const slider = root.querySelector('[role="slider"], [aria-valuenow]') as HTMLElement | null;
       return {
         model: checked ? (checked.innerText || "").trim().split("\n")[0] : null,
         texts,
@@ -93,17 +114,7 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
 
     const resolved = (m: Awaited<ReturnType<typeof readMenu>>) => Boolean(m.slider?.now || m.texts.some((t) => /\d+\s+(?:de|of)\s+\d+/.test(t)));
 
-    const ensureOpen = async () => {
-      const expanded = await button.getAttribute("aria-expanded").catch(() => null);
-      if (expanded !== "true") {
-        log("Abriendo menú (aria-expanded !== true)");
-        await button.click().catch(() => {});
-      } else {
-        log("Menú ya abierto");
-      }
-    };
-
-    await ensureOpen();
+    await ownedMenu.locator('[role="slider"]').first().waitFor({ state: "attached", timeout: timeoutMs });
     let menu = await readMenu();
     log(`Intento 0 - resuelto: ${resolved(menu)}, texts: ${menu.texts.length}, slider: ${!!menu.slider}`);
 
@@ -113,7 +124,7 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
         await page.keyboard.press("Escape").catch(() => {});
         await page.waitForTimeout(500);
         await button.click().catch(() => {});
-        await ensureOpen();
+        await openComposerMenu(page, button, timeoutMs);
       }
       for (let i = 0; i < 20 && !resolved(menu); i++) {
         await page.waitForTimeout(400);
@@ -135,7 +146,6 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
       effortSteps = menu.slider.max ? Number(menu.slider.max) - min + 1 : null;
     }
 
-    await page.waitForTimeout(300);
     const closedPill = ((await button.innerText().catch(() => "")) || "").trim().replace(/\s+/g, " ") || pill;
     if (!effort && closedPill) effort = closedPill;
     
@@ -144,7 +154,45 @@ export async function readComposerSettings(page: Page): Promise<ComposerSettings
   } catch (error) {
     log(`Error: ${error instanceof Error ? error.message : String(error)}`);
     return empty;
-  }
+  } finally { await page.keyboard.press("Escape").catch(() => {}); }
+}
+
+/** Select an exact model through the accessible picker, then verify High 3/3.
+ * This operates the owned composer; it does not persist account cookies.
+ */
+export async function selectComposerSettings(page: Page, model: string, effort: "high", options: { timeoutMs?: number } = {}): Promise<ComposerSettings> {
+  if (effort !== "high") throw new Error("web_model_selection_unsupported: only high is implemented");
+  const timeoutMs = options.timeoutMs ?? 70_000;
+  const button = await composerModelButton(page, timeoutMs);
+  try {
+    let menu = await openComposerMenu(page, button, timeoutMs);
+    // In the simple view the model rows are attached but aria-hidden and inert.
+    // Their checked state is readable; never click them until the view expands.
+    const row = menu.getByRole("menuitemradio", { name: model, exact: true, includeHidden: true });
+    if (await row.count() !== 1) throw new Error(`web_model_unavailable: exact choice is absent or ambiguous for ${model}`);
+    if (await row.getAttribute("aria-checked") !== "true") {
+      if (await menu.getByRole("menuitemradio", { name: model, exact: true }).count() === 0) {
+        const toggle = menu.locator('[data-model-picker-view-toggle="true"]').filter({ visible: true });
+        if (await toggle.count() !== 1) throw new Error("web_model_control_unavailable: model view cannot be expanded");
+        await toggle.click({ timeout: timeoutMs });
+      }
+      await menu.getByRole("menuitemradio", { name: model, exact: true }).click({ timeout: timeoutMs });
+      menu = await openComposerMenu(page, button, timeoutMs);
+    }
+    const power = menu.locator('[data-reasoning-slider="true"], [role="menuitem"][aria-keyshortcuts="ArrowLeft ArrowRight"]').filter({ visible: true });
+    if (await power.count() !== 1) throw new Error("web_effort_control_unavailable: expected one reasoning control");
+    const slider = power.locator('[role="slider"]');
+    const min = Number(await slider.getAttribute("aria-valuemin"));
+    const max = Number(await slider.getAttribute("aria-valuemax"));
+    const now = Number(await slider.getAttribute("aria-valuenow"));
+    if (!Number.isFinite(min) || max - min !== 2 || !Number.isFinite(now) || now < min || now > max)
+      throw new Error("web_effort_control_unavailable: unsupported reasoning scale");
+    for (let step = now; step < max; step++) await power.press("ArrowRight", { timeout: timeoutMs });
+  } finally { await page.keyboard.press("Escape").catch(() => {}); }
+  const seen = await readComposerSettings(page, options);
+  if (seen.model !== model || !/^(high|alta|alto)$/i.test(seen.effort ?? "") || seen.effortPosition !== 3 || seen.effortSteps !== 3)
+    throw new Error(`web_model_state_mismatch: requested ${model} / High, observed ${seen.model ?? "unknown"} / ${seen.effort ?? "unknown"}`);
+  return seen;
 }
 
 /** "Verificar": que ve el headless ahora mismo. Toma el candado. */

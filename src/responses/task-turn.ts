@@ -3,10 +3,10 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, u
 import { join } from "node:path";
 import { bridgeHome } from "../codex-sessions";
 import type { AppConfig } from "../config";
-import { readComposerSettings } from "../chatgpt-settings";
+import { selectComposerSettings } from "../chatgpt-settings";
 import { canonicalConversationUrl, sendWebTurn, withWebLock } from "../web-turn";
 import { normalizeTaskInput, parseResponsesInput, type TaskInputItem } from "./input";
-import { assertWebSelection, WebTaskError } from "./selection";
+import { assertWebSelection, webModelLabel, WebTaskError } from "./selection";
 import { decodeToolReply, nativeToolChoice, nativeTools, toolPrompt, type NativeCall } from "./tools";
 
 export interface TaskIdentity { key: string; threadId: string; turnId: string }
@@ -58,7 +58,7 @@ interface State {
   awaiting?: { turnId: string; call: NativeCall; registryFingerprint: string; step: number };
 }
 interface Turn { fingerprint: string; phase: "prepared" | "attempted" | "done" | "failed"; response?: Record<string, any>; error?: { type: string; status: number; message: string } }
-interface Dependencies { dir?: string; send?: typeof sendWebTurn; readSettings?: typeof readComposerSettings }
+interface Dependencies { dir?: string; send?: typeof sendWebTurn; selectSettings?: typeof selectComposerSettings }
 
 /** Sequential native requests per Codex turn. Codex executes; the adapter correlates. */
 export async function runTaskTurn(req: Request, body: Record<string, any>, config: AppConfig,
@@ -163,7 +163,7 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
             const current = canonicalConversationUrl(page.url());
             if (target ? current !== target : current !== null)
               throw new WebTaskError("web_task_navigation_mismatch", 409, "browser is not at the task's intended conversation");
-            assertWebSelection(body.model, effort, await (deps.readSettings ?? readComposerSettings)(page));
+            assertWebSelection(body.model, effort, await (deps.selectSettings ?? selectComposerSettings)(page, webModelLabel(body.model), "high"));
           },
           onSubmitAttempt: () => {
             attempted = true;
@@ -205,7 +205,7 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
           emitted = answer.call;
           awaiting = { turnId: identity.turnId, call: answer.call, registryFingerprint, step };
         }
-        response.metadata = { isymcp_conversation: url, isymcp_model_state: "visible_state_verified", isymcp_model: "GPT-5.6 Sol", isymcp_effort: "High" };
+        response.metadata = { isymcp_conversation: url, isymcp_model_state: "visible_state_verified", isymcp_model: webModelLabel(body.model), isymcp_effort: "High" };
         write(taskPath, { url, input: [...input, emitted], instructions, ...(awaiting ? { awaiting } : {}) });
         record.phase = "done"; record.response = response; persistRound();
         return { body: response, replayed: false };

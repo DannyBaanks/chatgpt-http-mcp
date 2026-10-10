@@ -21,9 +21,8 @@ const SOL_PRO = { solAvailable: true, proAvailable: true } as const;
 const SOL_PRO_XH = { solAvailable: true, proAvailable: true, extraHighAvailable: true } as const;
 const LUNA = { solAvailable: false, proAvailable: false } as const;
 
-test("gating: solo se anuncia lo verificable (Sol 5.6 / High)", () => {
-  // El backend Responses solo sabe verificar GPT-5.6 Sol / High contra el
-  // selector visible de ChatGPT: anunciar mas son filas que siempre fallan.
+test("gating: Sol caps anuncian 5.6 / High sin inferir GPT-6 ni otros modelos", () => {
+  // La nueva ruta GPT-6 requiere una capacidad propia. Sol/Pro no la implican.
   expect(availableRoutes(LUNA).map((r) => r.slug)).toEqual([]);
   expect(availableRoutes(SOL).map((r) => r.slug)).toEqual(["chatgpt-web/gpt-5.6-sol"]);
   // Pro: aun no verificable (falta ver el selector de una cuenta Pro).

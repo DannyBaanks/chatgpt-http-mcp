@@ -87,6 +87,9 @@ export function buildIsolatedCodexArgs(
     "-c", `model_provider=${JSON.stringify(ISOLATED_PROVIDER_ID)}`,
     "-c", `model_providers.${ISOLATED_PROVIDER_ID}={ ${fields.join(", ")} }`,
     "-c", `model=${JSON.stringify(model)}`, "-c", `model_reasoning_effort=${JSON.stringify(effort)}`,
+    // Built-in web_search executes in an API backend, not the native Codex
+    // executor. The Web text adapter accepts only client-executed tools.
+    "-c", 'web_search="disabled"',
     ...(catalogPath ? ["-c", `model_catalog_json=${JSON.stringify(catalogPath)}`] : []),
   ];
 }

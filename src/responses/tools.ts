@@ -46,6 +46,10 @@ export function nativeTools(declarations: Record<string, any>[]): Map<string, Na
       if (registry.has(wireName)) throw new WebTaskError("web_tool_declaration_invalid", 400, "duplicate tool name");
       if (item.type === "function" && !object(d.parameters))
         throw new WebTaskError("web_tool_declaration_invalid", 400, `missing JSON schema for ${wireName}`);
+      // Native and MCP wrappers return inline image parts for these tools.
+      // Namespace adapters may prepend underscores or a server prefix.
+      // This text transport must exclude them before requesting a doomed call.
+      if (/(?:^|[_.-])(?:view_image|codex_view_image|audio_analyze|video_contact_sheet|video_frame)$/.test(d.name)) continue;
       registry.set(wireName, { wireName, name: d.name, namespace, type: item.type, declaration: d });
     }
   }
@@ -75,7 +79,7 @@ export function toolPrompt(registry: Map<string, NativeTool>, choice: NativeTool
   const core = [...registry.values()].filter(t => /^(?:functions\.)?(exec|exec_command|shell|shell_command|write_stdin|apply_patch|view_image)$/.test(t.wireName));
   let initial = JSON.stringify(core.map(schema));
   if (initial.length > 128_000) initial = "[]";
-  return `ISyMCP CODEX RESPONSE CONTRACT\nYou are the reasoning model of an outer Codex task. Codex executes tools and owns its sandbox, approvals and process sessions. Reply with exactly ONE JSON object, optionally inside one json code fence. No other prose outside it.\nFor a final answer: {"kind":"final","text":"your answer"}.\nFor one native function call: {"kind":"call","tool":"exact registered name","arguments":{...}}. For one native custom tool: {"kind":"call","tool":"exact registered name","input":"exact freeform input"}. Do not execute through ChatGPT apps or invent tool results. Wait for the next message containing the real Codex result before reporting success. Nonzero exits and denials remain failures.\nTo obtain exact schemas for other registered tools first: {"kind":"describe_tools","names":["exact name"]}. Only one native call per response; later calls can follow its result.\nTool directory (every name provided by this client):\n${directory}\nInitial exact schemas:\n${initial}\nEND CODEX RESPONSE CONTRACT\n\n`;
+  return `ISyMCP CODEX RESPONSE CONTRACT\nYou are the reasoning model of an outer Codex task. Codex executes tools and owns its sandbox, approvals and process sessions. Native image outputs are unsupported in this text transport; image viewers are excluded. Other tools that return images/audio must not be requested. Reply with exactly ONE JSON object, optionally inside one json code fence. No other prose outside it.\nFor a final answer: {"kind":"final","text":"your answer"}.\nFor one native function call: {"kind":"call","tool":"exact registered name","arguments":{...}}. For one native custom tool: {"kind":"call","tool":"exact registered name","input":"exact freeform input"}. Do not execute through ChatGPT apps or invent tool results. Wait for the next message containing the real Codex result before reporting success. Nonzero exits and denials remain failures.\nTo obtain exact schemas for other registered tools first: {"kind":"describe_tools","names":["exact name"]}. Only one native call per response; later calls can follow its result.\nTool directory (enabled names from this client):\n${directory}\nInitial exact schemas:\n${initial}\nEND CODEX RESPONSE CONTRACT\n\n`;
 }
 
 export type ToolReply = { kind: "final"; text: string } | { kind: "call"; call: NativeCall } | { kind: "describe_tools"; schemas: string };

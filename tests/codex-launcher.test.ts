@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildCodexArgs, installDesktopLauncher, isBridgeAlive, removeDesktopLauncher } from "../src/codex-launcher";
+import { buildCodexArgs, installDesktopLauncher, isBridgeAlive, removeDesktopLauncher, usesWebBridge } from "../src/codex-launcher";
 
 let tempDir: string;
 let fakeBridge: ReturnType<typeof Bun.serve>;
@@ -42,6 +42,81 @@ describe("codex-launcher (perfil aislado sin tocar config.toml)", () => {
     expect(buildCodexArgs([], "18791")).toContain('model="chatgpt-web/gpt-5.6-sol"');
     expect(buildCodexArgs(["--", "--model=gpt-6-luna"], "18791")).toContain('model_provider="isymcp_web"');
     expect(buildCodexArgs(["--", "--help"], "18791")).toContain('model_provider="isymcp_web"');
+  });
+
+  test("native TOML model overrides allow whitespace around the assignment", () => {
+    for (const args of [
+      ["exec", "-c", 'model = "gpt-6-luna"', "hola"],
+      ["--config", ' model\t=\t"gpt-6.1-sol" '],
+      ['--config=model = "gpt-6-luna"'],
+      ['-cmodel = "gpt-6-luna"'],
+      ['-c=model = "gpt-6-luna"'],
+      ["-c", "model = 'gpt-6-luna'"],
+    ]) {
+      expect(buildCodexArgs(args, "18791")).toEqual(args);
+    }
+  });
+
+  test("an explicit profile owns its configuration unless a Web model is also requested", () => {
+    for (const profile of [
+      ["-p", "native"],
+      ["--profile", "native"],
+      ["--profile=native"],
+      ["-pnative"],
+      ["-p=native"],
+      ["--profile", "user-web-profile"],
+    ]) {
+      const args = ["exec", ...profile, "hola"];
+      expect(usesWebBridge(args)).toBe(false);
+      // A preserved profile must not even need a valid Web port.
+      expect(buildCodexArgs(args, "not-a-port")).toEqual(args);
+    }
+  });
+
+  test("explicit Web models opt a selected profile into the isolated bridge", () => {
+    for (const model of [
+      ["-m", "chatgpt-web/gpt-5.6-sol"],
+      ["--model=chatgpt-web/gpt-6"],
+      ["-c", 'model = "chatgpt-web/gpt-5.6-sol"'],
+    ]) {
+      const original = ["exec", "--profile", "native", ...model, "hola"];
+      const args = buildCodexArgs(original, "18791");
+      expect(usesWebBridge(original)).toBe(true);
+      expect(args).toContain('model_provider="isymcp_web"');
+      expect(args.slice(-original.length)).toEqual(original);
+    }
+  });
+
+  test("profile routing preserves CLI model precedence and excludes prompt text after --", () => {
+    const nativeFlag = ["--profile=native", "-c", 'model = "chatgpt-web/gpt-5.6-sol"', "--model=gpt-6-luna"];
+    expect(buildCodexArgs(nativeFlag, "18791")).toEqual(nativeFlag);
+    const webFlag = ["-pnative", "-c", 'model = "gpt-6-luna"', "--model=chatgpt-web/gpt-6"];
+    expect(buildCodexArgs(webFlag, "18791")).toContain('model_provider="isymcp_web"');
+    const prompt = ["--", "--profile=native", "-p", "native"];
+    const args = buildCodexArgs(prompt, "18791");
+    expect(args).toContain('model_provider="isymcp_web"');
+    expect(args.slice(-prompt.length)).toEqual(prompt);
+  });
+
+  test("spaced Web reasoning overrides still reject unverified effort", () => {
+    for (const args of [
+      ["-c", 'model_reasoning_effort = "low"'],
+      ["--config", ' model_reasoning_effort\t=\t"low" '],
+      ['--config=model_reasoning_effort = "low"'],
+    ]) {
+      expect(() => buildCodexArgs(args, "18791")).toThrow("modelo y esfuerzo Web verificado");
+    }
+  });
+
+  test("spaced config overrides preserve model flag precedence and the prompt delimiter", () => {
+    const nativeFlag = ["-c", 'model = "chatgpt-web/gpt-5.6-sol"', "--model=gpt-6-luna"];
+    expect(buildCodexArgs(nativeFlag, "18791")).toEqual(nativeFlag);
+    const webFlag = ["-c", 'model = "gpt-6-luna"', "--model=chatgpt-web/gpt-5.6-sol"];
+    expect(buildCodexArgs(webFlag, "18791")).toContain('model_provider="isymcp_web"');
+    const prompt = ["--", "-c", 'model = "gpt-6-luna"', "-c", 'model_reasoning_effort = "low"'];
+    const args = buildCodexArgs(prompt, "18791");
+    expect(args).toContain('model_provider="isymcp_web"');
+    expect(args.slice(-prompt.length)).toEqual(prompt);
   });
 
   test("an unauthenticated or unrelated health response is not a ready Web bridge", async () => {

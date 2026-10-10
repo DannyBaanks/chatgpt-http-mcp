@@ -29,6 +29,8 @@ export type CodexEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface AccountCapabilities {
   solAvailable: boolean;
+  /** Explicit opt-in or observed GPT-6 availability; Sol does not imply it. */
+  gpt6Available?: boolean;
   extraHighAvailable?: boolean;
   proAvailable: boolean;
   biggerContext?: boolean;
@@ -38,12 +40,13 @@ export interface WebModelRoute {
   slug: string;
   displayName: string;
   description: string;
-  backendModel: "gpt-5.6-sol" | "gpt-5.6-luna" | "gpt-6.1-sol";
+  backendModel: "gpt-5.6-sol" | "gpt-5.6-luna" | "gpt-6.1-sol" | "gpt-6";
   defaultEffort: CodexEffort;
   supportedEfforts: readonly CodexEffort[];
   requiresSol: boolean;
   requiresPro: boolean;
   requiresExtraHigh?: boolean;
+  requiresGpt6?: boolean;
   lunaOnly?: boolean;
 }
 
@@ -92,6 +95,18 @@ const PRO_ROUTE: WebModelRoute = {
   requiresPro: true,
 };
 
+const GPT6_ROUTE: WebModelRoute = {
+  slug: "chatgpt-web/gpt-6",
+  displayName: "GPT-6 (Web)",
+  description: "Visible ChatGPT GPT-6 / High. Conservative local adapter budget; backend context capacity is not verified.",
+  backendModel: "gpt-6",
+  defaultEffort: "high",
+  supportedEfforts: ["high"],
+  requiresSol: false,
+  requiresPro: false,
+  requiresGpt6: true,
+};
+
 const SOL_61_ROUTE: WebModelRoute = {
   slug: "chatgpt-web/gpt-6.1-sol",
   displayName: "GPT-6.1 Sol (Web)",
@@ -118,6 +133,7 @@ const VISIBLE_ROUTES: readonly WebModelRoute[] = [
   LUNA_ROUTE,
   SOL_INSTANT_ROUTE,
   SOL_ROUTE,
+  GPT6_ROUTE,
   SOL_61_ROUTE,
   PRO_ROUTE,
   GPT6_PRO_ROUTE,
@@ -135,17 +151,17 @@ const VISIBLE_ROUTES: readonly WebModelRoute[] = [
  */
 export const VERIFIED_WEB_ROUTES: Readonly<Record<string, readonly CodexEffort[]>> = {
   "chatgpt-web/gpt-5.6-sol": ["high"],
+  "chatgpt-web/gpt-6": ["high"],
 };
 
 export function availableRoutes(caps: AccountCapabilities): readonly WebModelRoute[] {
-  if (!caps.solAvailable) {
-    return VISIBLE_ROUTES.filter((route) => route.lunaOnly === true && VERIFIED_WEB_ROUTES[route.slug] !== undefined);
-  }
   return VISIBLE_ROUTES
     .filter(
       (route) =>
-        !route.lunaOnly &&
+        (!route.lunaOnly || !caps.solAvailable) &&
         VERIFIED_WEB_ROUTES[route.slug] !== undefined &&
+        (!route.requiresSol || caps.solAvailable) &&
+        (!route.requiresGpt6 || caps.gpt6Available === true) &&
         (!route.requiresPro || caps.proAvailable) &&
         (!route.requiresExtraHigh || caps.extraHighAvailable === true),
     )
@@ -178,6 +194,12 @@ export function resolveLimits(
   effort: CodexEffort,
   caps: AccountCapabilities,
 ): ContextLimits {
+  // This is a local transport budget, not a measured GPT-6 backend limit.
+  // Pro and Bigger Context must not enlarge a capacity we have not verified.
+  if (backendModel === "gpt-6") {
+    if (effort !== "high") throw new Error(`GPT-6 adapter budget is not defined for effort ${effort}`);
+    return limits(32_000, 28_000);
+  }
   let base: ContextLimits;
   if (backendModel === "gpt-6.1-sol") {
     base = effort === "low"
@@ -254,6 +276,7 @@ export function buildWebModel(template: JsonObject, route: WebModelRoute, caps: 
     additional_speed_tiers: [],
     service_tiers: [],
     default_service_tier: null,
+    ...(route.backendModel === "gpt-6" ? { isymcp_context_limit_source: "adapter_budget" } : {}),
   };
   delete model.comp_hash;
   delete model.availability_nux;

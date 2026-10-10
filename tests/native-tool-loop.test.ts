@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { runTaskTurn } from "../src/responses/task-turn";
 import { buildResponseBody, responseEvents } from "../src/web-responses";
+import { nativeTools } from "../src/responses/tools";
 
 const model = "chatgpt-web/gpt-5.6-sol";
 const settings = { pill: "High", model: "GPT-5.6 Sol", effort: "High", effortPosition: 3, effortSteps: 3 };
@@ -13,10 +14,13 @@ const tool = { type: "function", name: "exec_command", description: "Execute wit
 } };
 const msg = (role: string, text: string) => ({ type: "message", role, content: [{ type: role === "assistant" ? "output_text" : "input_text", text }] });
 const result = (call: any, output = "exit_code=0 stdout=CANARY") => ({ type: call.type === "function_call" ? "function_call_output" : "custom_tool_call_output", call_id: call.call_id, output });
-function backend(replies: unknown[], tools: any[] = [tool]) {
+function backend(replies: unknown[], tools: any[] = [tool], selectedModel = "GPT-5.6 Sol") {
   const dir = mkdtempSync(join(tmpdir(), "isymcp-native-loop-"));
   const calls: { prompt: string; url: string; options: any }[] = [];
-  const deps: any = { dir, readSettings: async () => settings, send: async (prompt: string, options: any) => {
+  const selections: Array<{ model: string; effort: string }> = [];
+  const deps: any = { dir, readSettings: async () => ({ ...settings, model: selectedModel }),
+    selectSettings: async (_page: unknown, model: string, effort: string) => { selections.push({ model, effort }); return { ...settings, model: selectedModel }; },
+    send: async (prompt: string, options: any) => {
     const url = options.navigate.to === "new" ? `https://chatgpt.com/c/${crypto.randomUUID()}` : options.navigate.url;
     await options.beforeSubmit({ url: () => options.navigate.to === "new" ? "https://chatgpt.com/" : url });
     options.onSubmitAttempt();
@@ -32,9 +36,30 @@ function backend(replies: unknown[], tools: any[] = [tool]) {
     }, body: JSON.stringify(body) });
     return runTaskTurn(request, body, loadConfig(), buildResponseBody, deps);
   };
-  return { run, calls, dir };
+  return { run, calls, dir, selections };
 }
 const call = (cmd: string) => ({ kind: "call", tool: "exec_command", arguments: { cmd } });
+
+test("GPT-6 tasks select the exact model before submitting and return its actual model metadata", async () => {
+  const b = backend([{ kind: "final", text: "GPT6 answer" }], [tool], "GPT-6");
+  const answer = await b.run([msg("user", "answer")], "t1", "A", [tool], { model: "chatgpt-web/gpt-6" });
+  expect(answer.body.metadata).toMatchObject({ isymcp_model: "GPT-6", isymcp_effort: "High" });
+  expect(b.selections).toEqual([{ model: "GPT-6", effort: "high" }]);
+});
+
+test("native image viewers are excluded until their multipart image results can be transported", async () => {
+  const image = { type: "namespace", name: "functions", tools: [{ ...tool, name: "view_image" }] };
+  const b = backend([{ kind: "call", tool: "functions.view_image", arguments: { cmd: "image.png" } }], [tool, image]);
+  await expect(b.run([msg("user", "inspect image")])).rejects.toThrow("web_tool_protocol_invalid");
+  expect(b.calls[0].prompt).not.toContain('"tool":"functions.view_image"');
+  expect(b.calls[0].prompt).toContain("image outputs are unsupported");
+});
+
+test("image tools wrapped by the real MCP namespace are excluded from the text transport", () => {
+  const names = ["_codex_view_image", "_view_image", "_audio_analyze", "_video_contact_sheet", "_video_frame"];
+  const registry = nativeTools([{ type: "namespace", name: "mcp", tools: names.map(name => ({ ...tool, name })) }, tool]);
+  expect([...registry.keys()]).toEqual(["exec_command"]);
+});
 
 test("two native calls in one Codex turn return results to the same conversation and permit the next user turn", async () => {
   const b = backend([call("printf CANARY"), call("printf SECOND"), { kind: "final", text: "verified CANARY SECOND" }, { kind: "final", text: "continued" }]);

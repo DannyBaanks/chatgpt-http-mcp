@@ -294,6 +294,13 @@ describe("autoridad y compatibilidad", () => {
     expect(navigationTarget("https://chatgpt.com/c/9999ffff-0000-0000-0000-000000000000", undefined)).toBeNull();
   });
 
+  test("new conversation preserves an already loaded homepage but leaves an existing or temporary chat", () => {
+    expect(navigationTarget("https://chatgpt.com/", { to: "new" })).toBeNull();
+    expect(navigationTarget("https://chatgpt.com/c/1234abcd", { to: "new" })).toBe("https://chatgpt.com/");
+    expect(navigationTarget("https://chatgpt.com/?temporary-chat=true", { to: "new" })).toBe("https://chatgpt.com/");
+    expect(navigationTarget("https://example.com/", { to: "new" })).toBe("https://chatgpt.com/");
+  });
+
   test("compactChat poda mensajes largos preservando el mensaje inicial y el resumen", async () => {
     const { compactChat, pruneMessages } = await import("../src/chats");
     const chat = createChat("Chat largo");

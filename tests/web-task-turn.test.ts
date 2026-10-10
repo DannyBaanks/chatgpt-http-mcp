@@ -28,7 +28,7 @@ function fakeBackend() {
   const calls: any[] = [];
   let observed = settings;
   let crash = false;
-  const deps: any = { dir, readSettings: async () => observed,
+  const deps: any = { dir, selectSettings: async () => observed,
     send: async (prompt: string, options: any) => {
       const url = options.navigate.to === "new" ? `https://chatgpt.com/c/${crypto.randomUUID()}` : options.navigate.url;
       const beforeUrl = options.navigate.to === "new" ? "https://chatgpt.com/" : url;

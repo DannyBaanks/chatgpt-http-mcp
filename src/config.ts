@@ -30,7 +30,7 @@ export const DEFAULT_TIMEOUT_MS = 120_000;
 export const DEFAULT_STATE_PATH = join(homedir(), ".codex-web-http", "storage-state.json");
 export const DEFAULT_WEB_TURN_DEADLINE_MS = 90_000;
 
-/** Caps por entorno: "sol,extrahigh,pro,bigger". Default conservador: sol. */
+/** Caps por entorno: "sol,gpt6,extrahigh,pro,bigger". Default conservador: sol. */
 export function parseCapabilities(raw: string | undefined): AccountCapabilities {
   const parts = new Set(
     (raw ?? "sol")
@@ -40,6 +40,7 @@ export function parseCapabilities(raw: string | undefined): AccountCapabilities 
   );
   return {
     solAvailable: parts.has("sol"),
+    gpt6Available: parts.has("gpt6"),
     extraHighAvailable: parts.has("extrahigh"),
     proAvailable: parts.has("pro"),
     biggerContext: parts.has("bigger"),

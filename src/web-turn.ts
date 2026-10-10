@@ -106,7 +106,9 @@ export function isNewAssistantTurn(beforeId: string, beforeText: string, idNow: 
 /** A donde hay que ir (o null si la pestana ya esta donde debe). */
 export function navigationTarget(currentUrl: string, nav: WebNavigation | undefined): string | null {
   if (!nav) return null;
-  if (nav.to === "new") return CHATGPT_HOME;
+  // openSession already loads the homepage. Repeating that navigation tears
+  // down its hydrated composer before the first turn can use it.
+  if (nav.to === "new") return currentUrl === CHATGPT_HOME ? null : CHATGPT_HOME;
   const target = canonicalConversationUrl(nav.url);
   if (!target) throw new Error(`web_bad_conversation_url: ${nav.url}`);
   return canonicalConversationUrl(currentUrl) === target ? null : target;
