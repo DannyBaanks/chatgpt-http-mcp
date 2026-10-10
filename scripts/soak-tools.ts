@@ -90,7 +90,9 @@ const cases: Case[] = [
     ].join("\n") },
   { name: "view-image", tool: "codex_view_image", expected: String(png.length), check: exact(String(png.length)),
     task: `Usa codex_view_image con path "punto.png" y responde EXACTAMENTE el valor del campo "bytes" del resultado, sin nada mas.` },
-  { name: "tool-inventory", tool: "codex_tool_inventory", expected: "6", check: exact("6"),
+  // 2026-10-10: el inventario de sesion real ahora lista las 8 tools nativas
+  // ejecutables (write_stdin y tool_call completadas); antes eran 6.
+  { name: "tool-inventory", tool: "codex_tool_inventory", expected: "8", check: exact("8"),
     task: `Usa codex_tool_inventory y responde EXACTAMENTE cuantos elementos tiene la lista "tools", solo el numero.` },
 ];
 

@@ -16,7 +16,7 @@ Tres claims distintos, medidos por separado:
 | `playwright-core` + Chrome headless | KEEP | adapter web CURRENT (no confundir con Electron) |
 | `@modelcontextprotocol/sdk` + `src/mcp/*` (stdio) | KEEP | tools nativas por túnel + stdio local (OpenISy) |
 | `--contract safe` / `request_id` (`src/mcp/identity.ts`, `main.ts`) | KEEP (compat) | contrato alternativo; el activo es `native` |
-| `--broker-socket` (`connect-tunnel.ts`, `main.ts`) | KEEP (stub declarado) | el flag viaja al túnel; no hay broker implementado |
+| `--broker-socket` (`connect-tunnel.ts`, `main.ts`) | KEEP (stub declarado) | el flag viaja al túnel; no hay broker externo implementado. Desde 2026-10-10 `codex_write_stdin` (registro local de procesos, `src/mcp/exec-registry.ts`) y `codex_tool_call` (dispatch local a las tools nativas, `src/mcp/catalog.ts`) ejecutan sin broker; el broker externo sigue fuera de alcance |
 | Flujo ACK de context-file v1 (`chat-completions.ts`, `context-file.ts`) | KEEP | parte del transporte actual (pull/push) |
 | Menciones ACK/lease históricas (`docs/TUNNEL_AND_MODELS.md`) | REFERENCE | fuente de comportamiento MIT; no operativo |
 | `~/.codex-chatgpt-web/` (config/binarios del launcher) | PROVENANCE_ONLY | no requerido para operar |

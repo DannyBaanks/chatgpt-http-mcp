@@ -51,6 +51,14 @@ describe("instructions", () => {
   test("el flujo texto -> @ -> ACK queda escrito", () => {
     expect(buildInstructions("native")).toContain("ACK");
   });
+
+  test("bootstrap minimo: sin el contrato del transporte externo", () => {
+    for (const contract of ["native", "safe"] as const) {
+      const text = buildInstructions(contract);
+      expect(text).not.toContain("ISYMCP CODEX RESPONSE CONTRACT");
+      expect(text.length).toBeLessThan(2200);
+    }
+  });
 });
 
 describe("buildChatGPTCommand", () => {

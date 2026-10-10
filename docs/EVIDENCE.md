@@ -330,3 +330,46 @@ pendiente en la proxima corrida HTTP).
 - Clasificacion: el unico fail es EXTERNO (safety de OpenAI), no infraestructura
   ni captura. Gate estricto 100/100: queda a 1 turno externo de distancia;
   recomendar re-run solo si se exige el estricto.
+
+## Tools nativas completadas (2026-10-10) — write_stdin, tool_call, Begin Patch, inventario fiel
+
+Correccion de estado (apendice; no reescribe evidencia previa): los recibos
+"no implementado en v0" de `codex_write_stdin`/`codex_tool_call`, el rechazo
+de `*** Begin Patch` y el inventario parcial de 6 herramientas DEJARON de ser
+el estado actual.
+
+- **codex_apply_patch formato nativo `*** Begin Patch`: DEMONSTRATED (local,
+  MCP vivo).** Aplicador propio (`src/mcp/codex-patch.ts`): valida TODO en
+  memoria y solo entonces escribe (tmp+rename); contexto que no coincide, ruta
+  escapada, archivo repetido o directiva rara => rechazo SIN tocar disco.
+  Equivalencia con git diff sobre estados identicos: DEMONSTRATED
+  (`tests/mcp-native-tools.test.ts`, TEST D: ambos formatos -> `hola\nmundo ISYMCP\n`).
+- **codex_write_stdin: DEMONSTRATED (local, MCP vivo).** `codex_exec` con
+  `background:true` devuelve `exec_id`; write_stdin escribe stdin y devuelve
+  solo el delta de salida; `close_stdin` (EOF) y `signal TERM/KILL`;
+  `exec_id` desconocido o de otra sesion: rechazado; `codex_turn_complete`
+  mata lo vivo (`live_execs_killed` >= 1 y el exec_id desaparece). Anti-huerfanos
+  por capas: TTL 15 min + sweeper, kill al cerrar turno, bwrap --die-with-parent,
+  exit handler. Registro: `src/mcp/exec-registry.ts` (16 max, buffers 512 KiB).
+- **codex_tool_call: DEMONSTRATED (local, MCP vivo).** Dispatch local a las
+  tools nativas con la sesion del turno: wire_name exacto del inventario o alias
+  corto (exec/exec_command/shell/shell_command/apply_patch/view_image/write_stdin/tool_inventory);
+  arguments validados contra la MISMA shape zod registrada; wire no soportado
+  => rechazo explicito; `call_id` deduplica reintentos (`replayed:true`).
+- **codex_tool_inventory fiel: DEMONSTRATED.** Sesion real: 8 tools +
+  `capabilities` (descripcion, esquema JSON de argumentos, requires). Token
+  desconocido: `tools: []` + razon (antes anunciaba 4 que no ejecutaban).
+  Soak en vivo actualizado: espera "8" (`scripts/soak-tools.ts`; corrida remota
+  NOT_DEMONSTRATED en esta ventana).
+- **Bootstrap minimo: DEMONSTRATED.** Instructions del connector reducidas
+  (test: sin "ISYMCP CODEX RESPONSE CONTRACT", < 2200 chars); el contrato largo
+  sigue SOLO en el transporte externo (`src/responses/tools.ts`, intocado).
+- Suite: `bun test` 455 pruebas (454 pass, 1 skip, 0 fail), incluye 40 nuevas.
+  Atribucion de flakes: el fallo de `media-unified` era determinista (mi slim
+  omitia "isymcp media prepare", exigido por test) — corregido; el ECONNRESET
+  de parity es el log de un error EXPECTADO por su test (pasa aislado 9/9).
+- **EN VIVO desde chatgpt.com (TEST E): NOT_DEMONSTRATED en esta ventana.**
+  Requiere sesion real + refresh del complemento; pasos reproducibles: mintear
+  `isymcp session mint --cwd <dir> --write`, pegar el compose con
+  `COMANDO: @CODEX ISYMCP`, verificar probe.txt con las dos lineas y el cierre
+  del turno.
