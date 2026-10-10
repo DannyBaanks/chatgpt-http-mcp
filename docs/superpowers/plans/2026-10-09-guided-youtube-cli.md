@@ -144,7 +144,7 @@
 - [x] **Step 4: Add an MCP-protocol E2E using the real stdio server and temporary catalog.** After guided preparation, `media_lookup` returns the same `asset_id`, `source_sha256`, and `ready`; it returns the saved full audio scan and one JPEG sheet; the lookup schema exposes no arbitrary `path` argument.
 - [x] **Step 5: Run `bun test tests/cli-e2e.test.ts tests/media-mcp.test.ts --timeout 30000`;** 13 pass across the two files.
 - [x] **Step 6: Keep all command-side state in temporary HOME/catalogs and use fake yt-dlp, zenity and tunnel status; no live tunnel/session/config/log mutation was part of this matrix.**
-- [ ] **Step 7: Commit Task 5** with `git add docs/superpowers/plans/2026-10-09-guided-youtube-cli.md tests/cli-e2e.test.ts && git commit -m "test: exercise CLI commands in isolated E2E harness" -- docs/superpowers/plans/2026-10-09-guided-youtube-cli.md tests/cli-e2e.test.ts`.
+- [x] **Step 7: Commit Task 5** with `git add docs/superpowers/plans/2026-10-09-guided-youtube-cli.md tests/cli-e2e.test.ts && git commit -m "test: exercise CLI commands in isolated E2E harness" -- docs/superpowers/plans/2026-10-09-guided-youtube-cli.md tests/cli-e2e.test.ts` (`303b3fa`).
 
 ### Task 6: User guide and complete verification
 
@@ -164,7 +164,7 @@
 - [x] **Step 3: Run focused media/menu/E2E tests, then `bun test --timeout 30000` and `bun src/isymcp.ts smoke`.** Full suite: 348 pass, 1 skip, 0 fail across 349 tests. CLI smoke passed all 5 checks.
 - [x] **Step 4: Probe the actual GPT-connected Codex ISyMCP tools.** `media_info` and `audio_analyze` succeeded on the user-registered Short; the current live tool catalog has no `media_lookup`, so URL lookup and artifact-recovery through that live connection remain `NOT_DEMONSTRATED` pending connector refresh. Do not substitute the local protocol test for this remote check.
 - [x] **Step 5: Review docs with `rg`, run `git diff --check`, inspect current worktree/config effects, and verify all test-created state is isolated.** No command in this turn changed the live tunnel or user session/configuration.
-- [ ] **Step 6: Commit Task 6** with `git add GUIA.md README.md tests/media-preview.test.ts tests/media-export.test.ts tests/media-prepare-cli.test.ts tests/menu.test.ts tests/cli-e2e.test.ts && git commit -m "docs: document guided YouTube preparation" -- GUIA.md README.md tests/media-preview.test.ts tests/media-export.test.ts tests/media-prepare-cli.test.ts tests/menu.test.ts tests/cli-e2e.test.ts` (stage only files that actually changed in this task).
+- [x] **Step 6: Commit Task 6** with `git add GUIA.md README.md docs/superpowers/plans/2026-10-09-guided-youtube-cli.md && git commit -m "docs: document guided YouTube preparation" -- GUIA.md README.md docs/superpowers/plans/2026-10-09-guided-youtube-cli.md`.
 
 ### Task 7: Publish the ISyMCP icon in MCP server metadata
 

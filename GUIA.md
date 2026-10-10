@@ -280,19 +280,25 @@ Si ejecutas de nuevo el script genérico `connect-tunnel.ts` con su comando pred
 
 ## Preparar una vez y consultar después
 
-Para dejar listo un video y reutilizar el análisis entre conversaciones, ejecuta en una terminal:
+Para dejar listo un video y reutilizar el análisis entre conversaciones, inicia el flujo guiado desde una terminal:
 
 ```bash
-isymcp media prepare 'https://www.youtube.com/shorts/VIDEO_ID'
+isymcp media prepare
 ```
 
-También puedes usar `bun src/isymcp.ts media prepare '<url>'`. El comando valida y canonicaliza la URL pública de YouTube/Shorts. Si ya existe un registro para esa URL, lo reutiliza; si no, descarga con yt-dlp sin cookies y aplica los límites actuales de 500 MiB y 30 minutos. Después verifica el archivo y guarda localmente metadatos, el `audio_scan` completo en chunks de hasta 120 segundos y hojas 4×4 de 1920×1080 para ventanas consecutivas de hasta 60 segundos.
+Pega una URL pública de YouTube o Shorts. Después se abre el selector nativo de carpeta (`zenity` o `kdialog` ya instalado), se consulta una vista previa de los metadatos y se pide confirmación antes de descargar. Cancelar cualquiera de esos pasos no inicia una descarga. El flujo solo admite videos públicos individuales: no usa cookies ni listas, y mantiene los límites de 500 MiB y 30 minutos.
 
-El comando informa las fases por `stderr` y al terminar imprime una sola línea JSON con `asset_id`, `status`, `duration_seconds`, `sheet_count` y `segment_count`. Si se interrumpe, conserva el origen y los resultados parciales verificados; repetir el comando con la misma URL reanuda lo que se pueda reutilizar. Cambios al algoritmo de audio o al renderizador regeneran solo esa clase de artefactos. Una preparación incompleta nunca reemplaza una generación lista.
+El paquete se prepara en tu computadora e incluye el video original, `manifest.json`, el análisis completo de audio en chunks de hasta 120 segundos y hojas 4×4 de 1920×1080 para ventanas consecutivas de hasta 60 segundos. Las hojas contienen fotogramas muestreados y ordenados; no son una extracción exhaustiva ni una reproducción del video. El manifiesto registra URL/ID canónicos, el ID confirmado después de la descarga, datos reales de `ffprobe` y SHA-256 de los archivos. La publicación es atómica, no reemplaza un paquete existente y falla si el sistema no puede garantizarlo.
+
+El catálogo privado continúa siendo la fuente de verdad local. La exportación es una copia en la carpeta elegida; el servidor MCP no acepta rutas arbitrarias. Si se interrumpe la preparación, conserva el origen y los resultados parciales verificados; repetirla puede reutilizar lo válido. Una preparación incompleta nunca reemplaza una generación lista. Al terminar imprime una línea JSON con `asset_id`, `status`, `duration_seconds`, `sheet_count`, `segment_count`, `package_directory`, `source_sha256` y `manifest_sha256`.
+
+También puedes usar el formulario anterior `isymcp media prepare '<url>'` o `bun src/isymcp.ts media prepare '<url>'` para automatizaciones: conserva su ejecución no interactiva y su resumen JSON, pero no abre selector ni exporta paquete. En el menú interactivo `isymcp`, la opción está en **USAR → Preparar video de YouTube…**.
 
 Los manifiestos y artefactos se guardan bajo `~/.local/state/isymcp/media/preparations/` (o bajo `ISYMCP_MEDIA_HOME`) con permisos privados. No se agregan herramientas para aceptar rutas arbitrarias ni se borran originales, generaciones antiguas o resultados parciales.
 
-En ChatGPT, selecciona **Codex ISyMCP** y pide primero `media_lookup(url)`. Si aparece `status: ready`, el modelo recibe el audio segmentado completo y el índice de hojas, pero no las imágenes hasta que solicite `sheet_index`; cada llamada devuelve como máximo una hoja. Si recibe `not_prepared`, puede usar la importación de una sola vez o indicarte que ejecutes `isymcp media prepare <url>`. Si recibe `not_found`, el enlace aún no está registrado. `media_lookup` es de solo lectura: no descarga ni vuelve a calcular. Las mediciones acústicas no son transcripción ni escucha nativa.
+En ChatGPT, selecciona **Codex ISyMCP** y pide primero `media_lookup(url)`. Si aparece `status: ready`, el modelo recibe el audio segmentado completo y el índice de hojas, pero no las imágenes hasta que solicite `sheet_index`; cada llamada devuelve como máximo una hoja. Si recibe `not_prepared`, puede usar la importación de una sola vez o indicarte que ejecutes `isymcp media prepare`. Si recibe `not_found`, el enlace aún no está registrado. `media_lookup` es de solo lectura: no descarga ni vuelve a calcular. Las mediciones acústicas no son transcripción ni escucha nativa.
+
+Codex ISyMCP es un servidor de herramientas; la respuesta en lenguaje natural la genera el modelo de ChatGPT. Las herramientas de medios se invocan directamente y no necesitan `turn_token`. Las herramientas `codex_*` sí requieren un token de sesión válido: créalo con `isymcp session mint --cwd <directorio>` y pega el `turn_token` junto con `COMANDO: @CODEX ISYMCP`. `codex_turn_start` no crea ese token. Un token inventado o desconocido solo recibe un recibo de compatibilidad y no ejecuta comandos.
 
 ## Pegar un enlace para importarlo y analizarlo ahora
 
