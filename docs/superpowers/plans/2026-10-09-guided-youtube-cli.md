@@ -43,12 +43,12 @@
 - Test: `tests/media-preview.test.ts`
 
 **Interfaces:**
-- `YouTubePreview = { url: string; title?: string; uploader?: string; duration_seconds?: number; resolution?: string; estimated_bytes?: number }`.
-- `inspectYouTube(input: string, runner?: typeof run): Promise<YouTubePreview>` canonicalizes with `youtubeSource`, invokes yt-dlp in metadata-only mode, and maps absent optional fields to `undefined`.
+- `YouTubePreview = { url: string; video_id: string; title?: string; uploader?: string; duration_seconds?: number; resolution?: string; estimated_bytes?: number }`.
+- `inspectYouTube(input: string, runner?: typeof run): Promise<YouTubePreview>` canonicalizes with `youtubeSource`, invokes yt-dlp in metadata-only mode, requires yt-dlp's `id` to match the canonical ID, and maps absent optional fields to `undefined`.
 - `chooseOutputDirectory(options?: { platform?: NodeJS.Platform; runner?: typeof run; env?: NodeJS.ProcessEnv }): Promise<string | null>` returns the selected directory, `null` on cancel, and a safe error if no supported picker exists.
 - Both functions use injected process execution so tests do not call the network or display a real dialog.
 
-- [ ] **Step 1: Add failing tests for metadata parsing and safe process arguments.** Assert the canonical URL is passed, download is skipped, unsafe yt-dlp config/plugins/cache are disabled, output fields map correctly, and missing metadata stays undefined.
+- [ ] **Step 1: Add failing tests for metadata parsing and safe process arguments.** Assert the canonical URL is passed, download is skipped, unsafe yt-dlp config/plugins/cache are disabled, output fields map correctly, missing metadata stays undefined, metadata IDs must match the canonical URL, and untrusted terminal control characters are removed.
 - [ ] **Step 2: Run `bun test tests/media-preview.test.ts` and verify the new tests fail because the interfaces are absent.**
 - [ ] **Step 3: Add the metadata-only yt-dlp wrapper in `src/media/preview.ts`.** Use `youtubeSource` before spawning, parse one JSON object, bound output, and reject malformed output without exposing provider stderr or local paths.
 - [ ] **Step 4: Add picker tests for zenity success/cancel, kdialog success/cancel, missing binaries, and dialog error.** Assert no shell interpolation and that cancellation returns `null`.
