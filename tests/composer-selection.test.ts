@@ -3,8 +3,16 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import * as settings from "../src/chatgpt-settings";
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch({ executablePath: process.env.CODEX_WEB_HTTP_CHROME || "/usr/bin/google-chrome", headless: true }); });
-afterAll(async () => { await browser?.close(); });
+// A cold runner can take longer than Bun's default five-second hook budget.
+// Keep startup bounded inside the hook so Playwright can report launch errors.
+beforeAll(async () => {
+  browser = await chromium.launch({
+    executablePath: process.env.CODEX_WEB_HTTP_CHROME || "/usr/bin/google-chrome",
+    headless: true,
+    timeout: 20_000,
+  });
+}, 25_000);
+afterAll(async () => { await browser?.close(); }, 10_000);
 
 // Local DOM boundary fixture: no account, network request, cookies or model.
 async function composer(): Promise<Page> {

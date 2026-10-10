@@ -123,3 +123,32 @@ Private receipt:
 SHA-256 `0bf37a1566698f57e20dddd7b590505a410a462d60821386a82fdaace8bec969`.
 The successful connector and local suite above do not demonstrate reliable
 model connectivity on every network.
+
+
+## PR CI cold-start correction
+
+The first PR #28 CI run (38065151314, commit `3f2ec20`) failed before
+`composer-selection.test.ts` could execute its four DOM cases. Bun terminated
+the browser-launch hook at its default five-second deadline. All other
+executed tests passed; the failed run is retained rather than rerun as proof.
+
+A controlled local reproduction used an owned `CODEX_WEB_HTTP_CHROME` wrapper
+that waits six seconds before executing the real installed Chrome. Before the
+repair it produced the same unnamed hook timeout at 5,002.84 ms. With an
+explicit 20-second Playwright launch timeout inside a 25-second Bun hook,
+the same delayed-browser command passed all four cases (12 assertions,
+14.94 seconds). Teardown has its own ten-second bound. Test assertions and
+production runtime deadlines are unchanged.
+
+The negative CI log alone does not measure the exact cause of that runner's
+slow browser initialization. The delay control demonstrates the insufficient
+hook budget; the subsequent CI run must independently verify the correction.
+
+Raw outputs remain private under
+`~/.codex-web-http/evidence/native-mcp-ci-20261010/c4fafebb8685461996dc29ac9c9268f7/`:
+
+| Artifact | SHA-256 |
+|---|---|
+| `ci-red.txt` | `17abab004394f3183f9068e9c06aaad3ab88d2f133734b0bf40fc1aa3e040a53` |
+| `cold-start-red.txt` | `9d2e9673e4db0926e23f62cc95168bcf791cbd8ee9803dd06fbdbda513160719` |
+| `cold-start-green.txt` | `c7ff49065d8e182fcd330e3cbbc3fd289533a90e003a7ba4e46fd5fec30f9a40` |
