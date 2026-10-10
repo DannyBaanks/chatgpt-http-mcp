@@ -73,6 +73,13 @@ test('real MCP stdio returns info and two inline audio images',async()=>{
  const scan:any=await client.callTool({name:'audio_scan',arguments:{asset_id:a.id}});expect(scan.isError).not.toBe(true);const scanned=JSON.parse(scan.content[0].text);expect(scanned.window).toEqual({start_seconds:0,end_seconds:1});expect(scanned.result.chunk_count).toBe(1);expect(scanned.result.chunks[0].segments).toHaveLength(1);
  } finally {await client.close();}
 },15000);
+test('main Codex ISyMCP server advertises the same icon during MCP initialize',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'isymcp-main-icon-'));
+ const client=new Client({name:'main-icon-smoke',version:'1'});
+ const transport=new StdioClientTransport({command:process.execPath,args:[join(import.meta.dir,'../src/mcp/main.ts'),'--contract','native','--broker-socket',join(root,'broker.sock')],env:{...process.env,HOME:root,CODEX_WEB_HTTP_HOME:join(root,'.codex-web-http')} as Record<string,string>});
+ try {await client.connect(transport);expect(client.getServerVersion()?.icons).toMatchObject([{mimeType:'image/png',sizes:['256x256'],src:expect.stringMatching(/^data:image\/png;base64,/)}]);}
+ finally {await client.close();}
+},15000);
 import {withinDeadline} from '../src/media/deadline';
 import {ReadBuffer} from '@modelcontextprotocol/sdk/shared/stdio.js';
 test('one deadline cancels a subprocess after earlier stages spent time',async()=>{

@@ -33,6 +33,7 @@ import {
   type CodexSession,
 } from "../codex-sessions";
 import { buildInstructions } from "./identity";
+import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
 
 const args = process.argv.slice(2);
@@ -56,6 +57,7 @@ const turnTokenSchema = z.string().min(20).max(256);
 const server = new McpServer({
   name: "codex-web-http",
   version: "0.3.0",
+  icons: [serverIcon()],
 }, {
   instructions: buildInstructions(contract),
 });

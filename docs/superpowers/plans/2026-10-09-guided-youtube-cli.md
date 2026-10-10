@@ -170,11 +170,13 @@
 
 **Files:**
 - Create: `assets/isymcp-icon.png` (256×256 optimized PNG sourced from the user-provided `Descargas/Gato terminal del puente ISyMCP.png`)
+- Create: `src/mcp/icon.ts`
 - Modify: `src/mcp/media.ts`
+- Modify: `src/mcp/main.ts`
 - Test: `tests/media-mcp.test.ts`
 
 - [x] **Step 1: Add an assertion to the real stdio MCP handshake that `serverInfo.icons` contains the PNG data URI and its MIME type and size.**
 - [x] **Step 2: Run the focused handshake test and verify it fails because the server currently publishes no icon.** RED observed: `serverInfo.icons` was `undefined`.
-- [x] **Step 3: Add the optimized icon as a data URI in the media MCP implementation metadata.** Keep the source asset in-repository so the URI is generated from the shipped file, and do not change user MCP settings or the live tunnel.
-- [x] **Step 4: Run `bun test tests/media-mcp.test.ts -t 'real MCP stdio returns info and two inline audio images'` and verify the real protocol handshake exposes the icon.** GREEN: 1 pass.
-- [ ] **Step 5: Commit Task 7** with `git add assets/isymcp-icon.png src/mcp/media.ts tests/media-mcp.test.ts docs/superpowers/plans/2026-10-09-guided-youtube-cli.md && git commit -m "feat: publish ISyMCP icon metadata" -- assets/isymcp-icon.png src/mcp/media.ts tests/media-mcp.test.ts docs/superpowers/plans/2026-10-09-guided-youtube-cli.md`.
+- [x] **Step 3: Add the optimized icon as a data URI in both main Codex ISyMCP and standalone media MCP metadata.** Shared `src/mcp/icon.ts` reads the bundled PNG; no user MCP settings or live tunnel changed.
+- [x] **Step 4: Run focused real stdio handshake tests for both servers.** RED observed on the main server before implementation; both handshakes now advertise the PNG icon (2 pass).
+- [x] **Step 5: Commit Task 7**: initial standalone server commit `6da90fd`, followed by shared loader + main server correction in the current icon follow-up.
