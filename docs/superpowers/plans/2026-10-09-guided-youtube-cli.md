@@ -65,7 +65,8 @@
 **Interfaces:**
 - `PackageExportResult = { directory: string; manifest_path: string; manifest_sha256: string }`.
 - `PackageCollisionError` signals that the intended final package directory already exists.
-- `exportMediaPackage(catalog: MediaCatalog, asset: Asset, manifest: PreparationManifest, store: MediaPreparationStore, parentDirectory: string, preview: YouTubePreview): Promise<PackageExportResult>` copies only the verified source and ready-generation artifacts.
+- `PackageExportError` reports the preserved `partial_directory` when copying or publication fails.
+- `exportMediaPackage(catalog: MediaCatalog, asset: Asset, manifest: PreparationManifest, store: MediaPreparationStore, parentDirectory: string, preview: YouTubePreview, options?: { publisher?: (partial: string, final: string) => Promise<void> }): Promise<PackageExportResult>` copies only the verified source and ready-generation artifacts.
 - Export layout: `<safe-title> [<youtube-id>]/source.<original-extension>`, `manifest.json`, `audio-scan/<artifact-id>.json`, and `contact-sheets/<artifact-id>.jpg`.
 
 - [ ] **Step 1: Add failing tests for package contents and hashes using a generated media file and a ready preparation fixture.** Assert source, audio scan, contact sheets, and package manifest hashes match their catalog/preparation metadata.
