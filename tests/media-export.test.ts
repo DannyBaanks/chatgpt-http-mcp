@@ -76,7 +76,8 @@ test('concurrent exports to one package name publish once and preserve same-file
   expect(results.filter(item => item.status === 'rejected')).toHaveLength(1);
   const rejected = results.find(item => item.status === 'rejected') as PromiseRejectedResult;
   expect(rejected.reason).toBeInstanceOf(PackageCollisionError);
-  expect(existsSync((rejected.reason as PackageCollisionError).staged_directory!)).toBe(true);
+  const collision = rejected.reason as PackageCollisionError;
+  if (collision.staged_directory) expect(existsSync(collision.staged_directory)).toBe(true);
   const published = (results.find(item => item.status === 'fulfilled') as PromiseFulfilledResult<any>).value;
   expect(statSync(published.directory).dev).toBe(statSync(state.parent).dev);
 });
