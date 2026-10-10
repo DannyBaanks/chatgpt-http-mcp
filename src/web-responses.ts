@@ -11,7 +11,10 @@
 // tokenizer de Codex aqui, y un numero inventado con precision falsa es peor
 // que uno aproximado y rotulado.
 import { parseResponsesInput } from "./responses/input";
-import { runTaskTurn } from "./responses/task-turn";
+import { resolveTaskIdentity, runTaskTurn } from "./responses/task-turn";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { conversationsDir, LAUNCH_HEADER } from "./codex-conversation";
 import { WebTaskError } from "./responses/selection";
 import { CHATGPT_WEB_MODEL_PREFIX } from "./web-models";
 import type { AppConfig } from "./config";
@@ -158,9 +161,32 @@ function errorJson(status: number, type: string, message: string): Response {
 }
 
 /** HTTP and WebSocket share the same durable task-bound backend. */
+export function localAppTitle(req: Request, body: Record<string, any>, dir = conversationsDir()): Record<string, any> | null {
+  const launchId = req.headers.get(LAUNCH_HEADER) ?? "";
+  if (!/^[0-9a-f-]{36}$/.test(launchId)) return null;
+  let meta: any;
+  try { meta = JSON.parse(body.client_metadata?.["x-codex-turn-metadata"] ?? "{}"); } catch { return null; }
+  if (meta.thread_source !== "thread_title" || meta.turn_trigger !== "thread_title") return null;
+  const path = join(dir, `intent-${launchId}.json`);
+  if (!existsSync(path)) return null;
+  const intent = JSON.parse(readFileSync(path, "utf8"));
+  if (intent.client !== "app" || intent.launchId !== launchId || intent.model !== body.model) return null;
+  resolveTaskIdentity(req, body);
+  parseResponsesInput(body);
+  // An App-generated label is not the user's reasoning turn. Give it a local
+  // label without opening a Web conversation, spending a model turn or
+  // binding the launch receipt to this auxiliary Codex thread.
+  return { ...buildResponseBody(body.model, "ISyMCP Web", ""), usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+    metadata: { isymcp_source: "local_thread_title", isymcp_tools_executed: false } };
+}
+
 export async function handleWebResponses(req: Request, config: AppConfig, web: WebRequest): Promise<Response> {
   try {
     const body = await req.clone().json();
+    const title = localAppTitle(req, body);
+    if (title) return web.stream ? new Response(buildWebStream(web.model, title.output_text, "", title), {
+      headers: { "content-type": "text/event-stream", "cache-control": "no-store" },
+    }) : Response.json(title);
     const result = await runTaskTurn(req, body, config, buildResponseBody);
     const headers = { "x-isymcp-replayed": result.replayed ? "1" : "0", "cache-control": "no-store" };
     return web.stream ? new Response(buildWebStream(web.model, result.body.output_text, web.prompt, result.body), {

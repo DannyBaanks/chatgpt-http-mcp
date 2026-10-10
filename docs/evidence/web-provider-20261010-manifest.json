@@ -1,0 +1,172 @@
+{
+  "version": "isymcp-verification-manifest/1",
+  "generatedAt": "2026-10-10T21:15:26.396664+00:00",
+  "scope": "Separate native MCP, actual Codex App with controlled model, and real GPT Web attempts. Private credentials excluded; raw network/protocol negatives retained.",
+  "files": [
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/closure-suite.txt",
+      "bytes": 50995,
+      "sha256": "634909af8056a66b0cfd33558b983c0a0357337f9aadc997d7ee4cca1944fcc6"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/registry-red.txt",
+      "bytes": 4096,
+      "sha256": "5bcdedb164c9d3723652d06b393c9ca177b3c39401cba5f4730b7a75221479e2"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/registry-green.txt",
+      "bytes": 2843,
+      "sha256": "3e2cec24357cd2c14ccf4d418286da86a3c77d364bcd7c3478a595b1db2fbfc5"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/replay-red.txt",
+      "bytes": 3875,
+      "sha256": "16cc51a282324bd60b6961ffb61666265db674f26190799f56fffd1c42ebded8"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/replay-green.txt",
+      "bytes": 2843,
+      "sha256": "18780561dcf84fca790e6a1c1b397a1fd4e7b4e5a3bf5fcad7f55ec04063f808"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/late-registry-red.txt",
+      "bytes": 5398,
+      "sha256": "bd9a8ea40971f5f196fe23ea8a3b5d62fc0b5bb4812400b8cf3f79a3ecd28985"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/late-registry-green.txt",
+      "bytes": 3040,
+      "sha256": "a1d32a8811d778cf15728c0f81c5ea578ffad7d4d908d3371bdca56bb3e5d536"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/retry-red.txt",
+      "bytes": 2844,
+      "sha256": "8532fc69d41d58e5618ea4bc78dfdae52c9aacbcaefb69257b00b9ee9688e604"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/retry-green.txt",
+      "bytes": 2440,
+      "sha256": "3252527246905905dd3a5ff5b9c12284f23dc74861a3b89a48a24b771a47a641"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-resume-red.txt",
+      "bytes": 1422,
+      "sha256": "f6ab7af234b0f4e2814958a1da54fe1f3a2464513a40593e98bbe08535b662ec"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-resume-green.txt",
+      "bytes": 441,
+      "sha256": "fd2c30a2a3decf5ba1fe85bd89151c5b116cce5476cf4201ddaa0d81211ac72f"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/retry-live/run.txt",
+      "bytes": 42,
+      "sha256": "21fcc972ce455cdfefc2eff9b2f7db7f9b7443da7730fb931112d1f1a4990948"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/cli1/receipt.json",
+      "bytes": 5681,
+      "sha256": "79755d1459bbc8194140958a181de3b6118ba7e2be36a0a029d7876a4470f106"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/cli4/receipt.json",
+      "bytes": 5682,
+      "sha256": "4ba612d4d40444f594441ead51d9ef589fe40c3699cf1d661f1ac0cca3f2e1ba"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/cli5/receipt.json",
+      "bytes": 3605,
+      "sha256": "9b424915203cc7d6f562f95d22c574ef061a0fa6d8cbe5da32650e57f8be4d63"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/cli6/receipt.json",
+      "bytes": 12525,
+      "sha256": "7372148105030cf350f5d537a400873f24604a1978f0617eca20bbeca96565ad"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/cli7/receipt.json",
+      "bytes": 1759,
+      "sha256": "93947d86b79c9897054ed9109b48a558595da85181e6ff284c2d6e415760649a"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/cli8/receipt.json",
+      "bytes": 1760,
+      "sha256": "dfa75c7ea8938cb7c1a3425aa5acc28069e4aff9345031380c252ef734db2555"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-wire/request-2.json",
+      "bytes": 54767,
+      "sha256": "44cd246e5fdd65ca24e65a195fba421dc118e24cd114b35ce0ddaf57980ffc2b"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-live/receipt.json",
+      "bytes": 815,
+      "sha256": "ccad96ab13c3d2f441154f74e44b6ada45942d9cfeab1687b9c3ca0de3463c5f"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-live2/interrupted-receipt.json",
+      "bytes": 152,
+      "sha256": "ab24c8198501ef4329c4ad6dc98fe6af249b0b9ed88a66c884cc47509ea09d32"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-adapter/first.json",
+      "bytes": 525,
+      "sha256": "3c8f4512c31ac541a8187abb20fc99363a8c1d33e7c70b4f7479add54261cd08"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-adapter2/receipt.json",
+      "bytes": 1023,
+      "sha256": "39858a0d2a365758895faf8e869a2e039adedae630dc2ae12c1d9d8e6f584116"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-adapter2/request-3.json",
+      "bytes": 107859,
+      "sha256": "5ee04d541f86bf43930d67aade5cfa8b8024d529a1a065621e313cab800fe4ef"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-adapter2/request-5.json",
+      "bytes": 108863,
+      "sha256": "bd0188fa906445c6ce5e1cdb8130b82823e3edb4f6109ff5fb4d49a234c1d62b"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/app-adapter2/after.png",
+      "bytes": 61068,
+      "sha256": "9ac4fdeecfdd9297b9822a30eb2fccc796497e8518f973c67dba65945548b4ff"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/selector-live/retry.txt",
+      "bytes": 1241,
+      "sha256": "c4bfb87d2f37937c10366498ae6124e333fbd4d58eaab6db6ef3b8176d06c65d"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/native-connector-fresh/start.json",
+      "bytes": 271,
+      "sha256": "c976310703697120801af047d4f5a88891c6605a9ce9fb92ae2e043a5f718ab8"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/native-connector-fresh/tunnel-status.json",
+      "bytes": 28061,
+      "sha256": "46be224d8c54c2d981467186fb533ea43408bd692fbc16ccf8013484237d9e61"
+    },
+    {
+      "path": "/home/danny/.isymcp-app-canary/ca3ad038-b95d-4cf4-8524-c240411460b8/codex/sessions/2026/10/10/rollout-2026-10-10T10-46-29-01a126b5-79a5-7583-af29-e06cfce2f957.jsonl",
+      "bytes": 73232,
+      "sha256": "8d6735fb23318ca96f488208735a853f877bbbe5b1f5110977f7f50aaef5b50a"
+    },
+    {
+      "path": "/home/danny/Development/ISyCo Git/chatgpt-http-mcp-impl/docs/evidence/web-provider-20261010-tests.txt",
+      "bytes": 103419,
+      "sha256": "9437cbd95c3b0e468849100df0d4b79ee682b1d3d595ac01bf2efe5edb32a409"
+    },
+    {
+      "path": "/home/danny/Development/ISyCo Git/chatgpt-http-mcp-impl/docs/evidence/web-provider-20261010-connector-canary.json",
+      "bytes": 521,
+      "sha256": "ee9e9faa5bd17498ab001221a76a748096d21f459b2209620490a41d0280fb1f"
+    },
+    {
+      "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/native-connector-fresh/remote-canary-summary.json",
+      "bytes": 521,
+      "sha256": "ee9e9faa5bd17498ab001221a76a748096d21f459b2209620490a41d0280fb1f"
+    }
+  ]
+}

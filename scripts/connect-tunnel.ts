@@ -10,6 +10,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { assertExclusiveTunnel, configuredTunnelAlias } from "../src/tunnel-routing";
 
 function home(): string {
   return process.env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
@@ -19,7 +20,7 @@ function argValue(name: string): string | undefined {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : undefined;
 }
 
-const alias = argValue("--alias") ?? "codex-web-http";
+const alias = configuredTunnelAlias(home(), argValue("--alias") ?? process.env.CODEX_WEB_HTTP_TUNNEL_ALIAS);
 const tunnelJsonPath = join(home(), "tunnel.json");
 if (!existsSync(tunnelJsonPath)) {
   console.error(`no existe ${tunnelJsonPath}; corre primero install-tunnel.ts`);
@@ -38,22 +39,19 @@ if (!existsSync(keyFile)) {
   process.exit(2);
 }
 
-const orgFile = argValue("--org-file") ?? join(homedir(), "Development", "organ.txt");
-if (!existsSync(orgFile)) {
-  console.error(`no existe el archivo de organization id: ${orgFile}`);
-  process.exit(2);
-}
-const orgId = readFileSync(orgFile, "utf8").trim();
-if (!/^org-[A-Za-z0-9]{16,}$/.test(orgId)) {
-  console.error(`organization id invalido (esperado org-...): ${orgId}`);
-  process.exit(2);
-}
+// Attaching an existing ID uses its runtime credential, not admin CRUD or an
+// organization scope. Preserve any stored organization metadata as-is.
 
 const binary = join(home(), "bin", "tunnel-client");
 if (!existsSync(binary)) {
   console.error(`no existe ${binary}; corre install-tunnel.ts`);
   process.exit(2);
 }
+
+// Check identity before generating a launcher or touching any managed runtime.
+const inventory = Bun.spawnSync([binary, "runtimes", "list", "--json"], { timeout: 15_000 });
+if (inventory.exitCode !== 0) throw new Error("tunnel_inventory_unavailable: refusing to connect");
+assertExclusiveTunnel(JSON.parse(inventory.stdout.toString()), alias, tunnelId);
 
 // tunnel-client recibe el comando como UN string. Si el repo vive en una ruta
 // con espacios ("ISyCo Git/..."), un `bun run <ruta>` sin comillas se parte.
@@ -82,7 +80,6 @@ const proc = Bun.spawnSync([
   "--tunnel-client-bin", binary,
   "--tunnel-id", tunnelId,
   "--runtime-api-key", `file:${keyFile}`,
-  "--organization-id", orgId,
   "--mcp-command", mcpCommand,
   "--json",
 ], { timeout: 120_000 });
@@ -102,8 +99,7 @@ try {
   process.exit(1);
 }
 
-// Guarda el org id junto al tunnel id (no es secreto, pero se mantiene 0600).
-writeFileSync(tunnelJsonPath, JSON.stringify({ ...saved, tunnelId, organizationId: orgId, connectedAt: new Date().toISOString() }, null, 2) + "\n", { mode: 0o600 });
+writeFileSync(tunnelJsonPath, JSON.stringify({ ...saved, alias, tunnelId, connectedAt: new Date().toISOString() }, null, 2) + "\n", { mode: 0o600 });
 
 const health = (parsed.local as Record<string, unknown> | undefined)?.effective_health as
   | { healthz?: { ok?: boolean; body?: string }; readyz?: { ok?: boolean; body?: string }; ui?: string }

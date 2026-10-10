@@ -70,6 +70,10 @@ export function isolatedProvider(url: string, tokenEnv?: string, extraEnvHeaders
   return {
     name: "ISyMCP Web", base_url: validateBridgeUrl(url), wire_api: "responses", requires_openai_auth: false,
     supports_websockets: false, stream_idle_timeout_ms: 300_000,
+    // This loopback adapter owns a durable submit ledger. Retrying a known
+    // failed/ambiguous round cannot repair Internet connectivity and previously
+    // caused nested client retry loops (30 identical local requests).
+    request_max_retries: 0, stream_max_retries: 0,
     ...(Object.keys(envHeaders).length ? { env_http_headers: envHeaders } : {}),
   };
 }

@@ -40,6 +40,20 @@ function backend(replies: unknown[], tools: any[] = [tool], selectedModel = "GPT
   return { run, calls, dir, selections };
 }
 const call = (cmd: string) => ({ kind: "call", tool: "exec_command", arguments: { cmd } });
+test("Codex may refresh tool discovery descriptions while returning an ordinary native result", async () => {
+  const discovery = { type: "tool_search", execution: "client", description: "initial app directory", parameters: {
+    type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false,
+  } };
+  const b = backend([call("printf CANARY"), { kind: "final", text: "CANARY" }], [tool, discovery]);
+  const input = [msg("user", "execute")];
+  const c = (await b.run(input)).body.output[0];
+  const refreshed = [tool, { ...discovery, description: "completed app directory" }];
+  await expect(b.run([...input, c, result(c)], "t1", "A", [tool, { ...refreshed[1], parameters: { type: "object" } }])).rejects.toThrow("web_tool_result_mismatch");
+  const final = await b.run([...input, c, result(c)], "t1", "A", refreshed);
+  expect(final.body.output_text).toBe("CANARY");
+  expect(await b.run([...input, c, result(c)], "t1", "A", [tool, { ...discovery, description: "later directory refresh" }])).toEqual({ body: final.body, replayed: true });
+  expect(b.calls).toHaveLength(2);
+});
 const search = { type: "tool_search", execution: "client", description: "Discover client tools", parameters: {
   type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false,
 } };
@@ -210,6 +224,21 @@ test("tool registry changes during a pending call are rejected", async () => {
   const input = [msg("user", "execute")]; const c = (await b.run(input)).body.output[0];
   await expect(b.run([...input, c, result(c)], "t1", "A", [{ ...tool, name: "other" }])).rejects.toThrow();
   expect(b.calls).toHaveLength(1);
+});
+
+test("late client plugin startup may add a tool while preserving the committed registry", async () => {
+  const b = backend([call("printf CANARY"), { kind: "final", text: "CANARY" }]);
+  const input = [msg("user", "execute")]; const c = (await b.run(input)).body.output[0];
+  const added = { ...tool, name: "request_plugin_install" };
+  await expect(b.run([...input, c, result(c)], "t1", "A", [{ ...tool, parameters: { type: "object" } }, added])).rejects.toThrow();
+  expect((await b.run([...input, c, result(c)], "t1", "A", [tool, added])).body.output_text).toBe("CANARY");
+  expect(b.calls).toHaveLength(2);
+});
+
+test("client search can extend a registry containing ordinary non-namespaced functions", async () => {
+  const b = backend([{ kind: "call", tool: "tool_search", arguments: { query: "new" } }, { kind: "final", text: "discovered" }], [tool, search]);
+  const input = [msg("user", "discover")]; const c = (await b.run(input)).body.output[0];
+  expect((await b.run([...input, c, searchResult(c, [{ ...tool, name: "new_tool" }])])).body.output_text).toBe("discovered");
 });
 
 test("a native result can carry a new user steer without accepting extra results", async () => {

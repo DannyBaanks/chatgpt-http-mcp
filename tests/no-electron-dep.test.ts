@@ -36,9 +36,10 @@ describe("M2: Electron fuera de este path", () => {
     }
   });
 
-  test("src/ y scripts/ no importan ni spawnean electron (comentarios historicos permitidos)", () => {
+  test("el bridge no usa Electron; solo el lanzador opcional de la App nativa conoce su perfil", () => {
     const offenders: string[] = [];
     for (const file of [...tsFiles(join(ROOT, "src")), ...tsFiles(join(ROOT, "scripts"))]) {
+      if (file === join(ROOT, "src", "codex-app.ts")) continue;
       for (const line of codeLines(file)) {
         if (/\belectron\b/i.test(line)) offenders.push(`${file.slice(ROOT.length + 1)}: ${line.slice(0, 100)}`);
       }

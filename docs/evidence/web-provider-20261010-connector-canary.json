@@ -1,0 +1,23 @@
+{
+  "schema": "isymcp-remote-canary/1",
+  "tunnel_id": "tunnel_6acaaf6bbfb88191a9f8a2ecb291e46a",
+  "alias": "isymcp-native-media",
+  "reconnected_after_process_exit": true,
+  "connect_healthz": true,
+  "connect_readyz": true,
+  "media_list_first": {
+    "count": 5,
+    "next_offset": null
+  },
+  "media_list_second": {
+    "count": 5,
+    "next_offset": null
+  },
+  "codex_exec": {
+    "executed": true,
+    "exit_code": 0,
+    "stdout": "ISYMCP_CONNECTOR_FRESH"
+  },
+  "turn_complete": true,
+  "final_success": true
+}

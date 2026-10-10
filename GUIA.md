@@ -134,9 +134,56 @@ hilos reales sigue sin demostrarse.
 herramientas desde Codex App; un CLI nativo real también abrió una sesión,
 consultó su inventario, ejecutó un comando y completó el turno. Esto comprueba
 el MCP como herramientas. Elegir ChatGPT Web como modelo de una tarea de la
-App sigue siendo un flujo distinto y no está disponible. El informe nuevo
+App es un flujo distinto del conector MCP. El informe anterior
 separa esos caminos y conserva los intentos fallidos:
 [pruebas App, CLI y transporte Web](docs/verification/2026-10-10-native-mcp-live.md).
+
+### Conversación Web en CLI o App (actualización de 2026-10-10)
+
+```bash
+isymcp conversation new --client cli --cwd "$PWD" --model chatgpt-web/gpt-6
+isymcp conversation new --client app --cwd "$PWD" --model chatgpt-web/gpt-6
+isymcp conversation list
+isymcp conversation resume <launch-id-o-thread-id>
+```
+
+**NO PROBADO de extremo a extremo con estos comandos de producción.** Los
+canarios probaron los módulos de lanzamiento con clientes reales y servidores
+propios. GPT Web llegó a pedir comandos que el CLI y la App ejecutaron, pero
+el retorno completo a GPT y la respuesta final siguen sin demostrarse. No
+confundas estas pruebas con la invocación del conector MCP, ya comprobada.
+
+La opción App abre una ventana separada en Linux. Necesita la App instalada
+(`/usr/lib/chatgpt/ChatGPT`, o `ISYMCP_CODEX_APP_BIN`) y una sesión nativa de
+Codex. Guarda su perfil en `~/.isymcp-app/<launch-id>/`, copia las credenciales
+con permisos privados y conserva un único hilo vinculado. No copia tus chats
+ni cambia la configuración global. Escribe la primera tarea en esa ventana.
+No empieces otros chats dentro de ese mismo perfil; usa `conversation new`
+para otra conversación.
+
+`list` muestra únicamente recibos comprometidos. El primer recibo puede ser
+una llamada a una herramienta: **tener URL no demuestra que acabó el turno**.
+`resume` conserva el cliente original; para App abre el hilo exacto en su
+perfil. Reanudar una conversación Web real sigue **NO PROBADO**.
+
+| Señal | Significado y acción |
+|---|---|
+| `web_app_auth_missing` | Inicia sesión en Codex nativo antes de abrir el perfil Web. |
+| `web_app_profile_changed` / `web_app_profile_unowned` | El lanzador preserva el perfil y rechaza reemplazarlo. Revisa su contenido. |
+| `web_app_home_too_long` | El socket de la App necesita una ruta corta; usa el directorio privado predeterminado. |
+| `web_turn_not_submitted` | Falló antes del envío. Revisa el diagnóstico guardado: puede ser red o selector. |
+| `web_turn_ambiguous` | Hubo intento de envío sin respuesta comprometida. Inspecciona el hilo; no repitas a ciegas. |
+| `web_tool_result_mismatch` | El resultado no coincide con la llamada, turno o esquema pendiente. No se acepta como éxito. |
+
+Los títulos auxiliares de la App reciben la etiqueta local `ISyMCP Web`.
+El proveedor Web desactiva reintentos automáticos: el canario CLI real pasó de
+30 peticiones iguales a una ante un error controlado. Esto no cambia los
+reintentos del proveedor nativo.
+
+Las últimas pruebas registraron `ERR_NETWORK_CHANGED`,
+`ERR_ADDRESS_UNREACHABLE` y un control High no disponible. No se atribuyen
+estos fallos al MCP ni se presupone seleccionado otro nivel de razonamiento.
+[Evidencia, resultados negativos y pendientes](docs/verification/2026-10-10-web-provider-closure.md).
 
 ---
 
