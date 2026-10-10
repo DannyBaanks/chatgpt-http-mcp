@@ -50,6 +50,14 @@ test('metadata preflight strips terminal controls from untrusted metadata', asyn
   expect(preview.uploader).toBe('channel');
 });
 
+test('metadata preflight hides downloader stderr that may contain signed URLs or local paths', async () => {
+  const runner: typeof run = async () => { throw Error('Media process failed (1): /private/path signed_url=SECRET_SENTINEL'); };
+  let message = '';
+  try { await inspectYouTube(shortUrl, runner); } catch (error) { message = (error as Error).message; }
+  expect(message).toBe('Could not inspect YouTube metadata; check the public link and try again');
+  expect(message).not.toContain('SECRET_SENTINEL');
+});
+
 test('Linux directory picker passes literal arguments and returns zenity selection', async () => {
   const temp = root(), bin = join(temp, 'bin'), selected = join(temp, 'output;not-a-command');
   mkdirSync(bin); mkdirSync(selected);

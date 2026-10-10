@@ -79,19 +79,24 @@ function parseMetadata(output: Buffer, canonicalUrl: string): YouTubePreview {
 
 export async function inspectYouTube(input: string, runner: typeof run = run): Promise<YouTubePreview> {
   const canonicalUrl = youtubeSource(input);
-  const output = await runner(youtubeDownloaderBinary(), [
-    '--ignore-config', '--no-plugin-dirs', '--no-cache-dir', '--no-playlist', '--skip-download',
-    '--no-progress', '--no-warnings', '--socket-timeout', '10', '--retries', '1',
-    '--match-filters', '!is_live & duration <= 1800', '--dump-single-json', canonicalUrl,
-  ], 1024 * 1024, 60000, {
-    env: {
-      PATH: process.env.PATH || '/usr/bin:/bin',
-      HOME: homedir(),
-      TMPDIR: process.env.TMPDIR || '/tmp',
-      LANG: process.env.LANG || 'C.UTF-8',
-    },
-    processGroup: true,
-  });
+  let output: Buffer;
+  try {
+    output = await runner(youtubeDownloaderBinary(), [
+      '--ignore-config', '--no-plugin-dirs', '--no-cache-dir', '--no-playlist', '--skip-download',
+      '--no-progress', '--no-warnings', '--socket-timeout', '10', '--retries', '1',
+      '--match-filters', '!is_live & duration <= 1800', '--dump-single-json', canonicalUrl,
+    ], 1024 * 1024, 60000, {
+      env: {
+        PATH: process.env.PATH || '/usr/bin:/bin',
+        HOME: homedir(),
+        TMPDIR: process.env.TMPDIR || '/tmp',
+        LANG: process.env.LANG || 'C.UTF-8',
+      },
+      processGroup: true,
+    });
+  } catch {
+    throw Error('Could not inspect YouTube metadata; check the public link and try again');
+  }
   return parseMetadata(output, canonicalUrl);
 }
 

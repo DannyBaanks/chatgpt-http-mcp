@@ -60,6 +60,12 @@ test('prepare rejects invalid URLs and incorrect argument counts before importin
   const importer = new MediaImporter(catalog, async () => { downloads++; throw Error('unexpected'); });
   const deps = { catalog, importer, prepare: async () => { throw Error('unexpected prepare'); } } as any;
   await expect(mediaCommand('prepare', ['http://127.0.0.1/private'], deps)).rejects.toThrow();
+  let pickerCalls = 0;
+  await expect(mediaCommand('prepare', [], {
+    catalog, importer, promptUrl: async () => 'http://127.0.0.1/private',
+    chooseDirectory: async () => { pickerCalls++; return root; },
+  })).rejects.toThrow();
+  expect(pickerCalls).toBe(0);
   await expect(mediaCommand('prepare', [shortUrl, shortUrl], deps)).rejects.toThrow('Usage:');
   expect(downloads).toBe(0);
 });
@@ -88,7 +94,7 @@ test('guided prepare orders preview, confirmation, import, analysis and verified
     catalog, importer,
     promptUrl: async () => { events.push('url'); return shortUrl; },
     chooseDirectory: async () => { events.push('folder'); return output; },
-    inspect: async url => { events.push('preview'); expect(url).toBe(shortUrl); return preview; },
+    inspect: async url => { events.push('preview'); expect(url).toBe(canonicalUrl); return preview; },
     confirm: async value => { events.push('confirm'); expect(value).toEqual(preview); return true; },
     prepare: async (_catalog, asset) => {
       events.push('prepare');

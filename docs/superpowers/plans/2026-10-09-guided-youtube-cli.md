@@ -66,7 +66,7 @@
 **Interfaces:**
 - `PackageExportResult = { directory: string; manifest_path: string; manifest_sha256: string }`.
 - `PackageCollisionError` signals that the intended final package directory already exists.
-- `PackageExportError` reports the preserved `partial_directory` when copying or publication fails.
+- `PackageExportError` reports the actual surviving package path (`partial_directory` for staged data, final path if publication already moved it) when copying or verification fails.
 - `exportMediaPackage(catalog: MediaCatalog, asset: Asset, manifest: PreparationManifest, store: MediaPreparationStore, parentDirectory: string, preview: YouTubePreview, options?: { publisher?: (partial: string, final: string) => Promise<void> }): Promise<PackageExportResult>` copies only the verified source and ready-generation artifacts.
 - `MediaDownloadReceipt = { video_id: string; source_url: string }`; `Asset.downloadReceipt` is optional for existing/direct assets, and `MediaCatalog.add(path: string, sourceUrl?: string, downloadReceipt?: MediaDownloadReceipt): Promise<Asset>` persists it.
 - The exporter requires `asset.downloadReceipt` to match the canonical URL and preview ID; it fails closed for older catalog entries without a verified download receipt.

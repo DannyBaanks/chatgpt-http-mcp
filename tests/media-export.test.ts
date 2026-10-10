@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { MediaCatalog, digest } from '../src/media/catalog';
@@ -76,6 +76,7 @@ test('concurrent exports to one package name publish once and preserve same-file
   expect(results.filter(item => item.status === 'rejected')).toHaveLength(1);
   const rejected = results.find(item => item.status === 'rejected') as PromiseRejectedResult;
   expect(rejected.reason).toBeInstanceOf(PackageCollisionError);
+  expect(existsSync((rejected.reason as PackageCollisionError).staged_directory!)).toBe(true);
   const published = (results.find(item => item.status === 'fulfilled') as PromiseFulfilledResult<any>).value;
   expect(statSync(published.directory).dev).toBe(statSync(state.parent).dev);
 });
@@ -92,4 +93,21 @@ test('publisher failure fails closed and preserves the partial package location'
   expect(existsSync(partial)).toBe(true);
   expect(existsSync(join(partial, 'manifest.json'))).toBe(true);
   expect(existsSync(join(state.parent, 'Angel Engine Part 63 [abcdefghijk]'))).toBe(false);
+});
+
+test('post-publication verification failure reports the surviving final package path', async () => {
+  const state = await fixture();
+  const publisher = async (partial: string, final: string) => {
+    renameSync(partial, final);
+    writeFileSync(join(final, 'manifest.json'), 'tampered');
+  };
+  let failure: unknown;
+  try {
+    await exportMediaPackage(state.catalog, state.asset, state.manifest, state.store, state.parent, preview, { publisher });
+  } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(PackageExportError);
+  const preserved = (failure as PackageExportError).partial_directory;
+  expect(preserved).toBe(join(state.parent, 'Angel Engine Part 63 [abcdefghijk]'));
+  expect(existsSync(preserved)).toBe(true);
+  expect(existsSync(join(preserved, 'manifest.json'))).toBe(true);
 });

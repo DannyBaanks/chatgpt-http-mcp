@@ -111,13 +111,13 @@ async function guidedPrepare(
 ):Promise<void> {
  const rawUrl=await (dependencies.promptUrl??promptUrl)();
  if(!rawUrl?.trim()) { errorOut('prepare: canceled before URL entry'); return; }
+ const sourceUrl=youtubeSource(rawUrl.trim());
  const outputDirectory=await (dependencies.chooseDirectory??chooseOutputDirectory)();
  if(!outputDirectory) { errorOut('prepare: folder selection canceled'); return; }
- const preview=await (dependencies.inspect??inspectYouTube)(rawUrl.trim());
+ const preview=await (dependencies.inspect??inspectYouTube)(sourceUrl);
  for(const line of previewSummary(preview)) out(line);
  if(!await (dependencies.confirm??confirmPreview)(preview)) { errorOut('prepare: canceled before download'); return; }
 
- const sourceUrl=youtubeSource(rawUrl);
  const asset=await resolveOrImport(catalog,importer,sourceUrl,errorOut,true);
  const prepared=await prepareSource(catalog,asset,dependencies,errorOut);
  let parent=outputDirectory;
@@ -128,10 +128,11 @@ async function guidedPrepare(
    break;
   } catch(error) {
    if(!(error instanceof PackageCollisionError)) {
-    if(error instanceof PackageExportError) errorOut(`export: partial package preserved at ${error.partial_directory}`);
+    if(error instanceof PackageExportError) errorOut(`export: package data preserved at ${error.partial_directory}`);
     throw error;
    }
    errorOut('export: package name already exists; choose another folder or cancel');
+   if(error.staged_directory) errorOut(`export: staged package data preserved at ${error.staged_directory}`);
    const replacement=await (dependencies.chooseDirectory??chooseOutputDirectory)();
    if(!replacement) { errorOut('export: canceled; prepared media remains in the private catalog'); return; }
    parent=replacement;

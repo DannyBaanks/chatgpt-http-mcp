@@ -17,6 +17,13 @@ function isolated(){
 function cli(args:string[],env:NodeJS.ProcessEnv,input?:string){
  return Bun.spawnSync([process.execPath,join(root,'src/isymcp.ts'),...args],{cwd:root,env,stdout:'pipe',stderr:'pipe',stdin:Buffer.from(input??''),timeout:30000});
 }
+async function waitForUnavailable(url:string):Promise<boolean>{
+ for(let i=0;i<30;i++){
+  try{if(!(await fetch(url)).ok)return true;}catch{return true;}
+  await new Promise(r=>setTimeout(r,100));
+ }
+ return false;
+}
 function cliWithPrompts(args:string[],env:NodeJS.ProcessEnv,prompts:Array<{text:string;answer:string}>){
  const script=`import json,os,pty,select,signal,subprocess,sys,time,errno
 command=[sys.argv[1],sys.argv[2],*json.loads(sys.argv[3])]
@@ -93,18 +100,25 @@ test('session, dry-run, log export, and read-only CLI commands stay inside tempo
 test('tunnel status and server lifecycle use only fake tools and isolated ports',async()=>{
  const e=isolated();const fakeTunnel=join(e.bridge,'bin','tunnel-client');
  writeFileSync(fakeTunnel,'#!/bin/sh\nprintf \'{"ready":true,"running":true,"runtime_state":"ready"}\\n\'\n');chmodSync(fakeTunnel,0o700);
- const tunnel=cli(['tunnel','status'],e.env);expect(tunnel.exitCode).toBe(0);expect(tunnel.stdout.toString()).toContain('ready=true');
- const status=cli(['status'],e.env);expect(status.exitCode).toBe(0);expect(status.stdout.toString()).toContain('tunel ready=true');
- const panelStatus=cli(['panel','status'],e.env);expect(panelStatus.exitCode).toBe(0);expect(panelStatus.stdout.toString()).toContain('panel down');
- const health=cli(['health'],e.env);expect(health.exitCode).toBe(1);expect(health.stderr.toString()).toContain('Bridge no disponible');
- const metrics=cli(['metrics'],e.env);expect(metrics.exitCode).toBe(1);expect(metrics.stderr.toString()).toContain('Error obteniendo métricas');
- const started=cli(['server','start','--no-connector'],e.env);expect(started.exitCode).toBe(0);expect(started.stdout.toString()).toContain('server detached');
- let healthy=false;for(let i=0;i<40;i++){try{healthy=(await fetch(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`)).ok;}catch{}if(healthy)break;await new Promise(r=>setTimeout(r,100));}
- expect(healthy).toBe(true);
- const stopped=cli(['server','stop'],e.env);expect(stopped.exitCode).toBe(0);expect(stopped.stdout.toString()).toContain('server parado');
- const panel=cli(['panel','start'],e.env);expect(panel.exitCode).toBe(0);expect(panel.stdout.toString()).toContain('panel detached');
- const panelRoot=await fetch(`http://127.0.0.1:${e.env.ISYMCP_PANEL_PORT}/`);expect(panelRoot.ok).toBe(true);
- const panelStop=cli(['panel','stop'],e.env);expect(panelStop.exitCode).toBe(0);expect(panelStop.stdout.toString()).toContain('panel parado');
+ try {
+  const tunnel=cli(['tunnel','status'],e.env);expect(tunnel.exitCode).toBe(0);expect(tunnel.stdout.toString()).toContain('ready=true');
+  const status=cli(['status'],e.env);expect(status.exitCode).toBe(0);expect(status.stdout.toString()).toContain('tunel ready=true');
+  const panelStatus=cli(['panel','status'],e.env);expect(panelStatus.exitCode).toBe(0);expect(panelStatus.stdout.toString()).toContain('panel down');
+  const health=cli(['health'],e.env);expect(health.exitCode).toBe(1);expect(health.stderr.toString()).toContain('Bridge no disponible');
+  const metrics=cli(['metrics'],e.env);expect(metrics.exitCode).toBe(1);expect(metrics.stderr.toString()).toContain('Error obteniendo métricas');
+  const started=cli(['server','start','--no-connector'],e.env);expect(started.exitCode).toBe(0);expect(started.stdout.toString()).toContain('server detached');
+  let healthy=false;for(let i=0;i<40;i++){try{healthy=(await fetch(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`)).ok;}catch{}if(healthy)break;await new Promise(r=>setTimeout(r,100));}
+  expect(healthy).toBe(true);
+  const stopped=cli(['server','stop'],e.env);expect(stopped.exitCode).toBe(0);expect(stopped.stdout.toString()).toContain('server parado');
+  const panel=cli(['panel','start'],e.env);expect(panel.exitCode).toBe(0);expect(panel.stdout.toString()).toContain('panel detached');
+  const panelRoot=await fetch(`http://127.0.0.1:${e.env.ISYMCP_PANEL_PORT}/`);expect(panelRoot.ok).toBe(true);
+  const panelStop=cli(['panel','stop'],e.env);expect(panelStop.exitCode).toBe(0);expect(panelStop.stdout.toString()).toContain('panel parado');
+ } finally {
+  cli(['panel','stop'],e.env);
+  cli(['server','stop'],e.env);
+  expect(await waitForUnavailable(`http://127.0.0.1:${e.env.ISYMCP_PANEL_PORT}/`)).toBe(true);
+  expect(await waitForUnavailable(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`)).toBe(true);
+ }
 });
 
 test('menu media-prepare routes into the shared guided flow and cancel never downloads',()=>{

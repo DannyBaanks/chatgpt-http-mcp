@@ -11,7 +11,7 @@ import { run } from './process';
 export type PackageExportResult = { directory: string; manifest_path: string; manifest_sha256: string };
 
 export class PackageCollisionError extends Error {
-  constructor(public readonly directory: string) {
+  constructor(public readonly directory: string, public readonly staged_directory?: string) {
     super('A media package with this title already exists; choose another output folder');
     this.name = 'PackageCollisionError';
   }
@@ -64,7 +64,7 @@ async function publishNoReplace(partial: string, final: string): Promise<void> {
     });
   } catch (error) { failure = error; }
   if (pathExists(partial)) {
-    if (pathExists(final)) throw new PackageCollisionError(final);
+    if (pathExists(final)) throw new PackageCollisionError(final, partial);
     throw Error('Atomic no-replace publisher failed; staged package remains available', { cause: failure });
   }
   if (!pathExists(final)) throw Error('Atomic no-replace publisher did not create the final package', { cause: failure });
@@ -126,6 +126,7 @@ export async function exportMediaPackage(
   if (pathExists(finalDirectory)) throw new PackageCollisionError(finalDirectory);
 
   const partialDirectory = mkdtempSync(join(parent, '.isymcp-package-'));
+  let preservedDirectory = partialDirectory;
   try {
     if (statSync(partialDirectory).dev !== statSync(parent).dev) throw Error('Package staging is not on the destination filesystem');
     mkdirSync(join(partialDirectory, 'audio-scan'));
@@ -189,6 +190,7 @@ export async function exportMediaPackage(
     const manifestHash = digest(manifestBytes);
 
     await (options.publisher ?? publishNoReplace)(partialDirectory, finalDirectory);
+    preservedDirectory = pathExists(partialDirectory) ? partialDirectory : finalDirectory;
     if (!existsSync(finalDirectory) || pathExists(partialDirectory)) throw Error('Published package could not be verified');
     const finalManifestPath = join(finalDirectory, 'manifest.json');
     const finalManifestBytes = readFileSync(finalManifestPath);
@@ -200,7 +202,8 @@ export async function exportMediaPackage(
     return { directory: finalDirectory, manifest_path: finalManifestPath, manifest_sha256: manifestHash };
   } catch (error) {
     if (error instanceof PackageCollisionError) throw error;
-    throw new PackageExportError('Media package export failed; the private catalog is intact and the partial package was preserved', partialDirectory, {
+    if (!pathExists(partialDirectory) && pathExists(finalDirectory)) preservedDirectory = finalDirectory;
+    throw new PackageExportError('Media package export failed; preserved package data is available at the reported path', preservedDirectory, {
       cause: error,
     });
   }
