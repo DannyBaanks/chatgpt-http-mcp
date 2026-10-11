@@ -221,7 +221,11 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
       let committed: { body: Record<string, any>; replayed: false } | undefined;
       const pendingState = () => ({ ...(task ?? { input: [], instructions }), url: target ?? "", pending: identity.turnId });
       try {
-        let nextPrompt = protocol + prompt;
+        // Keep the task text first and transport requirements last. When both
+        // appear in one Web user message, a later exact-output request (for
+        // example, a canary marker) must not accidentally override the JSON
+        // envelope that the outer Responses client requires.
+        let nextPrompt = `${prompt}\n\n${protocol}`;
         let result: Awaited<ReturnType<typeof sendWebTurn>>;
         let answer: ReturnType<typeof decodeToolReply> | undefined;
         for (let lookup = 0; ; lookup++) {
@@ -250,7 +254,7 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
           answer = decodeToolReply(result.text, registry, choice);
           if (answer.kind !== "describe_tools") break;
           if (lookup >= 3) throw new WebTaskError("web_tool_schema_limit", 502, "too many tool schema requests in one native round");
-          nextPrompt = protocol + `Exact requested schemas:\n${answer.schemas}\nContinue the pending task using the response contract.`;
+          nextPrompt = `Exact requested schemas:\n${answer.schemas}\nContinue the pending task using the response contract.\n\n${protocol}`;
         }
         const url = canonicalConversationUrl(result!.url);
         if (!url || (task && url !== task.url))

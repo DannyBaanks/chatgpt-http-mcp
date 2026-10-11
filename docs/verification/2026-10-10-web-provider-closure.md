@@ -34,7 +34,7 @@ alone does not demonstrate the complete Web conversation.
 | Actual App independently obtains its reasoning replies from GPT.com through to a final answer | NOT_DEMONSTRATED | Later attempts blocked by network and reasoning-selector failures |
 | Real GPT-5.6 Web final answer in a new isolated CLI conversation | DEMONSTRATED | After selector compatibility fix, fresh CLI canary returned `CLI_WEB_FINAL_OK`; private receipt committed against `chatgpt.com`, task state ended with assistant final and no pending call |
 | Real GPT-5.6 Web resume in the same CLI conversation | DEMONSTRATED | `isymcp conversation resume` reopened the saved thread; second canary returned `CLI_WEB_RESUME_OK`, with no pending call |
-| Real Web final answer and resume in the isolated Codex App | NOT_DEMONSTRATED | Dedicated App profile is ready but still awaits its first prompt; the user App and global Codex config were not touched |
+| Real Web final answer and resume in the isolated Codex App | NOT_DEMONSTRATED | First real App prompt reached a non-JSON reply and was rejected with `web_tool_protocol_invalid`; the fail-closed pending marker then rejected the retry with `web_task_pending` |
 | Two real Web conversations can be resumed independently in CLI and App | PARTIAL | CLI new + resume demonstrated live; App final/resume remains NOT_DEMONSTRATED |
 | New remote Codex ISyMCP tunnel in ChatGPT | DEMONSTRATED | Tunnel `isymcp-native-media` returned `media_list` twice (5 records each); a fresh `codex_turn_start` → inventory (8 executable native tools) → `codex_exec` (`ISYMCP_CONNECTOR_FRESH`, exit 0) → `codex_turn_complete` succeeded |
 
@@ -47,6 +47,30 @@ The controlled App canary is the window containing `APP_NATIVE_…` and
 not GPT.com and not the Codex ISyMCP connector. The command execution was real.
 The independent historical connector test is recorded in
 [the native MCP report](2026-10-10-native-mcp-live.md).
+
+## 2026-10-11 App canary: negative result and follow-up
+
+The dedicated GPT-5.6 Sol / High App test submitted the exact-output prompt
+`Responde exactamente APP_WEB_FINAL_OK y nada más`. The bridge captured a
+non-empty Web response in a canonical ChatGPT conversation, but that response
+was not one JSON object accepted by the native Responses transport. It returned
+`502 web_tool_protocol_invalid`. A second submission was correctly rejected
+with `409 web_task_pending`: the first submit may already have completed on
+ChatGPT, so replaying it could duplicate user work. The durable task record has
+a pending turn and conversation URL; the turn record is `attempted`, without a
+committed response. We did not clear or retry that state.
+
+The request builder previously placed the transport contract before the user
+prompt inside one Web message. Since the canary explicitly requested an exact
+plain-text answer, the later user text could override the earlier JSON-envelope
+instruction. This is the leading explanation, not a demonstrated cause: the
+raw Web reply was not retained, and the App canary has not yet been repeated.
+The builder now places the user task first and the native JSON contract last,
+including after schema-lookup instructions. A focused regression test verifies
+that ordering. Verification so far: 44 focused tests and the full suite (499
+pass, 1 optional skip, 0 fail; 500 tests / 70 files). This fix still needs a new
+isolated real-App conversation; the ambiguous pending conversation remains
+blocked and the production App final/resume claim stays `NOT_DEMONSTRATED`.
 
 ## Negative results and current boundaries
 
@@ -107,4 +131,5 @@ an isolated temporary workspace and the dedicated Web bridge; their committed
 conversation receipt and task state were checked without publishing the private
 thread URL or identifiers. App tests used their own profile and workspace.
 Production CLI final/resume is demonstrated; production App final/resume and
-full cross-client independence remain explicitly unclosed.
+full cross-client independence remain explicitly unclosed. The follow-up App
+failure and prompt-order change above do not promote those claims.

@@ -126,6 +126,16 @@ test("GPT-6 tasks select the exact model before submitting and return its actual
   expect(b.selections).toEqual([{ model: "GPT-6", effort: "high" }]);
 });
 
+test("native transport contract follows user content so exact-output requests stay inside the JSON envelope", async () => {
+  const b = backend([{ kind: "final", text: "APP_WEB_FINAL_OK" }]);
+  const marker = "Responde exactamente APP_WEB_FINAL_OK y nada más";
+  await b.run([msg("user", marker)]);
+  const prompt = b.calls[0].prompt;
+  expect(prompt.indexOf(marker)).toBeGreaterThanOrEqual(0);
+  expect(prompt.indexOf("ISyMCP CODEX RESPONSE CONTRACT")).toBeGreaterThan(prompt.indexOf(marker));
+  expect(prompt).toContain('{"kind":"final","text":"your answer"}');
+});
+
 test("native image viewers are excluded until their multipart image results can be transported", async () => {
   const image = { type: "namespace", name: "functions", tools: [{ ...tool, name: "view_image" }] };
   const b = backend([{ kind: "call", tool: "functions.view_image", arguments: { cmd: "image.png" } }], [tool, image]);
