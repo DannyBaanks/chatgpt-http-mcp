@@ -54,7 +54,8 @@
   reported `environment variable CONTROL_PLANE_API_KEY is not set`. The alias
   was restored to its original profile directory after the connector tool
   initially selected its default directory. No key was read or copied; the
-  generated default-directory profile, if present, was left untouched. The
+  generated default-directory profile was observed with mode `0600` and left
+  untouched; its contents were not read. The
   sanitized receipt is `.superpowers/sdd/2026-10-11-visible-chrome-native-mcp/native2-retry-20261011.json`, SHA-256 `74477db207bc98014ae93437b700540304712be46fa99607e60c02904e25de0e`.
 - After that canary, a local `isymcp status` check found the bridge stopped and
   the tunnel not ready. `isymcp up` restarted the separate runtime (server PID
