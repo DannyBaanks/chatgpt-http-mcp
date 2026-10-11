@@ -35,8 +35,8 @@ alone does not demonstrate the complete Web conversation.
 | Real GPT-5.6 Web final answer in a new isolated CLI conversation | DEMONSTRATED | After selector compatibility fix, fresh CLI canary returned `CLI_WEB_FINAL_OK`; private receipt committed against `chatgpt.com`, task state ended with assistant final and no pending call |
 | Real GPT-5.6 Web resume in the same CLI conversation | DEMONSTRATED | `isymcp conversation resume` reopened the saved thread; second canary returned `CLI_WEB_RESUME_OK`, with no pending call |
 | Real Web final answer in the isolated Codex App | DEMONSTRATED | Fresh App canary returned exact marker `APP_WEB_FINAL_OK`; the committed private receipt and same-profile thread history agree |
-| Real Web resume in the same isolated Codex App conversation | NOT_DEMONSTRATED | Final turn is committed and not pending; a second exact marker has not yet been sent |
-| Two real Web conversations can be resumed independently in CLI and App | PARTIAL | CLI new + resume and App new final demonstrated live; App resume remains NOT_DEMONSTRATED |
+| Real Web resume in the same isolated Codex App conversation | DEMONSTRATED | The same App thread returned `APP_WEB_RESUME_OK`; local history shows completed final and resume turns, with no pending task |
+| Two real Web conversations can be resumed independently in CLI and App | DEMONSTRATED | CLI new + resume and isolated App new + same-thread resume each returned their exact final markers |
 | New remote Codex ISyMCP tunnel in ChatGPT | DEMONSTRATED | Tunnel `isymcp-native-media` returned `media_list` twice (5 records each); a fresh `codex_turn_start` → inventory (8 executable native tools) → `codex_exec` (`ISYMCP_CONNECTOR_FRESH`, exit 0) → `codex_turn_complete` succeeded |
 
 One earlier full-suite repeat hit an unnamed 10-second lifecycle-hook timeout;
@@ -74,7 +74,7 @@ schema-checked JSON can request a native tool. Regression tests cover the exact
 marker and malformed-envelope cases. The subsequent fresh App final and the
 remaining same-thread resume gate are recorded below.
 
-### Fresh App final-answer canary
+### Fresh App final-answer canary and same-thread resume
 
 A fresh isolated App profile then submitted the exact prompt again. The first
 attempt failed before completion; the retry returned exactly
@@ -86,11 +86,16 @@ conversation URL matches the committed receipt. The earlier failed attempt is
 still retained as a failure. This demonstrates a real GPT-5.6 Web final answer
 through the isolated Codex App provider path, not native MCP tool execution.
 
-The same-thread resume canary remains open. A direct follow-up through the
-current Codex host could not address this isolated profile (`no rollout found`),
-so no synthetic or cross-thread substitute was counted. Send
-`Responde exactamente APP_WEB_RESUME_OK y nada más` in the same isolated App
-conversation to complete that independent gate.
+The user then sent `Responde exactamente APP_WEB_RESUME_OK y nada más` in that
+same isolated App conversation. It returned exactly `APP_WEB_RESUME_OK`. The
+same-profile thread database shows the prompt and answer in the existing thread;
+turns are recorded as one retained failure followed by two completed turns.
+The committed conversation receipt remains bound to the same private URL, and
+the durable task has no pending turn with `APP_WEB_RESUME_OK` as its final text.
+This closes the App final/resume gate. The response appeared rapidly in the
+user-provided screenshot, but no stopwatch measurement was captured. A
+sanitized [App canary transcript](../evidence/web-provider-20261011-app-live.txt)
+records these observations without publishing thread identifiers or URLs.
 
 ## Negative results and current boundaries
 
@@ -142,6 +147,10 @@ The sanitized [live CLI canary](../evidence/web-provider-20261011-cli-live.txt)
 records new + resume results and private-state digests without exposing the
 conversation URL or identifiers; SHA-256
 `af126f482a6526fab0e4af94aede3674e8e846a9ed8d761e4b068c47eae126b0`.
+The sanitized [live App canary](../evidence/web-provider-20261011-app-live.txt)
+records final + same-thread resume results without exposing the conversation
+URL, thread identifier, or receipt; SHA-256
+`6f746109763b40fccf931bc1ec67eab101d570e529c71c681f24208b38a0d7df`.
 The successful [remote MCP canary](../evidence/web-provider-20261010-connector-canary.json)
 records its results without storing the session token.
 
@@ -150,6 +159,5 @@ Host: Ubuntu 24.04, Bun 1.4.2, Codex CLI 0.162.x and installed desktop App
 an isolated temporary workspace and the dedicated Web bridge; their committed
 conversation receipt and task state were checked without publishing the private
 thread URL or identifiers. App tests used their own profile and workspace.
-Production CLI final/resume is demonstrated; production App final/resume and
-full cross-client independence remain explicitly unclosed. The follow-up App
-failure and prompt-order change above do not promote those claims.
+Production CLI and isolated App final/resume are demonstrated independently;
+the initial App failures remain preserved as failures and are not relabeled.
