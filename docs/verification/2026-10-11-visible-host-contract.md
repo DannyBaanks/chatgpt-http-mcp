@@ -46,6 +46,16 @@
   its argument validator (`limit` maximum 50); the corrected request then
   failed before inventory with `McpServerError: MCP SSE probe returned 404
   from openai.org`. No native tool ran in that probe.
+- A follow-up inventory probe with a valid `limit` was rejected before
+  inventory with `McpServerError: MCP SSE probe returned 429 from openai.org`.
+  Local `Tunnel MCP` status showed the separate `codex-chatgpt-web` runtime was
+  stopped, while `isymcp-native-media` remained healthy and ready. An attempted
+  reconnect of the existing 6.1.7 runtime did not start: its admin profile
+  reported `environment variable CONTROL_PLANE_API_KEY is not set`. The alias
+  was restored to its original profile directory after the connector tool
+  initially selected its default directory. No key was read or copied; the
+  generated default-directory profile, if present, was left untouched. The
+  sanitized receipt is `.superpowers/sdd/2026-10-11-visible-chrome-native-mcp/native2-retry-20261011.json`, SHA-256 `74477db207bc98014ae93437b700540304712be46fa99607e60c02904e25de0e`.
 - After that canary, a local `isymcp status` check found the bridge stopped and
   the tunnel not ready. `isymcp up` restarted the separate runtime (server PID
   `53474`); the subsequent status reported server/MCP up and tunnel
@@ -57,7 +67,7 @@
 ## NOT_DEMONSTRATED
 
 - **ChatGPT browser source metadata and native-host dispatch:** an authenticated connector lifecycle now works with a pre-minted token, but the server reports `codex-web-http sessions` and `bwrap`; no verified browser message identity or active native-host dispatch was demonstrated.
-- **Desktop Codex App ownership:** no live desktop App canary was run. The standalone CLI app-server result is not evidence of Electron App turn ownership; the separate Native2 inventory attempt returned a tunnel 404 before calling a host tool.
+- **Desktop Codex App ownership:** no live desktop App canary was run. The standalone CLI app-server result is not evidence of Electron App turn ownership; separate Native2 inventory attempts returned tunnel 404/429 before calling a host tool. Its local runtime is stopped and reconnect needs a locally configured control-plane credential.
 - **Cancellation and exact resume:** not exercised in this canary.
 - **CLI/App × Codex/ChatGPT matrix:** only `cli/codex` has one demonstrated tool round trip. The other three combinations remain untested.
 - **M1 and later:** not started. Per the approved milestone gate, fixture tests and a CLI app-server canary cannot substitute for the M0 browser-origin and desktop ownership probes.
