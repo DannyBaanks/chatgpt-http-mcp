@@ -4,7 +4,7 @@
 
 **Your ChatGPT subscription as a local chat, an HTTP API, and a verified tool for your other coding agents.**
 
-No API key. No Electron. Everything listens on `127.0.0.1`; the only thing that leaves your machine is the conversation with chatgpt.com.
+No API key. The Bun bridge has no Electron dependency; the optional desktop launcher uses your installed Codex App. Everything listens on `127.0.0.1`; the only thing that leaves your machine is the conversation with chatgpt.com.
 
 [![CI](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-7cff9b)
@@ -51,9 +51,29 @@ Responses calls; **Codex executes them** and returns their real results. Calls
 are correlated to a task, turn and call ID, with durable replay and explicit
 handling of interrupted calls. WebSocket events use one JSON event per frame.
 The MCP connector has been exercised through Codex App, the native Codex CLI
-and ChatGPT.com. Selecting the Web bridge as a Codex App model and the complete
-Web-provider CLI loop remain **NOT_DEMONSTRATED**; these are separate paths.
-[Current verification scope and evidence](docs/verification/2026-10-10-native-mcp-live.md).
+and ChatGPT.com. The separate Web-provider path now supports a private Linux
+Codex App window as well as the CLI:
+
+```bash
+isymcp conversation new --client cli --cwd "$PWD" --model chatgpt-web/gpt-6
+isymcp conversation new --client app --cwd "$PWD" --model chatgpt-web/gpt-6
+isymcp conversation list
+isymcp conversation resume <launch-id-or-thread-id>
+```
+
+The first committed Web response binds the Codex thread to its ChatGPT URL;
+that response may be a tool call, so a receipt alone does not prove the task
+finished. Each App launch has its own private profile and one linked thread.
+Native Codex settings and chats stay independent. App title requests receive a
+local label without creating another Web conversation. The Web provider does
+not automatically retry failed or ambiguous rounds.
+
+Real GPT Web responses have caused native command execution in both clients.
+**The complete return-to-GPT/final-answer loop and real Web resume remain
+NOT_DEMONSTRATED.** Network failures and an unavailable reasoning control
+blocked the latest live attempts. [Verification scope and evidence](docs/verification/2026-10-10-web-provider-closure.md).
+The [MCP connector verification](docs/verification/2026-10-10-native-mcp-live.md)
+covers a separate path.
 
 ### A four-line ChatGPT command with a local task
 

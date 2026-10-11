@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
   commitConversationReceipt, findConversation, listConversations, planNewConversation, planResumeConversation,
-  rejectAppClient, writeLaunchIntent, type ConversationReceipt,
+  validateConversationClient, writeLaunchIntent, type ConversationReceipt,
 } from "../src/codex-conversation";
 
 const model = "chatgpt-web/gpt-5.6-sol";
@@ -12,9 +12,9 @@ const launchA = "11111111-1111-4111-8111-111111111111";
 const launchB = "22222222-2222-4222-8222-222222222222";
 const taskKey = "a".repeat(64);
 
-test("the desktop app is refused before a provider or a new conversation exists", () => {
-  expect(() => rejectAppClient("app")).toThrow("web_app_entry_unavailable");
-  expect(() => planNewConversation({ client: "app", cwd: "/tmp/workspace" })).toThrow("web_app_entry_unavailable");
+test("an App launch has its own intent and invalid clients fail before persistence", () => {
+  expect(planNewConversation({ client: "app", cwd: "/tmp/workspace" }).intent.client).toBe("app");
+  expect(() => validateConversationClient("daemon")).toThrow("web_conversation_client_invalid");
 });
 
 test("a CLI launch is per-process, interactive, and carries the launch header", () => {

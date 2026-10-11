@@ -19,6 +19,7 @@ import { chmodSync, existsSync, readdirSync, renameSync, unlinkSync, writeFileSy
 import { basename, dirname, join } from "node:path";
 import type { Locator, Page } from "playwright-core";
 import type { AppConfig } from "./config";
+import { isHighEffortLabel } from "./responses/selection";
 import {
   CHATGPT_HOME, chromeExecutable, closeWebSession, launchChatGPTBrowser, withSessionPage, withWebLock,
 } from "./web-turn";
@@ -233,7 +234,7 @@ export async function selectComposerSettings(page: Page, model: string, effort: 
     for (let step = now; step < max; step++) await power.press("ArrowRight", { timeout: timeoutMs });
   } finally { await page.keyboard.press("Escape").catch(() => {}); }
   const seen = await readComposerSettings(page, options);
-  if (seen.model !== model || !/^(high|alta|alto)$/i.test(seen.effort ?? "") || seen.effortPosition !== 3 || seen.effortSteps !== 3)
+  if (seen.model !== model || !isHighEffortLabel(model, seen.effort) || seen.effortPosition !== 3 || seen.effortSteps !== 3)
     throw new Error(`web_model_state_mismatch: requested ${model} / High, observed ${seen.model ?? "unknown"} / ${seen.effort ?? "unknown"}`);
   return seen;
 }

@@ -22,6 +22,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { bindCookies } from "./sessions";
 import { bridgeHome, isExpired, listUserSessions, mintSession, revokeSession } from "./codex-sessions";
+import { assertExclusiveTunnel, configuredTunnelAlias } from "./tunnel-routing";
 import { startPanel } from "./panel";
 import { createChat, loadChat } from "./chats";
 import { runHook } from "./hooks";
@@ -350,6 +351,7 @@ function tunnelBin(): string {
 
 function tunnel(action: string): void {
   const bin = tunnelBin();
+  const alias = configuredTunnelAlias(bridgeHome(), process.env.CODEX_WEB_HTTP_TUNNEL_ALIAS);
   if (!existsSync(bin)) {
     console.error(`no esta instalado el tunnel-client. Corre: bun run scripts/install-tunnel.ts`);
     process.exit(1);
@@ -360,23 +362,29 @@ function tunnel(action: string): void {
       stdout: "inherit",
       stderr: "inherit",
     });
-    if (proc.exitCode !== 0) console.error(`tunel connect exit ${proc.exitCode}`);
+    if (proc.exitCode !== 0) {
+      console.error(`tunel connect exit ${proc.exitCode}`);
+      process.exitCode = proc.exitCode || 1;
+    }
     return;
   }
   if (action === "stop") {
-    const proc = sh([bin, "runtimes", "stop", "codex-web-http"]);
+    const inventory = sh([bin, "runtimes", "list", "--json"], 15_000);
+    if (inventory.code !== 0) throw new Error("tunnel_inventory_unavailable: refusing to stop");
+    assertExclusiveTunnel(JSON.parse(inventory.out), alias);
+    const proc = sh([bin, "runtimes", "stop", alias]);
     console.log(proc.out.trim() || `exit ${proc.code}`);
     // `runtimes stop` puede decir "Stopped" y dejar vivo el daemon en su sesion
     // tmux (visto 2026-10-06: un daemon de 15.9 h sobrevivio al stop y luego
     // toda llamada devolvia "Session terminated"). Cerrar el tmux a mano.
     const list = sh(["tmux", "list-sessions", "-F", "#{session_name}"]);
-    for (const name of list.out.split("\n").map((s) => s.trim()).filter((s) => s.startsWith("tunnel-mcp__codex-web-http__"))) {
+    for (const name of list.out.split("\n").map((s) => s.trim()).filter((s) => s.startsWith(`tunnel-mcp__${alias}__`))) {
       const kill = sh(["tmux", "kill-session", "-t", name]);
       if (kill.code === 0) console.log(`tmux ${name} cerrado`);
     }
     return;
   }
-  const proc = sh([bin, "runtimes", "status", "codex-web-http", "--json"], 30_000);
+  const proc = sh([bin, "runtimes", "status", alias, "--json"], 30_000);
   if (proc.code !== 0) {
     console.log(proc.out.trim() || "tunel sin status");
     return;
@@ -557,7 +565,7 @@ function help(): void {
   isymcp codex [args...]     ejecuta Codex con perfil ISyMCP aislado (sin mutar config.toml)
   isymcp conversation new [--client cli|app] [--cwd dir] [--model alias]
                              CLI interactivo, proveedor solo de ese proceso.
-                             --client app falla: la App no tiene entrada verificada
+                             --client app abre una ventana con perfil propio
   isymcp conversation list   hilos confirmados, con id completo
   isymcp conversation resume <launch-id|thread-id>
   isymcp codex launcher      instala lanzador ~/.local/bin/codex-isymcp y .desktop
@@ -1102,6 +1110,14 @@ async function conversationCommand(sub: string | undefined, rest: string[]): Pro
     writeLaunchIntent(dir, plan.intent);
     await ensureWebBridge();
     const profile = installWebModels({ apply: true, url: `${BRIDGE}/v1`, model, effort: "high", caps: process.env.CODEX_WEB_HTTP_CAPS });
+    if (client === "app") {
+      if (!profile.catalogReady) throw new Error("web_app_catalog_missing: native model metadata is required");
+      const { prepareCodexApp, launchCodexApp } = await import("./codex-app");
+      const app = prepareCodexApp(plan.intent, { port: PORT, catalogPath: profile.catalogPath });
+      await launchCodexApp(app);
+      console.log(`Codex App (ISyMCP Web): ${plan.intent.launchId}\nPerfil privado: ${app.home}\nEscribe la primera tarea en esa ventana; el primer resultado guarda el enlace de ChatGPT.`);
+      return;
+    }
     const code = await spawnCodex(plan.args({ port: PORT, catalogPath: profile.catalogReady ? profile.catalogPath : undefined }), plan.env);
     if (code !== 0) process.exitCode = code;
     return;
@@ -1114,6 +1130,14 @@ async function conversationCommand(sub: string | undefined, rest: string[]): Pro
     const profile = installWebModels({
       apply: true, url: `${BRIDGE}/v1`, model: receipt.model, effort: receipt.effort, caps: process.env.CODEX_WEB_HTTP_CAPS,
     });
+    if (receipt.client === "app") {
+      if (!profile.catalogReady) throw new Error("web_app_catalog_missing");
+      const { prepareCodexApp, launchCodexApp } = await import("./codex-app");
+      await launchCodexApp(prepareCodexApp({ ...receipt, version: "isymcp-launch-intent/1" }, {
+        port: PORT, catalogPath: profile.catalogPath, threadId: receipt.threadId,
+      }));
+      return;
+    }
     const args = planResumeConversation(receipt, { port: PORT, catalogPath: profile.catalogReady ? profile.catalogPath : undefined });
     const code = await spawnCodex(args, { ISYMCP_LAUNCH_ID: receipt.launchId });
     if (code !== 0) process.exitCode = code;

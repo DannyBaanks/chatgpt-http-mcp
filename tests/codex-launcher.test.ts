@@ -27,6 +27,12 @@ afterAll(() => {
 });
 
 describe("codex-launcher (perfil aislado sin tocar config.toml)", () => {
+  test("the local Web provider disables nested retries of durable failed or ambiguous requests", () => {
+    const args = buildCodexArgs(["-m", "chatgpt-web/gpt-6"]);
+    expect(args.join("\n")).toContain("request_max_retries=0");
+    expect(args.join("\n")).toContain("stream_max_retries=0");
+    expect(buildCodexArgs(["-m", "gpt-6-luna"]).join("\n")).not.toContain("max_retries");
+  });
   test("Web selects a named provider without redirecting the builtin OpenAI provider", () => {
     const args = buildCodexArgs(["--model", "chatgpt-web/gpt-5.6-sol", "hola"], "18791");
     expect(args).toContain('model_provider="isymcp_web"');

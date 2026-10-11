@@ -56,12 +56,24 @@ function write(path: string, value: unknown) {
 }
 interface State {
   url: string; input: TaskInputItem[]; instructions: string; pending?: string;
-  awaiting?: { turnId: string; call: NativeCall; registryFingerprint: string; step: number; searchRegistry?: NativeTool[]; registryFormat?: "native-registry/2" };
+  awaiting?: { turnId: string; call: NativeCall; registryFingerprint: string; step: number; searchRegistry?: NativeTool[]; registryFormat?: "native-registry/2" | "native-registry/3" | "native-registry/4" };
 }
 interface Turn { fingerprint: string; phase: "prepared" | "attempted" | "done" | "failed"; response?: Record<string, any>; error?: { type: string; status: number; message: string }; diagnostic?: { name: string; message: string } }
 interface Dependencies { dir?: string; send?: typeof sendWebTurn; selectSettings?: typeof selectComposerSettings }
 
-const registryDigest = (registry: Map<string, NativeTool>) => hash(stable([...registry.values()].sort((a, b) => a.wireName.localeCompare(b.wireName))));
+const registryDigest = (registry: Map<string, NativeTool>, format: "native-registry/2" | "native-registry/3" | "native-registry/4" = "native-registry/4") => {
+  const values = [...registry.values()]
+  .map(tool => {
+    if (format === "native-registry/2") return tool;
+    // Codex refreshes the app directory in tool_search.description after
+    // discovery completes. Prose is not execution authority: names, types,
+    // schemas and all other declaration fields remain pinned.
+    const { description, ...declaration } = tool.declaration;
+    return { ...tool, declaration };
+  }).sort((a, b) => a.wireName.localeCompare(b.wireName));
+  // Persistence omits undefined fields; the digest must survive JSON round trips.
+  return hash(stable(format === "native-registry/4" ? JSON.parse(JSON.stringify(values)) : values));
+};
 function extendRegistry(registry: Map<string, NativeTool>, declarations: Record<string, unknown>[]) {
   for (const [name, tool] of nativeTools(declarations)) {
     if (tool.type === "tool_search") throw new WebTaskError("web_tool_result_mismatch", 409, "search outputs may load function/custom tools only");
@@ -89,8 +101,8 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
   const effort = body.reasoning?.effort ?? body.reasoning_effort ?? "high";
   assertWebSelection(body.model, effort);
   const instructions = body.instructions ?? "";
-  const { stream, client_metadata, prompt_cache_key, ...semanticBody } = body;
-  const fingerprint = hash(stable({ ...semanticBody, input }));
+  const { stream, client_metadata, prompt_cache_key, tools, ...semanticBody } = body;
+  const fingerprint = hash(stable({ ...semanticBody, input, registryFingerprint }));
   const dir = deps.dir ?? join(bridgeHome(), "codex-responses");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const rememberConversation = (response: Record<string, any>) => {
@@ -170,14 +182,26 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
         const output = delta[0];
         // An upgrade may encounter a pending ordinary call persisted before
         // client search existed. Its original declaration fingerprint stays valid.
-        const matchedRegistry = task.awaiting.registryFormat === "native-registry/2" ? registryFingerprint : hash(stable(parsed.declarations));
+        let matchedRegistry = task.awaiting.registryFormat === "native-registry/4" ? registryFingerprint
+          : task.awaiting.registryFormat === "native-registry/3" ? registryDigest(registry, "native-registry/3")
+          : task.awaiting.registryFormat === "native-registry/2" ? registryDigest(registry, "native-registry/2") : hash(stable(parsed.declarations));
+        if (!isSearch && task.awaiting.registryFormat === "native-registry/4") {
+          if (!Array.isArray(task.awaiting.searchRegistry)) throw new WebTaskError("web_task_state_invalid", 503, "pending call has no committed registry");
+          const expected = new Map(task.awaiting.searchRegistry.map(t => [t.wireName, t]));
+          if (registryDigest(expected) !== task.awaiting.registryFingerprint) throw new WebTaskError("web_task_state_invalid", 503, "pending registry is inconsistent");
+          // The native client may finish plugin discovery during execution.
+          // All previous definitions must remain unchanged; only additions and
+          // descriptive refreshes are accepted on the matching result.
+          const retained = new Map([...expected.keys()].filter(k => registry.has(k)).map(k => [k, registry.get(k)!]));
+          matchedRegistry = registryDigest(retained);
+        }
         if (task.awaiting.turnId !== identity.turnId || (!isSearch && matchedRegistry !== task.awaiting.registryFingerprint) || delta.slice(1).some(i => "type" in i || i.role === "assistant") ||
           !output || !("type" in output) || output.type !== expectedType || output.call_id !== task.awaiting.call.call_id)
           throw new WebTaskError("web_tool_result_mismatch", 409, "result must match the single pending call, registry and Codex turn");
         if (isSearch) {
           if (!Array.isArray(task.awaiting.searchRegistry)) throw new WebTaskError("web_task_state_invalid", 503, "pending search has no committed registry");
           const expected = new Map(task.awaiting.searchRegistry.map(t => [t.wireName, t]));
-          if (registryDigest(expected) !== task.awaiting.registryFingerprint)
+          if (registryDigest(expected, task.awaiting.registryFormat ?? "native-registry/2") !== task.awaiting.registryFingerprint)
             throw new WebTaskError("web_task_state_invalid", 503, "pending search registry is inconsistent");
           extendRegistry(expected, output.tools!);
           if (registryDigest(expected) !== registryFingerprint)
@@ -197,7 +221,11 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
       let committed: { body: Record<string, any>; replayed: false } | undefined;
       const pendingState = () => ({ ...(task ?? { input: [], instructions }), url: target ?? "", pending: identity.turnId });
       try {
-        let nextPrompt = protocol + prompt;
+        // Keep the task text first and transport requirements last. When both
+        // appear in one Web user message, a later exact-output request (for
+        // example, a canary marker) must not accidentally override the JSON
+        // envelope that the outer Responses client requires.
+        let nextPrompt = `${prompt}\n\n${protocol}`;
         let result: Awaited<ReturnType<typeof sendWebTurn>>;
         let answer: ReturnType<typeof decodeToolReply> | undefined;
         for (let lookup = 0; ; lookup++) {
@@ -226,7 +254,7 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
           answer = decodeToolReply(result.text, registry, choice);
           if (answer.kind !== "describe_tools") break;
           if (lookup >= 3) throw new WebTaskError("web_tool_schema_limit", 502, "too many tool schema requests in one native round");
-          nextPrompt = protocol + `Exact requested schemas:\n${answer.schemas}\nContinue the pending task using the response contract.`;
+          nextPrompt = `Exact requested schemas:\n${answer.schemas}\nContinue the pending task using the response contract.\n\n${protocol}`;
         }
         const url = canonicalConversationUrl(result!.url);
         if (!url || (task && url !== task.url))
@@ -249,8 +277,8 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
           response.output = [{ id: `item_${crypto.randomUUID().replace(/-/g, "")}`, ...answer.call, status: "completed" }];
           response.output_text = "";
           emitted = answer.call;
-          awaiting = { turnId: identity.turnId, call: answer.call, registryFingerprint, registryFormat: "native-registry/2", step,
-            ...(answer.call.type === "tool_search_call" ? { searchRegistry: [...registry.values()] } : {}) };
+          awaiting = { turnId: identity.turnId, call: answer.call, registryFingerprint, registryFormat: "native-registry/4", step,
+            searchRegistry: [...registry.values()] };
         }
         response.metadata = { isymcp_conversation: url, isymcp_model_state: "visible_state_verified", isymcp_model: webModelLabel(body.model), isymcp_effort: "High" };
         write(taskPath, { url, input: [...input, emitted], instructions, ...(awaiting ? { awaiting } : {}) });

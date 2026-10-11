@@ -128,6 +128,8 @@ test('menu media-prepare routes into the shared guided flow and cancel never dow
  expect(JSON.parse(cli(['media','list'],e.env).stdout.toString())).toEqual([]);
 });
 
+// This crosses ffmpeg, three CLI launches and a live MCP stdio session; CI's
+// cold runners can exceed Bun's five-second default without the flow hanging.
 test('guided CLI prepares a generated video, verifies package hashes, then MCP recovers the same asset and saved artifacts',async()=>{
  const e=isolated(),bin=join(e.home,'bin'),fixture=join(e.home,'generated.mp4'),destination=join(e.home,'exports');mkdirSync(bin);mkdirSync(destination);
  await run('ffmpeg',['-v','error','-f','lavfi','-i','color=c=blue:s=128x72:r=4:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-map','0:v','-map','1:a','-c:v','mpeg4','-c:a','aac','-shortest',fixture]);
@@ -157,4 +159,4 @@ test('guided CLI prepares a generated video, verifies package hashes, then MCP r
   expect(sheet.isError).not.toBe(true);expect(JSON.parse(sheet.content[0].text).selected_sheet.index).toBe(0);expect(sheet.content.filter((part:any)=>part.type==='image')).toHaveLength(1);
   const schema=tools.find(tool=>tool.name==='media_lookup')!.inputSchema as any;expect(Object.keys(schema.properties??{})).not.toContain('path');
  } finally {await client.close();}
-});
+},20_000);

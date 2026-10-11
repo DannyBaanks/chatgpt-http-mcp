@@ -1,6 +1,6 @@
 // codex-conversation.ts — entrada guiada de una conversación Codex nueva.
-// El CLI lleva un proveedor por proceso. La App no tiene una entrada
-// verificada y se rechaza. El recibo solo se confirma con un turno ya
+// El CLI lleva un proveedor por proceso. La App usa un perfil propio.
+// El recibo solo se confirma con un turno ya
 // comprometido; un replay reconstruye ese mismo recibo y no otra conversación.
 import { randomUUID, createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -17,7 +17,7 @@ const LAUNCH_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 export interface LaunchIntent {
   version: "isymcp-launch-intent/1";
   launchId: string;
-  client: "cli";
+  client: "cli" | "app";
   cwd: string;
   model: string;
   effort: "high";
@@ -35,12 +35,9 @@ export function conversationsDir(dir?: string): string {
   return dir ?? join(bridgeHome(), "codex-responses");
 }
 
-export function rejectAppClient(client: string): "cli" {
-  if (client === "app") {
-    throw new Error("web_app_entry_unavailable: Codex App has no verified per-thread custom-provider entry; a daemon is not the desktop");
-  }
-  if (client !== "cli") throw new Error("web_conversation_client_invalid: expected cli or app");
-  return "cli";
+export function validateConversationClient(client: string): "cli" | "app" {
+  if (client !== "cli" && client !== "app") throw new Error("web_conversation_client_invalid: expected cli or app");
+  return client;
 }
 
 function assertModel(model: string): string {
@@ -63,7 +60,7 @@ export function planNewConversation(input: { client: string; cwd: string; model?
   env: Record<string, string>;
   args: (options: { port: string; catalogPath?: string }) => string[];
 } {
-  const client = rejectAppClient(input.client);
+  const client = validateConversationClient(input.client);
   const model = assertModel(input.model ?? "chatgpt-web/gpt-5.6-sol");
   const cwd = assertCwd(input.cwd);
   const launchId = assertLaunchId(input.launchId ?? randomUUID());
@@ -120,8 +117,8 @@ function readJson(path: string): unknown {
 
 export function writeLaunchIntent(dir: string, intent: LaunchIntent): void {
   assertLaunchId(intent.launchId);
-  if (intent.version !== "isymcp-launch-intent/1" || intent.client !== "cli" || intent.effort !== "high") {
-    throw new Error("web_conversation_launch_invalid: intent is not a CLI high launch");
+  if (intent.version !== "isymcp-launch-intent/1" || !["cli", "app"].includes(intent.client) || intent.effort !== "high") {
+    throw new Error("web_conversation_launch_invalid: intent is not an isolated high launch");
   }
   assertModel(intent.model);
   assertCwd(intent.cwd);
@@ -141,14 +138,14 @@ export function commitConversationReceipt(dir: string, facts: {
   const intent = readJson(intentPathname) as LaunchIntent;
   const url = canonicalConversationUrl(facts.url);
   if (!url) throw new Error("web_conversation_url_invalid: committed turn has no canonical conversation");
-  if (intent.launchId !== launchId || intent.model !== facts.model || intent.effort !== facts.effort || intent.client !== "cli") {
+  if (intent.launchId !== launchId || intent.model !== facts.model || intent.effort !== facts.effort || !["cli", "app"].includes(intent.client)) {
     throw new Error("web_conversation_receipt_conflict: launch intent does not match the committed turn");
   }
   if (!facts.threadId.trim() || facts.threadId.length > 256 || !/^[0-9a-f]{64}$/.test(facts.taskKey)) {
     throw new Error("web_conversation_receipt_invalid: thread or task key is not exact");
   }
   const receipt: ConversationReceipt = {
-    version: "isymcp-conversation/1", launchId, client: "cli", cwd: intent.cwd, model: intent.model,
+    version: "isymcp-conversation/1", launchId, client: intent.client, cwd: intent.cwd, model: intent.model,
     effort: "high", threadId: facts.threadId, url, taskKey: facts.taskKey, state: "committed",
   };
   const path = receiptPath(dir, launchId);

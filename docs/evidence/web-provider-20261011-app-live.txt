@@ -1,0 +1,37 @@
+Codex App GPT-5.6 Web canary — 2026-10-11
+
+Scope
+  Client: isolated Codex App profile and test workspace
+  Provider model: chatgpt-web/gpt-5.6-sol
+  Reasoning effort: high
+  This tests the Web-provider path, not invocation of the native Codex ISyMCP connector.
+
+Observed sequence
+  1. Initial exact-output request failed before Web submission with
+     502 web_turn_not_submitted. This failure remains recorded.
+  2. Retry prompt: Responde exactamente APP_WEB_FINAL_OK y nada más
+     Visible assistant final: APP_WEB_FINAL_OK
+  3. Same-thread resume prompt: Responde exactamente APP_WEB_RESUME_OK y nada más
+     Visible assistant final: APP_WEB_RESUME_OK
+
+Local verification
+  The isolated profile's thread database contains the final marker, then the
+  resume prompt and exact resume marker in the same thread. Its turn statuses
+  are failed, completed, completed (the original failed submission plus the
+  successful final and resume turns).
+  The private conversation receipt is committed for client app, model
+  chatgpt-web/gpt-5.6-sol, effort high. The associated durable task has no
+  pending turn, its last role is assistant, its last text is
+  APP_WEB_RESUME_OK, and its URL matches the committed receipt.
+  The user-provided screenshot shows the same-thread resume response visible
+  at 03:03 local time. No exact latency measurement was captured; rapid response
+  is visually reported, not timed evidence.
+
+Claim status
+  DEMONSTRATED: GPT-5.6 Web final and same-thread resume through the isolated
+  Codex App provider path.
+  NOT_DEMONSTRATED: native connector tools were invoked during this canary.
+
+Privacy
+  Conversation URL, thread identifier, credentials, and private receipt contents
+  are omitted. The source receipt and profile database remain on the local host.

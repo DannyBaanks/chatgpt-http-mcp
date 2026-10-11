@@ -1,0 +1,27 @@
+GPT Web provider live canary — 2026-10-11
+
+Environment: Ubuntu 24.04, Bun 1.4.2, Codex CLI 0.162.0.
+Client: isolated `isymcp conversation new/resume --client cli` session.
+Model: GPT-5.6 Sol (Web), high.
+Selector evidence: ChatGPT rendered `5.6 High`; selected model was GPT-5.6 Sol,
+and the owned reasoning slider was at its maximum 3/3. Version-aware validation
+accepted the matching label. A GPT-6 selection with `5.6 High` remains rejected.
+
+Fresh conversation:
+- GPT.com returned the exact requested marker `CLI_WEB_FINAL_OK`.
+- The server committed a private CLI receipt for a `chatgpt.com` conversation.
+- Durable task state ended with the assistant marker, no pending turn and no
+  pending native call.
+
+Resume:
+- `isymcp conversation resume` reopened the same committed conversation.
+- A second GPT.com turn returned the exact requested marker `CLI_WEB_RESUME_OK`.
+- Durable task state ended with the second assistant marker and no pending turn
+  or native call.
+
+Private identifiers and the conversation URL are intentionally omitted.
+SHA-256 of the private receipt JSON: `78219262ede1fe8f17617ca1cb5070161b10cb901623b72be09aa9a81013549c`.
+SHA-256 of the final private task-state JSON: `222344d5f4fadc5ceeee27d587c2d784fe8bfc235ca6defba71838bfcce5eedd`.
+
+Scope: this demonstrates live CLI new + resume for one isolated GPT Web
+conversation. It does not demonstrate the separate Codex App final/resume gate.

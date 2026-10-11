@@ -40,6 +40,20 @@ function backend(replies: unknown[], tools: any[] = [tool], selectedModel = "GPT
   return { run, calls, dir, selections };
 }
 const call = (cmd: string) => ({ kind: "call", tool: "exec_command", arguments: { cmd } });
+test("Codex may refresh tool discovery descriptions while returning an ordinary native result", async () => {
+  const discovery = { type: "tool_search", execution: "client", description: "initial app directory", parameters: {
+    type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false,
+  } };
+  const b = backend([call("printf CANARY"), { kind: "final", text: "CANARY" }], [tool, discovery]);
+  const input = [msg("user", "execute")];
+  const c = (await b.run(input)).body.output[0];
+  const refreshed = [tool, { ...discovery, description: "completed app directory" }];
+  await expect(b.run([...input, c, result(c)], "t1", "A", [tool, { ...refreshed[1], parameters: { type: "object" } }])).rejects.toThrow("web_tool_result_mismatch");
+  const final = await b.run([...input, c, result(c)], "t1", "A", refreshed);
+  expect(final.body.output_text).toBe("CANARY");
+  expect(await b.run([...input, c, result(c)], "t1", "A", [tool, { ...discovery, description: "later directory refresh" }])).toEqual({ body: final.body, replayed: true });
+  expect(b.calls).toHaveLength(2);
+});
 const search = { type: "tool_search", execution: "client", description: "Discover client tools", parameters: {
   type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false,
 } };
@@ -110,6 +124,30 @@ test("GPT-6 tasks select the exact model before submitting and return its actual
   const answer = await b.run([msg("user", "answer")], "t1", "A", [tool], { model: "chatgpt-web/gpt-6" });
   expect(answer.body.metadata).toMatchObject({ isymcp_model: "GPT-6", isymcp_effort: "High" });
   expect(b.selections).toEqual([{ model: "GPT-6", effort: "high" }]);
+});
+
+test("native transport contract follows user content so exact-output requests stay inside the JSON envelope", async () => {
+  const b = backend([{ kind: "final", text: "APP_WEB_FINAL_OK" }]);
+  const marker = "Responde exactamente APP_WEB_FINAL_OK y nada más";
+  await b.run([msg("user", marker)]);
+  const prompt = b.calls[0].prompt;
+  expect(prompt.indexOf(marker)).toBeGreaterThanOrEqual(0);
+  expect(prompt.indexOf("ISyMCP CODEX RESPONSE CONTRACT")).toBeGreaterThan(prompt.indexOf(marker));
+  expect(prompt).toContain('{"kind":"final","text":"your answer"}');
+});
+
+test("plain Web text is a final answer; only a valid JSON envelope can call a native tool", async () => {
+  const marker = "APP_WEB_FINAL_OK";
+  const b = backend([marker]);
+  const answer = await b.run([msg("user", `Responde exactamente ${marker} y nada más`)]);
+  expect(answer.body.output_text).toBe(marker);
+  expect(answer.body.output.every((item: any) => item.type !== "function_call")).toBe(true);
+  expect(b.calls).toHaveLength(1);
+
+  const malformed = backend(['{"kind":"call","tool":"exec_command"']);
+  await expect(malformed.run([msg("user", "run this")])).rejects.toThrow("web_tool_protocol_invalid");
+  expect(malformed.calls).toHaveLength(1);
+  await expect(malformed.run([msg("user", "run this again")], "t2")).rejects.toThrow("web_task_pending");
 });
 
 test("native image viewers are excluded until their multipart image results can be transported", async () => {
@@ -188,7 +226,7 @@ test("unregistered tool, invalid JSON/schema, malformed protocol and parallel ca
   for (const reply of [call("ok"), { kind: "call", tool: "unregistered", arguments: {} },
     { kind: "call", tool: "exec_command", arguments: { cmd: 7 } },
     { kind: "call", tool: "exec_command", arguments: { cmd: "ok", extra: true } },
-    [{ kind: "call", tool: "exec_command", arguments: { cmd: "ok" } }], "not a protocol response"]) {
+    [{ kind: "call", tool: "exec_command", arguments: { cmd: "ok" } }]]) {
     if ((reply as any).arguments?.cmd === "ok" && (reply as any).tool === "exec_command" && !(reply as any).arguments.extra) continue;
     const b = backend([reply]);
     await expect(b.run([msg("user", "execute")])).rejects.toThrow();
@@ -212,6 +250,21 @@ test("tool registry changes during a pending call are rejected", async () => {
   expect(b.calls).toHaveLength(1);
 });
 
+test("late client plugin startup may add a tool while preserving the committed registry", async () => {
+  const b = backend([call("printf CANARY"), { kind: "final", text: "CANARY" }]);
+  const input = [msg("user", "execute")]; const c = (await b.run(input)).body.output[0];
+  const added = { ...tool, name: "request_plugin_install" };
+  await expect(b.run([...input, c, result(c)], "t1", "A", [{ ...tool, parameters: { type: "object" } }, added])).rejects.toThrow();
+  expect((await b.run([...input, c, result(c)], "t1", "A", [tool, added])).body.output_text).toBe("CANARY");
+  expect(b.calls).toHaveLength(2);
+});
+
+test("client search can extend a registry containing ordinary non-namespaced functions", async () => {
+  const b = backend([{ kind: "call", tool: "tool_search", arguments: { query: "new" } }, { kind: "final", text: "discovered" }], [tool, search]);
+  const input = [msg("user", "discover")]; const c = (await b.run(input)).body.output[0];
+  expect((await b.run([...input, c, searchResult(c, [{ ...tool, name: "new_tool" }])])).body.output_text).toBe("discovered");
+});
+
 test("a native result can carry a new user steer without accepting extra results", async () => {
   const b = backend([call("printf CANARY"), { kind: "final", text: "steer followed" }]);
   const input = [msg("user", "execute")]; const c = (await b.run(input)).body.output[0];
@@ -227,9 +280,9 @@ test("transport item IDs and status changes do not cause another Web submission"
   expect(b.calls).toHaveLength(1);
 });
 
-test("on-demand schemas stay in the same conversation and preserve its URL on ambiguous reply", async () => {
+test("on-demand schemas stay in the same conversation and preserve its URL on malformed envelope", async () => {
   const tools = [tool, { ...tool, name: "other_command" }];
-  const b = backend([{ kind: "describe_tools", names: ["other_command"] }, "invalid reply"], tools);
+  const b = backend([{ kind: "describe_tools", names: ["other_command"] }, '{"kind":"call","tool":"other_command"'], tools);
   await expect(b.run([msg("user", "use other_command")])).rejects.toThrow("web_tool_protocol_invalid");
   expect(b.calls).toHaveLength(2);
   expect(b.calls[1].url).toBe(b.calls[0].url);
@@ -308,7 +361,7 @@ test("abandoning an unconfirmed call still requires exact history, instructions 
 });
 
 test("an ambiguous Web submit blocks cancellation recovery instead of guessing its outcome", async () => {
-  const b = backend(["not a protocol response"]);
+  const b = backend(['{"kind":"call","tool":"exec_command"']);
   const input = [msg("user", "execute")];
   await expect(b.run(input)).rejects.toThrow("web_tool_protocol_invalid");
   await expect(b.run([...input, msg("user", "continue after interruption")], "t2")).rejects.toThrow("web_task_pending");

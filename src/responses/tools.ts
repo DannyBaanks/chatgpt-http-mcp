@@ -95,7 +95,15 @@ export function decodeToolReply(text: string, registry: Map<string, NativeTool>,
   const trimmed = text.trim();
   const source = /^```(?:json)?\s*\n([\s\S]*?)\n```$/.exec(trimmed)?.[1] ?? trimmed;
   let reply: any;
-  try { reply = JSON.parse(source); } catch { return fail("Web reply is not one JSON response object"); }
+  try { reply = JSON.parse(source); } catch {
+    // ChatGPT Web cannot enforce a structured output format. Treat ordinary
+    // prose as a final answer so exact-output and conversational turns work.
+    // Structured-looking malformed output remains an error. Crucially, only
+    // a successfully parsed and schema-validated JSON envelope can dispatch a
+    // native tool; prose can never become an executable call.
+    if (!source.trim() || /^[\[{]/.test(source.trim())) return fail("Web reply is not one JSON response object");
+    return { kind: "final", text: source.trim() };
+  }
   if (!object(reply)) return fail("parallel/array replies are not supported");
   if (reply.kind === "final" && typeof reply.text === "string" && reply.text.trim()) return { kind: "final", text: reply.text };
   if (choice === "none") return fail("tool_choice none requires a final answer without a native call or schema request");
