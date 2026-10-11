@@ -26,14 +26,16 @@ alone does not demonstrate the complete Web conversation.
 
 | Claim | Status | Evidence |
 |---|---|---|
-| Fresh full repository suite | DEMONSTRATED | 496 pass, 1 optional Video Vision skip, 0 fail; 497 tests / 70 files / 2266 expectations |
+| Fresh full repository suite | DEMONSTRATED | Latest run: 498 pass, 1 optional Video Vision skip, 0 fail; 499 tests / 70 files |
 | Real CLI returns one controlled provider failure without retry flood | DEMONSTRATED | `retry-live`: exit 1, one request, 11.051 s |
 | GPT Web requests a command that native CLI executes | DEMONSTRATED, partial loop | `cli1` and `cli4`: native exec exit 0; actual output in subsequent request; earlier registry rejection preserved |
 | GPT Web requests a command that actual App executes | DEMONSTRATED, partial loop | `app-live`: native persisted function call and output, exit 0; final Web result was not observed |
 | Actual App adapter completes two native command turns, reopening the same thread | DEMONSTRATED with controlled reasoning responses | `app-adapter2`: four adapter rounds, real native outputs in requests 3 and 5, two final messages, one receipt; exact thread deep link between turns |
 | Actual App independently obtains its reasoning replies from GPT.com through to a final answer | NOT_DEMONSTRATED | Later attempts blocked by network and reasoning-selector failures |
-| Complete real Web-provider CLI call/result/final sequence after fixes | NOT_DEMONSTRATED | Latest fresh attempts did not reach native execution |
-| Two real Web conversations can be resumed independently in CLI and App | NOT_DEMONSTRATED | Local state/unit coverage and controlled App test do not substitute for real Web resume |
+| Real GPT-5.6 Web final answer in a new isolated CLI conversation | DEMONSTRATED | After selector compatibility fix, fresh CLI canary returned `CLI_WEB_FINAL_OK`; private receipt committed against `chatgpt.com`, task state ended with assistant final and no pending call |
+| Real GPT-5.6 Web resume in the same CLI conversation | DEMONSTRATED | `isymcp conversation resume` reopened the saved thread; second canary returned `CLI_WEB_RESUME_OK`, with no pending call |
+| Real Web final answer and resume in the isolated Codex App | NOT_DEMONSTRATED | Dedicated App profile is ready but still awaits its first prompt; the user App and global Codex config were not touched |
+| Two real Web conversations can be resumed independently in CLI and App | PARTIAL | CLI new + resume demonstrated live; App final/resume remains NOT_DEMONSTRATED |
 | New remote Codex ISyMCP tunnel in ChatGPT | DEMONSTRATED | Tunnel `isymcp-native-media` returned `media_list` twice (5 records each); a fresh `codex_turn_start` → inventory (8 executable native tools) → `codex_exec` (`ISYMCP_CONNECTOR_FRESH`, exit 0) → `codex_turn_complete` succeeded |
 
 One earlier full-suite repeat hit an unnamed 10-second lifecycle-hook timeout;
@@ -48,12 +50,16 @@ The independent historical connector test is recorded in
 
 ## Negative results and current boundaries
 
-The latest CLI attempts (`cli7`, `cli8`) each sent one request and exited 1.
+The earlier CLI attempts (`cli7`, `cli8`) each sent one request and exited 1.
 `cli7` recorded `ERR_NETWORK_CHANGED`; `cli8` reached the page but the owned
 reasoning control was unavailable. A read-only selector probe also recorded
-`ERR_ADDRESS_UNREACHABLE` and `ERR_ABORTED`. No different model/effort was
-silently accepted, no failed submission was called successful and no ambiguous
-Web round was automatically resent.
+`ERR_ADDRESS_UNREACHABLE` and `ERR_ABORTED`. A later real attempt isolated the
+remaining selector mismatch: this ChatGPT UI labels maximum effort as `5.6 High`
+for GPT-5.6. The validator now accepts a version-prefixed High label only when
+it matches the selected model, while still requiring the maximum 3/3 slider
+position. New and resumed live CLI canaries then completed with exact final
+markers. The initial failed submissions remain historical failures; they were
+not retried automatically or relabeled as successes.
 
 The normal global Codex configuration changed independently during the work.
 It is therefore not claimed byte-identical across the whole interval. Isolated
@@ -85,10 +91,20 @@ Raw requests, screenshots, rollouts and receipts remain private. The
 exact paths, sizes and hashes; credentials and session-token records are excluded.
 The combined [suite output](../evidence/web-provider-20261010-tests.txt) has
 SHA-256 `9437cbd95c3b0e468849100df0d4b79ee682b1d3d595ac01bf2efe5edb32a409`.
+The latest full [suite transcript](../evidence/web-provider-20261011-tests.txt)
+records 498 pass, 1 skip, 0 fail and has SHA-256
+`ed8893a30bb02a7cb080e9ebbcee44b64f8f7ba513df57360cf6768bd2a7f318`.
+The sanitized [live CLI canary](../evidence/web-provider-20261011-cli-live.txt)
+records new + resume results and private-state digests without exposing the
+conversation URL or identifiers; SHA-256
+`af126f482a6526fab0e4af94aede3674e8e846a9ed8d761e4b068c47eae126b0`.
 The successful [remote MCP canary](../evidence/web-provider-20261010-connector-canary.json)
 records its results without storing the session token.
 
 Host: Ubuntu 24.04, Bun 1.4.2, Codex CLI 0.162.x and installed desktop App
-26.930.51102 (bundled native Codex 0.160.0). App tests used their own profiles
-and workspace. Production `isymcp conversation new/resume` commands and
-real Web final-answer/resume gates remain explicitly unclosed.
+26.930.51102 (bundled native Codex 0.160.0). The live CLI new/resume tests used
+an isolated temporary workspace and the dedicated Web bridge; their committed
+conversation receipt and task state were checked without publishing the private
+thread URL or identifiers. App tests used their own profile and workspace.
+Production CLI final/resume is demonstrated; production App final/resume and
+full cross-client independence remain explicitly unclosed.

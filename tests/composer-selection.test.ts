@@ -15,8 +15,9 @@ beforeAll(async () => {
 afterAll(async () => { await browser?.close(); }, 10_000);
 
 // Local DOM boundary fixture: no account, network request, cookies or model.
-async function composer(): Promise<Page> {
+async function composer(highLabel = "High"): Promise<Page> {
   const page = await browser.newPage();
+  const highLabelJson = JSON.stringify(highLabel);
   await page.setContent(`<button aria-label="Other Model settings">unrelated</button>
     <form><div contenteditable="true" id="prompt-textarea"></div>
     <button type="button" disabled aria-haspopup="menu" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning">Medium</button></form>
@@ -26,13 +27,14 @@ async function composer(): Promise<Page> {
     <div role="menuitem" data-reasoning-slider="true" tabindex="0" aria-label="Potencia">Potencia<span role="slider" aria-valuemin="0" aria-valuemax="2" aria-valuenow="1" aria-valuetext="Medium"></span></div></div></div>
     <script>
     const trigger=document.querySelector('form button'),menu=document.querySelector('[role="menu"]');
+    const highLabel=${highLabelJson};
     setTimeout(()=>trigger.disabled=false,100);
     trigger.onclick=()=>{menu.hidden=!menu.hidden;trigger.setAttribute('aria-expanded',String(!menu.hidden));trigger.setAttribute('data-opened','true')};
     document.addEventListener('keydown',e=>{if(e.key==='Escape'){menu.hidden=true;trigger.setAttribute('aria-expanded','false')}});
     const view=menu.querySelector('[data-model-picker-view]'),choices=menu.querySelector('[data-model-choices]'),power=menu.querySelector('[data-reasoning-slider]');
     menu.querySelector('[data-model-picker-view-toggle]').onclick=()=>{view.setAttribute('data-model-picker-view','advanced');choices.inert=false;choices.setAttribute('aria-hidden','false');power.hidden=true;trigger.setAttribute('data-model-expanded','true')};
     for(const row of menu.querySelectorAll('[role="menuitemradio"]'))row.onclick=()=>{for(const r of menu.querySelectorAll('[role="menuitemradio"]'))r.setAttribute('aria-checked',String(r===row));view.setAttribute('data-model-picker-view','simple');choices.inert=true;choices.setAttribute('aria-hidden','true');power.hidden=false};
-    menu.querySelector('[data-reasoning-slider]').onkeydown=e=>{if(e.key==='ArrowRight'){const slider=menu.querySelector('[role="slider"]');slider.setAttribute('aria-valuenow','2');slider.setAttribute('aria-valuetext','High');trigger.textContent='High'}};
+    menu.querySelector('[data-reasoning-slider]').onkeydown=e=>{if(e.key==='ArrowRight'){const slider=menu.querySelector('[role="slider"]');slider.setAttribute('aria-valuenow','2');slider.setAttribute('aria-valuetext',highLabel);trigger.textContent=highLabel}};
     </script>`);
   return page;
 }
@@ -52,6 +54,15 @@ test("explicit model selection sets High and confirms the exact model in the com
     expect(await settings.selectComposerSettings(page, "GPT-5.6 Sol", "high", { timeoutMs: 3000 })).toMatchObject({ model: "GPT-5.6 Sol", effort: "High", effortPosition: 3, effortSteps: 3 });
     expect(await page.locator('form button').getAttribute('data-model-expanded')).toBe("true");
     expect(await page.locator('[role="menu"]').isVisible()).toBe(false);
+  } finally { await page.close(); }
+});
+
+test("explicit GPT-5.6 selection accepts the UI's version-prefixed High effort label", async () => {
+  const page = await composer("5.6 High");
+  try {
+    expect(await settings.selectComposerSettings(page, "GPT-5.6 Sol", "high", { timeoutMs: 3000 })).toMatchObject({
+      model: "GPT-5.6 Sol", effort: "5.6 High", effortPosition: 3, effortSteps: 3,
+    });
   } finally { await page.close(); }
 });
 

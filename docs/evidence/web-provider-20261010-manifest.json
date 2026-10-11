@@ -1,6 +1,6 @@
 {
   "version": "isymcp-verification-manifest/1",
-  "generatedAt": "2026-10-10T21:15:26.396664+00:00",
+  "generatedAt": "2026-10-11T02:32:39+00:00",
   "scope": "Separate native MCP, actual Codex App with controlled model, and real GPT Web attempts. Private credentials excluded; raw network/protocol negatives retained.",
   "files": [
     {
@@ -167,6 +167,16 @@
       "path": "/home/danny/.codex-web-http/evidence/web-provider-closure-20261010/51ed7899a2634cce882d0c75d49a5f3b/native-connector-fresh/remote-canary-summary.json",
       "bytes": 521,
       "sha256": "ee9e9faa5bd17498ab001221a76a748096d21f459b2209620490a41d0280fb1f"
+    },
+    {
+      "path": "/home/danny/Development/ISyCo Git/chatgpt-http-mcp-impl/docs/evidence/web-provider-20261011-tests.txt",
+      "bytes": 51653,
+      "sha256": "ed8893a30bb02a7cb080e9ebbcee44b64f8f7ba513df57360cf6768bd2a7f318"
+    },
+    {
+      "path": "/home/danny/Development/ISyCo Git/chatgpt-http-mcp-impl/docs/evidence/web-provider-20261011-cli-live.txt",
+      "bytes": 1419,
+      "sha256": "af126f482a6526fab0e4af94aede3674e8e846a9ed8d761e4b068c47eae126b0"
     }
   ]
 }

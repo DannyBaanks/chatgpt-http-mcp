@@ -10,6 +10,10 @@ describe("assertWebSelection", () => {
     expect(() => assertWebSelection("chatgpt-web/gpt-5.6-sol", "high", seen("High"))).not.toThrow();
     expect(() => assertWebSelection("chatgpt-web/gpt-5.6-sol", "high", seen("Alta"))).not.toThrow();
   });
+  test("acepta el prefijo de versión visible solo cuando coincide con el modelo seleccionado", () => {
+    expect(() => assertWebSelection("chatgpt-web/gpt-5.6-sol", "high", seen("5.6 High"))).not.toThrow();
+    expect(() => assertWebSelection("chatgpt-web/gpt-6", "high", seen("5.6 High", 3, 3, "GPT-6"))).toThrow(/web_model_state_mismatch/);
+  });
   test("rechaza posicion desconocida, otro nivel u otro modelo (fail closed)", () => {
     expect(() => assertWebSelection("chatgpt-web/gpt-5.6-sol", "high", seen("High", null, null))).toThrow(/web_model_state_mismatch/);
     expect(() => assertWebSelection("chatgpt-web/gpt-5.6-sol", "high", seen("Alta", 2, 3))).toThrow(/web_model_state_mismatch/);
