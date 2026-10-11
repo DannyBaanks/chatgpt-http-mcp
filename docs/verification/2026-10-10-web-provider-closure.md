@@ -61,16 +61,18 @@ a pending turn and conversation URL; the turn record is `attempted`, without a
 committed response. We did not clear or retry that state.
 
 The request builder previously placed the transport contract before the user
-prompt inside one Web message. Since the canary explicitly requested an exact
-plain-text answer, the later user text could override the earlier JSON-envelope
-instruction. This is the leading explanation, not a demonstrated cause: the
-raw Web reply was not retained, and the App canary has not yet been repeated.
-The builder now places the user task first and the native JSON contract last,
-including after schema-lookup instructions. A focused regression test verifies
-that ordering. Verification so far: 44 focused tests and the full suite (499
-pass, 1 optional skip, 0 fail; 500 tests / 70 files). This fix still needs a new
-isolated real-App conversation; the ambiguous pending conversation remains
-blocked and the production App final/resume claim stays `NOT_DEMONSTRATED`.
+prompt inside one Web message; that ordering has since been corrected. A new
+isolated App launch then showed the same exact-output prompt failing in two
+different stages: the first request failed before submission with
+`web_turn_not_submitted`, while a manual retry reached a Web response but was
+rejected with `web_tool_protocol_invalid`. This narrows the cause to the
+adapter's strict JSON-only reply parser. The raw reply is not retained, so its
+exact text remains unknown. The parser now accepts ordinary non-JSON text as a
+final answer, while malformed structured replies still fail and only valid,
+schema-checked JSON can request a native tool. Regression tests cover the exact
+marker and malformed-envelope cases. The new App turn remains pending and was
+not replayed. A further fresh isolated App conversation is still needed to
+demonstrate final/resume end to end.
 
 ## Negative results and current boundaries
 

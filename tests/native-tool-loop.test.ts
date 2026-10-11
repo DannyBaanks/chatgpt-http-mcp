@@ -136,6 +136,20 @@ test("native transport contract follows user content so exact-output requests st
   expect(prompt).toContain('{"kind":"final","text":"your answer"}');
 });
 
+test("plain Web text is a final answer; only a valid JSON envelope can call a native tool", async () => {
+  const marker = "APP_WEB_FINAL_OK";
+  const b = backend([marker]);
+  const answer = await b.run([msg("user", `Responde exactamente ${marker} y nada más`)]);
+  expect(answer.body.output_text).toBe(marker);
+  expect(answer.body.output.every((item: any) => item.type !== "function_call")).toBe(true);
+  expect(b.calls).toHaveLength(1);
+
+  const malformed = backend(['{"kind":"call","tool":"exec_command"']);
+  await expect(malformed.run([msg("user", "run this")])).rejects.toThrow("web_tool_protocol_invalid");
+  expect(malformed.calls).toHaveLength(1);
+  await expect(malformed.run([msg("user", "run this again")], "t2")).rejects.toThrow("web_task_pending");
+});
+
 test("native image viewers are excluded until their multipart image results can be transported", async () => {
   const image = { type: "namespace", name: "functions", tools: [{ ...tool, name: "view_image" }] };
   const b = backend([{ kind: "call", tool: "functions.view_image", arguments: { cmd: "image.png" } }], [tool, image]);
@@ -212,7 +226,7 @@ test("unregistered tool, invalid JSON/schema, malformed protocol and parallel ca
   for (const reply of [call("ok"), { kind: "call", tool: "unregistered", arguments: {} },
     { kind: "call", tool: "exec_command", arguments: { cmd: 7 } },
     { kind: "call", tool: "exec_command", arguments: { cmd: "ok", extra: true } },
-    [{ kind: "call", tool: "exec_command", arguments: { cmd: "ok" } }], "not a protocol response"]) {
+    [{ kind: "call", tool: "exec_command", arguments: { cmd: "ok" } }]]) {
     if ((reply as any).arguments?.cmd === "ok" && (reply as any).tool === "exec_command" && !(reply as any).arguments.extra) continue;
     const b = backend([reply]);
     await expect(b.run([msg("user", "execute")])).rejects.toThrow();
@@ -266,9 +280,9 @@ test("transport item IDs and status changes do not cause another Web submission"
   expect(b.calls).toHaveLength(1);
 });
 
-test("on-demand schemas stay in the same conversation and preserve its URL on ambiguous reply", async () => {
+test("on-demand schemas stay in the same conversation and preserve its URL on malformed envelope", async () => {
   const tools = [tool, { ...tool, name: "other_command" }];
-  const b = backend([{ kind: "describe_tools", names: ["other_command"] }, "invalid reply"], tools);
+  const b = backend([{ kind: "describe_tools", names: ["other_command"] }, '{"kind":"call","tool":"other_command"'], tools);
   await expect(b.run([msg("user", "use other_command")])).rejects.toThrow("web_tool_protocol_invalid");
   expect(b.calls).toHaveLength(2);
   expect(b.calls[1].url).toBe(b.calls[0].url);
@@ -347,7 +361,7 @@ test("abandoning an unconfirmed call still requires exact history, instructions 
 });
 
 test("an ambiguous Web submit blocks cancellation recovery instead of guessing its outcome", async () => {
-  const b = backend(["not a protocol response"]);
+  const b = backend(['{"kind":"call","tool":"exec_command"']);
   const input = [msg("user", "execute")];
   await expect(b.run(input)).rejects.toThrow("web_tool_protocol_invalid");
   await expect(b.run([...input, msg("user", "continue after interruption")], "t2")).rejects.toThrow("web_task_pending");
