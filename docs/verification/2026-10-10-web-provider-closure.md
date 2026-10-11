@@ -34,8 +34,9 @@ alone does not demonstrate the complete Web conversation.
 | Actual App independently obtains its reasoning replies from GPT.com through to a final answer | NOT_DEMONSTRATED | Later attempts blocked by network and reasoning-selector failures |
 | Real GPT-5.6 Web final answer in a new isolated CLI conversation | DEMONSTRATED | After selector compatibility fix, fresh CLI canary returned `CLI_WEB_FINAL_OK`; private receipt committed against `chatgpt.com`, task state ended with assistant final and no pending call |
 | Real GPT-5.6 Web resume in the same CLI conversation | DEMONSTRATED | `isymcp conversation resume` reopened the saved thread; second canary returned `CLI_WEB_RESUME_OK`, with no pending call |
-| Real Web final answer and resume in the isolated Codex App | NOT_DEMONSTRATED | First real App prompt reached a non-JSON reply and was rejected with `web_tool_protocol_invalid`; the fail-closed pending marker then rejected the retry with `web_task_pending` |
-| Two real Web conversations can be resumed independently in CLI and App | PARTIAL | CLI new + resume demonstrated live; App final/resume remains NOT_DEMONSTRATED |
+| Real Web final answer in the isolated Codex App | DEMONSTRATED | Fresh App canary returned exact marker `APP_WEB_FINAL_OK`; the committed private receipt and same-profile thread history agree |
+| Real Web resume in the same isolated Codex App conversation | NOT_DEMONSTRATED | Final turn is committed and not pending; a second exact marker has not yet been sent |
+| Two real Web conversations can be resumed independently in CLI and App | PARTIAL | CLI new + resume and App new final demonstrated live; App resume remains NOT_DEMONSTRATED |
 | New remote Codex ISyMCP tunnel in ChatGPT | DEMONSTRATED | Tunnel `isymcp-native-media` returned `media_list` twice (5 records each); a fresh `codex_turn_start` → inventory (8 executable native tools) → `codex_exec` (`ISYMCP_CONNECTOR_FRESH`, exit 0) → `codex_turn_complete` succeeded |
 
 One earlier full-suite repeat hit an unnamed 10-second lifecycle-hook timeout;
@@ -70,9 +71,26 @@ adapter's strict JSON-only reply parser. The raw reply is not retained, so its
 exact text remains unknown. The parser now accepts ordinary non-JSON text as a
 final answer, while malformed structured replies still fail and only valid,
 schema-checked JSON can request a native tool. Regression tests cover the exact
-marker and malformed-envelope cases. The new App turn remains pending and was
-not replayed. A further fresh isolated App conversation is still needed to
-demonstrate final/resume end to end.
+marker and malformed-envelope cases. The subsequent fresh App final and the
+remaining same-thread resume gate are recorded below.
+
+### Fresh App final-answer canary
+
+A fresh isolated App profile then submitted the exact prompt again. The first
+attempt failed before completion; the retry returned exactly
+`APP_WEB_FINAL_OK`. The committed private receipt identifies client `app`,
+model `chatgpt-web/gpt-5.6-sol`, effort `high`, and a test workspace. The
+profile's local Codex thread history contains the exact assistant final and
+shows a completed turn; the durable bridge task is no longer pending and its
+conversation URL matches the committed receipt. The earlier failed attempt is
+still retained as a failure. This demonstrates a real GPT-5.6 Web final answer
+through the isolated Codex App provider path, not native MCP tool execution.
+
+The same-thread resume canary remains open. A direct follow-up through the
+current Codex host could not address this isolated profile (`no rollout found`),
+so no synthetic or cross-thread substitute was counted. Send
+`Responde exactamente APP_WEB_RESUME_OK y nada más` in the same isolated App
+conversation to complete that independent gate.
 
 ## Negative results and current boundaries
 
