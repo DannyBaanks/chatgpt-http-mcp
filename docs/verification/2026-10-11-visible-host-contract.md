@@ -2,6 +2,10 @@
 
 ## Result
 
+**Dated follow-up:** [Native2 recovery and native CLI proof — October 12](2026-10-12-native2-recovery.md)
+records the recovered tunnel, a remote MCP-to-native CLI round trip and the
+rearmed desktop canary. The observations below remain the October 11 record.
+
 **M0 remains open.** One live canary demonstrates a native coding-tool round trip through the installed Codex CLI app-server with a disposable local Responses provider. A separate ChatGPT.com canary completed the installed connector's `start → inventory → complete` cycle, but its receipt identifies the local `codex-web-http` session sandbox (`bwrap`), not an active native Codex host. The four client/origin combinations and desktop App ownership are not closed.
 
 ## Demonstrated: installed Codex CLI app-server

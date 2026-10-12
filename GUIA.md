@@ -187,6 +187,29 @@ estos fallos al MCP ni se presupone seleccionado otro nivel de razonamiento.
 
 ---
 
+### Canario Native2 (actualización de 2026-10-12)
+
+**Canario Native2 — 2026-10-12:** su túnel volvió a aceptar llamadas y una
+llamada remota ejecutó un comando nativo en el CLI, con salida y código 0
+verificados. Mantiene su perfil y túnel separados del MCP multimedia.
+El helper antiguo de `CONTROL_PLANE_API_KEY` es histórico y ya no reemplaza
+una referencia de credencial guardada.
+
+En la conversación ya abierta de la ventana aislada **«ISyMCP — prueba
+nativa»**, envía `ISYMCP_APP_CANARY`. Su cliente MCP está preparado desde
+el arranque; Codex App ejecuta la herramienta. El resultado esperado es
+`ISYMCP_NATIVE_…` respaldado por un recibo real. Esta repetición sigue
+**NO PROBADA** hasta recibir ese resultado. El puerto 33653 es temporal,
+exclusivo de este canario.
+
+El `m0_app_turn_pending` anterior esperaba un callback y confundía la
+petición auxiliar del título con el turno real. La nueva prueba separa
+el título, rechaza hilos ajenos y atiende la llamada MCP automáticamente.
+Revisa el recibo antes de repetir un comando entregado. M0 sigue abierto;
+[pruebas y límites](docs/verification/2026-10-12-native2-recovery.md).
+
+---
+
 ## 4. Conexión de Agentes y Harnesses (9 Herramientas Soportadas)
 
 ISyMCP detecta e instala automáticamente la herramienta `chatgpt_ask` en tus entornos favoritos de desarrollo:
