@@ -1,5 +1,33 @@
 # Native2 recovery and native CLI proof — 2026-10-12
 
+## Follow-up: native desktop App loop demonstrated
+
+The user sent the canary in the owned App conversation. Its rollout identifies
+Codex Desktop 0.160.0 and contains exactly one native `exec` custom call and
+one matching custom output. Their call ID, input and output match the provider
+receipt. The returned command has exit code 0 and stdout
+`ISYMCP_NATIVE_9da0c3f4d2514ce1995d1445781e2637`. The installed native MCP over
+local stdio received the same text blocks, and the desktop's completed turn
+ends with that identical identifier. A separate CLI app-server was not used
+as a substitute for desktop execution.
+
+Private raw snapshots are preserved under `native2-app-success-20261012/`
+in the existing private evidence directory:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Successful App receipt | `1c184a9ff67c6936ed1f0950631e94b529d0ddc0f7422f2bfedb1a3e8f6b0f05` |
+| Actual native output | `dce803d3682addc56a4ed15eb41e725a1eca3e5be714fe85556be73fb61addc1` |
+| Actual MCP result | `971f844c46ce3a40c78066478c4a37942557898cce4d4ddfa9486a150743ef93` |
+| Desktop rollout snapshot | `742b7b94077e6a0ef9734fdea690d3c33649125b307e2624563ad23163bccbaa` |
+| Cross-checked verification | `141bcaa446a386d03371d9144dd284d97fdb14053ae20bb40265510ee055d3d8` |
+
+This closes the local MCP-to-native desktop execution probe. It is a
+deterministic fixture: **real GPT.com reasoning and a remote tunnel-to-App
+loop remain NOT_DEMONSTRATED**. Cancellation/exact resume and browser-origin
+history remain unproved, so **M0 stays open**. Pending-App statements below
+describe the earlier checkpoint, superseded by this follow-up.
+
 **M0 remains open.** A real remote Native2 `codex_exec` call completed through
 the installed Codex CLI's native executor. The owned App canary is rearmed
 and awaiting input; its successful command/result round trip remains

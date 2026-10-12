@@ -195,12 +195,14 @@ verificados. Mantiene su perfil y túnel separados del MCP multimedia.
 El helper antiguo de `CONTROL_PLANE_API_KEY` es histórico y ya no reemplaza
 una referencia de credencial guardada.
 
-En la conversación ya abierta de la ventana aislada **«ISyMCP — prueba
-nativa»**, envía `ISYMCP_APP_CANARY`. Su cliente MCP está preparado desde
-el arranque; Codex App ejecuta la herramienta. El resultado esperado es
-`ISYMCP_NATIVE_…` respaldado por un recibo real. Esta repetición sigue
-**NO PROBADA** hasta recibir ese resultado. El puerto 33653 es temporal,
-exclusivo de este canario.
+La repetición de `ISYMCP_APP_CANARY` en la ventana aislada **«ISyMCP — prueba
+nativa»** ya pasó: Codex App ejecutó una sola llamada, devolvió código 0 y
+el identificador real `ISYMCP_NATIVE_9da0c3f4d2514ce1995d1445781e2637`.
+El recibo, el resultado MCP y el registro nativo coinciden. La ventana ya
+terminó su canario; no necesita otra repetición. El puerto 33653 y la etiqueta
+«M0 tools probe» corresponden a una prueba controlada, sin inferencia real de
+GPT.com. El recorrido remoto hasta la App y la conversación de Chrome siguen
+**NO PROBADOS**.
 
 El `m0_app_turn_pending` anterior esperaba un callback y confundía la
 petición auxiliar del título con el turno real. La nueva prueba separa
