@@ -669,3 +669,23 @@ bun scripts/media-sheet-smoke.ts media_122a35ba-e2b1-4da0-bed9-8f14dddd3e2d
 Salida completa en `docs/evidence/contact-sheet-20261009-smoke.json`; imagen local en `/tmp/isymcp-angel-contact-sheet.jpg`. La prueba recibió una hoja real de 16 fotogramas de Angel Engine mediante el entry point principal. Límite de imagen: 1 MiB; el JPEG puede comprimir más para respetarlo y reporta su calidad en el JSON. Comparte el worker y plazo de análisis de 60 segundos. Si una muestra no se decodifica, devuelve error en lugar de inventar o rellenar fotogramas.
 
 OCR es otro módulo: Tesseract reconoce texto mediante modelos OCR y no es un LLM. Debe procesar los fotogramas originales antes de reducirlos para la cuadrícula. **Todavía no se integró OCR**; esta herramienta devuelve imágenes y sus tiempos, no transcripciones de texto. Referencia oficial: https://tesseract-ocr.github.io/tessdoc/ . Prueba remota de esta nueva herramienta desde ChatGPT: **NOT_DEMONSTRATED**; refresca la lista de herramientas del complemento después del despliegue.
+
+## Canario de la App: conexión cerrada
+
+Mantén Chrome visible y su extensión conectada antes de enviar el marcador del canario. El receptor es una prueba temporal, no un proveedor de conversación general. No reutilices su token ni pulses Reintentar mientras exista un turno pendiente.
+
+Comando ejecutado desde el repo de implementación:
+
+```bash
+bun run scripts/probe-active-isymcp-app.ts --evidence-dir /home/danny/.codex-web-http/canaries/active-app-20261013-disconnect-fixed-01 --reuse-app-window
+```
+
+Salida real:
+
+```json
+{"state":"waiting_for_app_input","client":"app","marker":"ISYMCP_APP_CANARY_20261013","threadId":"01a12f10-6159-7791-b7fb-9744b683a7c8","profileReused":true,"appWindowReused":true,"configChanged":false,"authCopied":false,"port":33653}
+```
+
+La carpeta de evidencia debe ser nueva; ese comando concreto ya se ejecutó y no debe repetirse con el mismo destino. Envía el marcador una vez en el chat aislado y permite que el operador vincule la llamada desde Chrome. `native_app_disconnected_no_resubmission` significa que la App abandonó el turno: el receptor revoca su permiso y no reenvía nada. `Session terminated` requiere revisar el túnel/complemento; un puerto local sano no prueba la conexión remota. `native_app_turn_pending_no_resubmission` bloquea duplicados; no demuestra que el comando se haya ejecutado.
+
+Las pruebas de desconexión pasan; ejecución real del canario corregido en App: **NOT_DEMONSTRATED**, pendiente del nuevo marcador. Detalles y evidencia: `docs/verification/2026-10-13-app-transport-lifetime.md`.
