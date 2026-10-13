@@ -210,6 +210,36 @@ el título, rechaza hilos ajenos y atiende la llamada MCP automáticamente.
 Revisa el recibo antes de repetir un comando entregado. M0 sigue abierto;
 [pruebas y límites](docs/verification/2026-10-12-native2-recovery.md).
 
+### Conversación real con Codex ISyMCP en Chrome — 2026-10-12
+
+Se probaron tres turnos en una conversación real de ChatGPT.com con el
+complemento **Codex ISyMCP** seleccionado: `media_list`, el ciclo
+`codex_turn_start → codex_tool_inventory → codex_exec → codex_turn_complete`,
+y un tercer mensaje que recordó la salida sin ejecutar de nuevo. El servidor
+registró una sola ejecución, código 0 y 17 ms. Recargar conservó los mensajes
+y no duplicó el comando. La prueba terminó con GPT-6, potencia Medium,
+verificados en el selector. [Evidencia y alcance](docs/verification/2026-10-12-isymcp-chrome-conversation.md).
+
+Para una prueba de lectura, crea una carpeta vacía y usa su ruta absoluta:
+
+```bash
+isymcp session mint --cwd '<ruta absoluta de la carpeta de prueba>' --ttl 0.5
+```
+
+Sin `--write`, el token es de lectura. Selecciona la mención real del
+complemento en Chrome y envía el token impreso junto con la orden de iniciar
+el turno, leer `bootstrap.content` y ejecutar un único `printf` de un marcador.
+Comprueba la salida, el código y el backend; termina con `codex_turn_complete`.
+Puedes cerrar la capacidad de prueba con `isymcp session revoke <fp>` usando
+solo su fingerprint. Ambos comandos CLI se verificaron con una capacidad
+nueva de lectura y se revocó exclusivamente esa capacidad.
+
+El ejecutor que informó esta conexión fue **`bwrap-read-only`**, del backend
+`codex-web-http sessions`. Todavía no ejecuta dentro del hilo activo de Codex
+CLI/App. El canario Native2 es una referencia distinta. Levantar un receptor
+con un perfil y proveedor propios no requiere cambiar `openai_base_url` en la
+configuración global; esa configuración se mantuvo idéntica en la prueba.
+
 ---
 
 ## 4. Conexión de Agentes y Harnesses (9 Herramientas Soportadas)

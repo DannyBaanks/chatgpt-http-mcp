@@ -67,3 +67,32 @@ made.
 **Codex ISyMCP** is the other connector, with its existing standalone workspace
 sandbox and registered media. That connector's all-tools battery and this native
 owner control test establish different execution paths.
+
+## Failed manual attempt and bounded wait correction
+
+The first manual receiver failed at 23:02:03 UTC (17:02:03 Mexico City), before
+the announced token deadline. Its installed CLI reported `idle timeout waiting
+for SSE` after approximately five minutes. SSE comments did not keep that
+native event wait alive. The subsequent automatic HTTP retries were refused by
+the probe, and cleanup revoked the broker capability. No native call was
+delivered. Failed receipt SHA-256:
+`e1fbe7674f822581442abe25228e70d01571387d4298d7e7f42e9e2db7ad5a98`.
+
+The private receiver now sets `stream_idle_timeout_ms` to its bounded operator
+wait plus thirty seconds, and sets `stream_max_retries=0` and
+`request_max_retries=0` in its own per-process provider. A one-second negative
+control reproduced the installed CLI timeout with one request and no retry.
+A sixty-second positive control waited approximately forty-nine seconds, then
+completed through the installed **local stdio** native MCP and real CLI command.
+Positive receipt SHA-256:
+`a6178a1c0f12292cf0b0cd9a086e39eab2658ff8f5f84549987b5a71a38a3491`.
+The full default twenty-minute wait has not been exercised end to end.
+
+The separate remote Native2 invocation returned `McpServerError: Session
+terminated` while that positive receiver was alive. Local success does not
+repair or demonstrate the remote connection. Its raw error was preserved in
+the private plan workspace. No global routing configuration changed.
+
+The subsequent real **Codex ISyMCP** Chrome conversation is documented in
+[its separate report](2026-10-12-isymcp-chrome-conversation.md). It uses the
+standalone sandbox, not this native reference gateway. M0 remains open.
