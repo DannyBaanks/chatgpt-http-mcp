@@ -15,6 +15,14 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
 export interface CodexSession {
+  /** Explicit native owner; never inferred from a model, port or token prefix. */
+  nativeOwner?: {
+    socketPath: string; socketDevice: number; socketInode: number; ownerToken: string;
+    owner: { launchId: string; threadId: string; turnId: string; epoch: string };
+    phase: "prepared" | "active" | "completed";
+    source?: { url: string; messageId: string };
+    response?: string;
+  };
   token: string;
   fp: string;
   label: string;
@@ -160,6 +168,14 @@ export function readSessions(): CodexSession[] {
   return readRegistry().sessions;
 }
 
+/** Local controller only. This function is not exposed as an MCP tool. */
+export function updateSession(fp: string, update: (session: CodexSession) => void): CodexSession {
+  const registry = readRegistry();
+  const session = registry.sessions.find(s => s.fp === fp);
+  if (!session) throw new Error("session_not_registered");
+  update(session); writeRegistry(registry); return session;
+}
+
 /** Sesiones que crea el usuario (sin los tokens efimeros de turno). */
 export function listUserSessions(): CodexSession[] {
   return readRegistry().sessions.filter((s) => s.kind !== "turn");
@@ -177,6 +193,7 @@ export function mintTurnToken(parentFp: string, turnId: string, ttlMinutes = TUR
   const parent = reg.sessions.find((s) => s.fp === parentFp && s.kind !== "turn");
   if (!parent) throw new Error("sesion desconocida");
   if (isExpired(parent)) throw new Error("la sesion caduco");
+  if (parent.nativeOwner) throw new Error("native_owner_requires_its_exact_turn_token");
   const token = randomBytes(32).toString("base64url");
   const turn: CodexSession = {
     token,
@@ -240,7 +257,9 @@ export function findSessionByToken(token: string): CodexSession | null {
     const a = Buffer.from(session.token);
     const b = Buffer.from(token);
     if (a.length === b.length && timingSafeEqual(a, b)) {
-      if (isExpired(session)) return null;
+      // Retain native tombstones so expiry/closure is an explicit native error,
+      // never a compatibility stub or a switch to the standalone sandbox.
+      if (isExpired(session) && !session.nativeOwner) return null;
       if (session.kind === "turn") {
         // Un token de turno no sobrevive a su sesion padre.
         const parent = sessions.find((p) => p.fp === session.parent && p.kind !== "turn");

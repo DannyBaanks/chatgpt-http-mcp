@@ -235,10 +235,52 @@ solo su fingerprint. Ambos comandos CLI se verificaron con una capacidad
 nueva de lectura y se revocó exclusivamente esa capacidad.
 
 El ejecutor que informó esta conexión fue **`bwrap-read-only`**, del backend
-`codex-web-http sessions`. Todavía no ejecuta dentro del hilo activo de Codex
-CLI/App. El canario Native2 es una referencia distinta. Levantar un receptor
+`codex-web-http sessions`. Esa prueba no ejecutó dentro del hilo activo de
+Codex CLI/App. El canario Native2 es una referencia distinta. Levantar un receptor
 con un perfil y proveedor propios no requiere cambiar `openai_base_url` en la
 configuración global; esa configuración se mantuvo idéntica en la prueba.
+
+### ISyMCP conectado a un turno activo del CLI — 2026-10-13
+
+Se verificó otra ruta, usando **nuestro mismo complemento Codex ISyMCP** en
+Chrome: start → inventory → un `codex_exec` → complete. El comando lo ejecutó
+el Codex CLI instalado, dentro de un hilo y turno propios de lectura. Devolvió
+el marcador real y código 0 con `backend: active-codex`. La respuesta de la
+herramienta y el resultado nativo llevan el mismo call ID. La configuración
+global de Codex se conservó idéntica. [Recibo y límites](docs/verification/2026-10-13-active-isymcp-cli.md).
+
+Esta ruta inicial admite **start, inventory, exec de lectura, tool_call a
+exec/inventory y complete**. No habilita patch, imagen, background ni stdin
+en el dueño nativo. Las ocho funciones del sandbox independiente siguen
+existiendo con sus tokens propios; un token nativo nunca cambia a ese backend.
+`output` es la salida combinada real del comando, no un stdout/stderr inventado.
+
+El diagnóstico guiado se inicia desde este repositorio con una carpeta privada
+**nueva**, que no debe existir antes:
+
+```bash
+bun run scripts/probe-active-isymcp.ts --evidence-dir '<ruta absoluta nueva>' --wait-seconds 1200
+```
+
+El comando crea un receptor nativo aislado y un broker privado propios, escribe
+`compose.txt` y `ready.json` en esa carpeta, y espera como máximo veinte minutos.
+No necesita iniciar el daemon de Native2. Con el complemento real elegido,
+el operador envía el compose una sola vez y obtiene el UUID del mensaje
+renderizado mediante el control de Chrome. Después vincula localmente ese UUID
+y la URL exacta de la conversación con `bindNativeSource(fp, {url, messageId})`
+de `src/mcp/active-native.ts`. Esta operación no está expuesta al MCP remoto.
+El arranque puede esperar hasta treinta segundos por la vinculación; sin ella
+no se permite ejecutar. Los pasos se ejecutaron en la prueba documentada.
+
+Al completar, se guarda el recibo y sus hashes, se revoca exclusivamente el
+token de prueba y se cierra el receptor propio. Se conservan los archivos de
+evidencia. Un fallo o una llamada pendiente no se reenvía automáticamente.
+El journal conserva resultados y estados inciertos; repetir el mismo argv/cwd
+en un turno reproduce el recibo, y `tool_call` admite un `call_id` explícito.
+
+Esto todavía es un **canario guiado**, no el flujo automático completo de
+conversación. La App con este adaptador, cancelación/reanudación y streaming
+progresivo de Chrome a Codex requieren pruebas propias.
 
 ---
 

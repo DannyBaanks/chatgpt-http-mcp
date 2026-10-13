@@ -43,6 +43,7 @@ import {
   type CodexSession,
 } from "../codex-sessions";
 import { readMcpBootstrap } from "./bootstrap";
+import { routeNativeTool } from "./active-native";
 import { applyCodexPatch, CodexPatchError } from "./codex-patch";
 import { capabilities, shapesFor, TOOL_DESCRIPTIONS, WIRE_ALIASES, type ToolName } from "./catalog";
 import { drain, findLive, killSessionExecs, registerLiveExec, writeStdin as stdinWrite, type BgProc } from "./exec-registry";
@@ -133,7 +134,9 @@ function traceResult(session: CodexSession, tool: string, out: { content: Array<
     trace("tool.result", {
       tool,
       token_fp: session.fp,
-      turn_id: session.turnId ?? null,
+      turn_id: session.nativeOwner?.owner.turnId ?? session.turnId ?? null,
+      backend: r.backend,
+      native_thread_id: session.nativeOwner?.owner.threadId,
       ok: !out.isError && r.error === undefined && (r.executed !== false || tool === "codex_tool_inventory"),
       command: Array.isArray(r.command) ? (r.command as unknown[]).map(String).join(" ").slice(0, 300) : undefined,
       exit_code: typeof r.exit_code === "number" ? r.exit_code : undefined,
@@ -510,6 +513,7 @@ server.registerTool(
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
     const session = sessionFrom(input, "codex_turn_start");
+    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_turn_start", input, contract as "native" | "safe"); traceResult(session, "codex_turn_start", out); return out; }
     if (session) {
       try {
         const bootstrap = readMcpBootstrap();
@@ -533,6 +537,7 @@ server.registerTool(
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
     const session = sessionFrom(input, "codex_exec");
+    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_exec", input, contract as "native" | "safe"); traceResult(session, "codex_exec", out); return out; }
     if (session) { const out = await runExec(session, input.command, input.cwd, input.background, input.capture_ms); traceResult(session, "codex_exec", out); return out; }
     const command = input.command as string[];
     return jsonText({
@@ -560,6 +565,7 @@ server.registerTool(
       return fail(`${turnKey} y response requeridos`);
     }
     const session = sessionFrom(input, "codex_turn_complete");
+    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_turn_complete", input, contract as "native" | "safe"); traceResult(session, "codex_turn_complete", out); return out; }
     if (session) {
       // Cerrar el turno no deja procesos huérfanos de esa sesion.
       const killed = killSessionExecs(session.fp);
@@ -577,6 +583,7 @@ server.registerTool(
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_tool_inventory");
+    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_tool_inventory", input, contract as "native" | "safe"); traceResult(session, "codex_tool_inventory", out); return out; }
     if (session) {
       const out = sessionInventory(session);
       traceResult(session, "codex_tool_inventory", out);
@@ -600,6 +607,7 @@ server.registerTool(
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_write_stdin");
+    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_write_stdin", input, contract as "native" | "safe"); traceResult(session, "codex_write_stdin", out); return out; }
     if (session) { const out = await runWriteStdin(session, input); traceResult(session, "codex_write_stdin", out); return out; }
     return jsonText({
       turn_token: input[turnKey],
@@ -616,6 +624,7 @@ server.registerTool(
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_apply_patch");
+    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_apply_patch", input, contract as "native" | "safe"); traceResult(session, "codex_apply_patch", out); return out; }
     if (session) { const out = await runApplyPatch(session, input.patch); traceResult(session, "codex_apply_patch", out); return out; }
     return jsonText({
       turn_token: input[turnKey],
@@ -632,6 +641,7 @@ server.registerTool(
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_view_image");
+    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_view_image", input, contract as "native" | "safe"); traceResult(session, "codex_view_image", out); return out; }
     if (session) { const out = runViewImage(session, input.path); traceResult(session, "codex_view_image", out); return out; }
     return jsonText({
       turn_token: input[turnKey],
@@ -650,6 +660,7 @@ server.registerTool(
   },
   async (input: Record<string, unknown>) => {
     const session = sessionFrom(input, "codex_tool_call");
+    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_tool_call", input, contract as "native" | "safe"); traceResult(session, "codex_tool_call", out); return out; }
     if (session) { const out = await runToolCall(session, input); traceResult(session, "codex_tool_call", out); return out; }
     return jsonText({
       turn_token: input[turnKey],
