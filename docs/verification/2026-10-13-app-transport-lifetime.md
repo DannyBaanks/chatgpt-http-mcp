@@ -35,3 +35,7 @@ The repaired real Chrome → ISyMCP → App command/result loop awaits a new use
 - `native-lifecycle-20261013-01/receipt.json`: `a07ffc00b7ba5f7eeebc24db5746a4678387a48c6977d8530c529f96659fae58`
 
 Final `bun test`: **516 pass, 1 skip, 0 fail**, 517 tests across 73 files, exit 0. Raw final suite SHA-256: `ce2e4f4a86cf1863cc90e07752c48aa51bb3c67b2dc13a08887da60f5a7ae39d`. `git diff --check` returned exit 0.
+
+## Exact bold-marker regression
+
+The live App rejected request contained exactly `**ISYMCP_APP_CANARY_20261013**` followed by a newline. It was a formatting mismatch, not evidence of network failure. The gate now permits exactly three representations: literal marker, whole inline-code marker, whole bold marker. Extra words inside or outside the wrapper still reject. RED: new regression failed with `native_app_marker_mismatch` (raw SHA-256 `9386938cd951e2277889c6e69df1860cb66f2852dea7538dae0765a5b1cc7111`). GREEN: App plus active-native tests returned 14 pass, zero failures (raw SHA-256 `48fca2eca76184227c9d5669cc32903bc35ed370d45ae81e51c5c929f3bba582`). No new full-suite claim. Fresh receiver reused the open App after stopping only the previous unused receiver. Live corrected App execution remains NOT_DEMONSTRATED until its callback/result is captured.

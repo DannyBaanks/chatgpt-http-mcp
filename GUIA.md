@@ -689,3 +689,5 @@ Salida real:
 La carpeta de evidencia debe ser nueva; ese comando concreto ya se ejecutó y no debe repetirse con el mismo destino. Envía el marcador una vez en el chat aislado y permite que el operador vincule la llamada desde Chrome. `native_app_disconnected_no_resubmission` significa que la App abandonó el turno: el receptor revoca su permiso y no reenvía nada. `Session terminated` requiere revisar el túnel/complemento; un puerto local sano no prueba la conexión remota. `native_app_turn_pending_no_resubmission` bloquea duplicados; no demuestra que el comando se haya ejecutado.
 
 Las pruebas de desconexión pasan; ejecución real del canario corregido en App: **NOT_DEMONSTRATED**, pendiente del nuevo marcador. Detalles y evidencia: `docs/verification/2026-10-13-app-transport-lifetime.md`.
+
+El marcador del canario admite texto plano, backticks completos o negrita Markdown completa (`**ISYMCP_APP_CANARY_20261013**`). No admite palabras adicionales. Si aparece `native_app_marker_mismatch`, el intento no llegó a la ejecución; revisa el texto recibido antes de atribuirlo a la red.

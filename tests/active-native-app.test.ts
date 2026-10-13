@@ -115,3 +115,11 @@ test("real HTTP client disconnect terminates the pending App SSE transport", asy
     expect(outcome).toBe("closed");
   } finally { release?.(); server.stop(true); }
 });
+
+test("App accepts the whole bold marker copied from formatted chat while refusing added text", () => {
+  const options = { threadId, model: "probe-model", marker: "ISYMCP_APP_CANARY_NEW" };
+  const formatted = (text: string) => ({ ...body(), input: [{ type: "message", role: "user", content: [{ type: "input_text", text }] }] });
+  expect(new NativeAppTurnGate(options).accept(formatted('**ISYMCP_APP_CANARY_NEW**\n')).kind).toBe('start');
+  expect(() => new NativeAppTurnGate(options).accept(formatted('**ISYMCP_APP_CANARY_NEW** extra'))).toThrow('marker');
+  expect(() => new NativeAppTurnGate(options).accept(formatted('**ISYMCP_APP_CANARY_NEW extra**'))).toThrow('marker');
+});

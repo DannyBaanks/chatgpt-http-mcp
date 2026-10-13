@@ -27,7 +27,7 @@ export class NativeAppTurnGate {
     const lastUser = items.findLast((item: any) => item.type === "message" && item.role === "user");
     const userText = Array.isArray(lastUser?.content) ? lastUser.content.map((b: any) => typeof b.text === "string" ? b.text : "").join("") : "";
     const literal = userText.trim();
-    if (literal !== this.options.marker && literal !== "`" + this.options.marker + "`") throw Error("native_app_marker_mismatch");
+    if (![this.options.marker, "`" + this.options.marker + "`", "**" + this.options.marker + "**"].includes(literal)) throw Error("native_app_marker_mismatch");
     if (this.phase === "idle") {
       this.owner = { threadId: meta.thread_id, turnId: meta.turn_id }; this.phase = "pending"; return { kind: "start" };
     }
