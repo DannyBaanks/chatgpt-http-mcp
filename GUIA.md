@@ -691,3 +691,9 @@ La carpeta de evidencia debe ser nueva; ese comando concreto ya se ejecutó y no
 Las pruebas de desconexión pasan; ejecución real del canario corregido en App: **NOT_DEMONSTRATED**, pendiente del nuevo marcador. Detalles y evidencia: `docs/verification/2026-10-13-app-transport-lifetime.md`.
 
 El marcador del canario admite texto plano, backticks completos o negrita Markdown completa (`**ISYMCP_APP_CANARY_20261013**`). No admite palabras adicionales. Si aparece `native_app_marker_mismatch`, el intento no llegó a la ejecución; revisa el texto recibido antes de atribuirlo a la red.
+
+## Resultado real del canario App — 13 de octubre
+
+La prueba coordinada Chrome → Codex ISyMCP → Codex App terminó: `printf` imprimió el marcador esperado con `exit_code: 0`, y `codex_turn_complete` cerró el mismo turno. El historial real de la App conserva la llamada y su resultado. Evidencia: `docs/verification/2026-10-13-active-isymcp-app.md`.
+
+La ventana «ISyMCP — canario App» sigue siendo un proveedor limitado de prueba: no sirve como chat general. Su receptor temporal ya terminó; no mandes más marcadores ahí esperando una conversación. La conexión nueva del complemento es `asdk_app_6ace90ad54848191912160b8880294c7`; las menciones al ID antiguo no prueban esta instalación. El catálogo multimedia funciona directamente desde .com sin un turno de coding.
