@@ -697,3 +697,15 @@ El marcador del canario admite texto plano, backticks completos o negrita Markdo
 La prueba coordinada Chrome → Codex ISyMCP → Codex App terminó: `printf` imprimió el marcador esperado con `exit_code: 0`, y `codex_turn_complete` cerró el mismo turno. El historial real de la App conserva la llamada y su resultado. Evidencia: `docs/verification/2026-10-13-active-isymcp-app.md`.
 
 La ventana «ISyMCP — canario App» sigue siendo un proveedor limitado de prueba: no sirve como chat general. Su receptor temporal ya terminó; no mandes más marcadores ahí esperando una conversación. La conexión nueva del complemento es `asdk_app_6ace90ad54848191912160b8880294c7`; las menciones al ID antiguo no prueban esta instalación. El catálogo multimedia funciona directamente desde .com sin un turno de coding.
+
+## Acceso en el perfil visible — en preparación
+
+El acceso manual se abrió con este comando real:
+
+```bash
+/usr/bin/google-chrome --user-data-dir=/home/danny/.codex-web-http/visible/dd1a17bc-4fee-4464-9e2e-0c0908ca07b3/chrome --new-window https://chatgpt.com/
+```
+
+Regla: ese perfil pertenece a esta prueba. Cierra su ventana después de iniciar sesión antes de que el controlador lo reutilice. No borres candados ni copies cookies de otro navegador. Chrome normal abrió la ventana; terminar el acceso todavía depende del usuario. El mensaje de Google «Es posible que no sean seguros este navegador o la app» apareció al intentar entrar en Chrome automatizado. El acceso manual con Chrome normal se está probando, no está confirmado.
+
+Reutilización del perfil: `bun run scripts/start-visible-browser.ts --launch-id dd1a17bc-4fee-4464-9e2e-0c0908ca07b3` — **NO PROBADO**, pendiente de cerrar la ventana manual y verificar su acceso. Este script prepara el navegador y un socket privado; todavía no inicia una conversación general desde Codex. `visible_profile_unowned` rechaza perfiles ajenos; `visible_submit_ambiguous_no_resubmission` requiere inspeccionar el recibo y el chat antes de actuar. No repitas automáticamente un envío incierto. Informe: `docs/verification/2026-10-13-visible-foundations.md`.
