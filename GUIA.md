@@ -711,3 +711,15 @@ Regla: ese perfil pertenece a esta prueba. Cierra su ventana después de iniciar
 Reutilización del perfil: `bun run scripts/start-visible-browser.ts --launch-id dd1a17bc-4fee-4464-9e2e-0c0908ca07b3` — **NO PROBADO**, pendiente de cerrar la ventana manual y verificar su acceso. Este script prepara el navegador y un socket privado; todavía no inicia una conversación general desde Codex. `visible_profile_unowned` rechaza perfiles ajenos; `visible_submit_ambiguous_no_resubmission` requiere inspeccionar el recibo y el chat antes de actuar. No repitas automáticamente un envío incierto. Informe: `docs/verification/2026-10-13-visible-foundations.md`.
 
 Actualización del 14 de octubre: el script anterior sí se lanzó para inspección, pero no demostró acceso autenticado. Google también bloqueó el acceso manual en ese perfil. Se detuvo el controlador y se abrió el Chrome habitual con `/usr/bin/google-chrome --new-window https://chatgpt.com/`. Allí la sesión existente sigue abierta. Si Codex no ve las pestañas y muestra `Unable to load browser request-header policy`, desconecta y reconecta la extensión: esa recuperación se verificó hoy. No borres el perfil ni copies sus cookies. Usar esa sesión desde la extensión todavía no equivale a tener el puente autónomo conectado. Informe: `docs/verification/2026-10-14-chrome-access-recovery.md`.
+
+### Acceso manual antes de automatizar — nueva prueba
+
+```bash
+bun run scripts/start-visible-browser.ts --login
+```
+
+Regla: inicia sesión en la ventana nueva de Chrome normal y ciérrala únicamente cuando ChatGPT esté listo. El script espera a que cierre ese proceso antes de abrir la etapa automatizada con el mismo perfil. No cierres tu Chrome habitual ni copies sus cookies. Se conserva el almacén de contraseñas del sistema en ambas etapas.
+
+Estado real emitido en la prueba: `waiting_for_manual_login`; launch ID `d946b5e9-231e-4b13-83ce-5170cf353658`. La ventana normal sí arrancó; éxito del acceso todavía **NOT_DEMONSTRATED**. Si cierra normalmente, `browser_ready_auth_unverified` significa navegador preparado, no autenticación confirmada. `visible_manual_login_exit_*` significa que Chrome terminó con error; no se arranca la automatización. Para volver a solicitar acceso en un perfil propio existente, usa `--launch-id <UUID> --login` (**NO PROBADO** en esa combinación). Este lanzador sigue preparando el navegador: no sustituye al coordinador de conversación pendiente.
+
+Resultado posterior: Danny confirmó que **sí pudo iniciar sesión** en esa ventana nueva. Esa confirmación corresponde al acceso manual; la conservación de la sesión después de cerrar y abrir la etapa automatizada se verifica aparte.

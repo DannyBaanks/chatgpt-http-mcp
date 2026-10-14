@@ -4,12 +4,20 @@ import {randomUUID} from 'node:crypto';import {mkdirSync,writeFileSync} from 'no
 import {openVisibleBrowser,pageDriver} from '../src/visible/browser-driver';
 import {createBrowserWorker} from '../src/visible/browser-worker';
 import {readBoundAnswer} from '../src/visible/browser-observer';
+import {manualVisibleLogin} from '../src/visible/browser-login';
 const args=process.argv.slice(2);
-if(args.length&&!(args.length===2&&args[0]==='--launch-id'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(args[1])))throw Error('usage: start-visible-browser.ts [--launch-id UUID]');
-const launchId=args[1]??randomUUID(),dir=join(homedir(),'.codex-web-http','visible',launchId);mkdirSync(dir,{recursive:true,mode:0o700});
+const rest=args.filter(a=>a!=='--login');
+if(args.filter(a=>a==='--login').length>1||(rest.length&&!(rest.length===2&&rest[0]==='--launch-id'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(rest[1]))))throw Error('usage: start-visible-browser.ts [--launch-id UUID] [--login]');
+const launchId=rest[1]??randomUUID(),dir=join(homedir(),'.codex-web-http','visible',launchId);mkdirSync(dir,{recursive:true,mode:0o700});
 const status={launchId,profileDir:join(dir,'chrome'),state:'browser_starting',url:'https://chatgpt.com/',authenticated:'not_verified'};
 const save=()=>writeFileSync(join(dir,'browser-status.json'),JSON.stringify(status,null,2),{mode:0o600});save();
-const browser=await openVisibleBrowser({profileDir:status.profileDir,launchId});status.state='waiting_for_user_login';save();console.log(JSON.stringify({launchId,dir,state:status.state,authImported:false,globalConfigChanged:false}));
+if(args.includes('--login')||!rest.length){
+ status.state='waiting_for_manual_login';save();
+ console.log(JSON.stringify({launchId,dir,state:status.state,authImported:false,instruction:'Inicia sesión en esta ventana de Chrome normal. Cuando ChatGPT esté listo, cierra únicamente esa ventana; después se abrirá el controlador.'}));
+ await manualVisibleLogin({profileDir:status.profileDir,launchId});
+ status.state='browser_starting';save();
+}
+const browser=await openVisibleBrowser({profileDir:status.profileDir,launchId});status.state='browser_ready_auth_unverified';save();console.log(JSON.stringify({launchId,dir,state:status.state,authImported:false,globalConfigChanged:false}));
 const worker=await createBrowserWorker({directory:dir,connectorId:'asdk_app_6ace90ad54848191912160b8880294c7',driver:pageDriver(browser.page),readAnswer:source=>readBoundAnswer(browser.page,source)});
 const credentialPath=join(dir,`browser-worker-private-${randomUUID()}.json`);
 writeFileSync(credentialPath,JSON.stringify({socketPath:worker.socketPath,token:worker.token}),{flag:'wx',mode:0o600});

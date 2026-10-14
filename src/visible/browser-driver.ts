@@ -45,7 +45,7 @@ export function submitOnce(directory:string,port:BrowserDriverPort,request:Submi
 
 import {chromium,type Page,type BrowserContext} from 'playwright-core';
 import {mkdirSync,chmodSync} from 'node:fs';
-export async function openVisibleBrowser(options:{profileDir:string;launchId:string}):Promise<{page:Page;context:BrowserContext;close():Promise<void>}>{
+export function prepareVisibleProfile(options:{profileDir:string;launchId:string}):void {
  if(!isAbsolute(options.profileDir)||!uuid.test(options.launchId))throw Error('visible_profile_invalid');
  const existed=existsSync(options.profileDir);
  if(!existed)mkdirSync(options.profileDir,{recursive:true,mode:0o700});
@@ -56,9 +56,17 @@ export async function openVisibleBrowser(options:{profileDir:string;launchId:str
  if(existsSync(marker)){if(privateFile(marker).launchId!==options.launchId)throw Error('visible_profile_owner_mismatch');}
  else writeFileSync(marker,JSON.stringify({version:'isymcp-visible-profile/1',launchId:options.launchId}),{mode:0o600,flag:'wx'});
  chmodSync(options.profileDir,0o700);
+}
+export async function openVisibleBrowser(options:{profileDir:string;launchId:string}):Promise<{page:Page;context:BrowserContext;close():Promise<void>}>{
+ prepareVisibleProfile(options);
  // New owned persistent profile; never storageState, imported cookies, or a
  // remotely exposed debugging port. Authentication belongs to this profile.
- const context=await chromium.launchPersistentContext(options.profileDir,{channel:'chrome',headless:false,locale:'es-MX'});
+ const context=await chromium.launchPersistentContext(options.profileDir,{
+  channel:'chrome',headless:false,locale:'es-MX',
+  // Preserve the system credential store used during normal manual sign-in.
+  // This does not hide automation or import authentication from another profile.
+  ignoreDefaultArgs:['--password-store=basic','--use-mock-keychain'],
+ });
  const page=context.pages()[0]??await context.newPage();await page.goto('https://chatgpt.com/');
  return {page,context,close:()=>context.close()};
 }
