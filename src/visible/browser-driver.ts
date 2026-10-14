@@ -62,7 +62,7 @@ export async function openVisibleBrowser(options:{profileDir:string;launchId:str
  // New owned persistent profile; never storageState, imported cookies, or a
  // remotely exposed debugging port. Authentication belongs to this profile.
  const context=await chromium.launchPersistentContext(options.profileDir,{
-  channel:'chrome',headless:false,locale:'es-MX',
+  channel:'chrome',headless:false,locale:'es-MX',chromiumSandbox:true,
   // Preserve the system credential store used during normal manual sign-in.
   // This does not hide automation or import authentication from another profile.
   ignoreDefaultArgs:['--password-store=basic','--use-mock-keychain'],
