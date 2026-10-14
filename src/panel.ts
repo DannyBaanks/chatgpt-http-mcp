@@ -48,6 +48,13 @@ export interface PanelState {
   tunnel: "ready" | "stopped";
   mcp: "up" | "down";
   browser: "ok" | "page-crashed";
+  visibleSession?: {
+    launchId: string;
+    model: string;
+    effort: string;
+    url: string;
+  } | null;
+  activeBroker?: boolean;
   conversation: string | null;
   sessions: PanelSession[];
   lastErrors: string[];
@@ -133,14 +140,35 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
     }
   }
 
+  let visibleSession: PanelState["visibleSession"] = null;
+  try {
+    const { findActiveVisibleSession } = await import("./visible/browser-turn");
+    const active = await findActiveVisibleSession();
+    if (active) {
+      visibleSession = {
+        launchId: active.launchId,
+        model: active.inspected.model || "GPT-6",
+        effort: active.inspected.effort || "medium",
+        url: active.inspected.url,
+      };
+    }
+  } catch {
+    /* visible check opcional */
+  }
+
+  const tunnel = pgrep("tunnel-client run") ? "ready" : "stopped";
+  const mcp = pgrep("mcp/main.ts --contract native --broker") || pgrep("broker.sock") ? "up" : "down";
+
   return {
     ts: new Date().toISOString(),
     server,
     serverAuth,
     serverPort: bridgePort,
-    tunnel: pgrep("tunnel-client run") ? "ready" : "stopped",
-    mcp: pgrep("mcp/main.ts --contract native --broker") ? "up" : "down",
+    tunnel,
+    mcp,
     browser: browserCrashed ? "page-crashed" : "ok",
+    visibleSession,
+    activeBroker: tunnel === "ready" || pgrep("broker.sock"),
     conversation,
     sessions,
     lastErrors,
@@ -232,6 +260,47 @@ function metricsBody(m?: SystemMetrics | null): string {
   </div>`;
 }
 
+function visibleBrowserCard(v?: PanelState["visibleSession"], tunnelReady?: boolean): string {
+  if (!v) {
+    return `<section class="card">
+      <h3>CHROME VISIBLE &amp; BROKER NATIVO <span class="muted small">· ejecución bidireccional en sandbox</span></h3>
+      <p class="muted small">Sin navegador visible activo en este momento. Lanza uno con <code>bun run scripts/start-visible-browser.ts</code> o mediante <code>isymcp</code> para operar ChatGPT a mano.</p>
+    </section>`;
+  }
+  return `<section class="card">
+    <h3>CHROME VISIBLE &amp; BROKER NATIVO <span class="muted small">· ejecución bidireccional en sandbox</span></h3>
+    <div class="metrics-grid">
+      <div class="metric-item"><div class="metric-val" style="color:var(--ok)">Visible</div><div class="metric-lbl">Modo Host</div></div>
+      <div class="metric-item"><div class="metric-val">${escapeHtml(v.model)}</div><div class="metric-lbl">Modelo Web</div></div>
+      <div class="metric-item"><div class="metric-val" style="color:var(--warn)">${escapeHtml(v.effort)}</div><div class="metric-lbl">Razonamiento</div></div>
+      <div class="metric-item"><div class="metric-val"><code>${escapeHtml(v.launchId.slice(0, 8))}…</code></div><div class="metric-lbl">Launch ID</div></div>
+    </div>
+    <p class="small" style="margin-top:10px">
+      <b>Conector:</b> <code>@Codex ISyMCP</code> · <b>URL activa:</b> <a href="${escapeHtml(v.url)}" target="_blank" rel="noreferrer">${escapeHtml(v.url.replace(/^https?:\/\//, ""))} ↗</a><br>
+      <b>Túnel MCP:</b> <span class="pill tone-${tunnelReady ? "ok" : "warn"}">${tunnelReady ? "conectado a ChatGPT" : "detenido"}</span> · <b>Sandbox:</b> <code>bwrap-read-only</code>
+    </p>
+  </section>`;
+}
+
+function complianceCard(): string {
+  return `<section class="card">
+    <h3>COMPLIANCE OPENAI &amp; SEGURIDAD DE CUENTA (P0) <span class="muted small">· gobernanza y protección de cuenta</span></h3>
+    <div style="border-left:3px solid var(--ok);padding:8px 12px;background:color-mix(in srgb,var(--ok) 6%,transparent);border-radius:0 10px 10px 0;">
+      <div style="font-weight:600;font-family:var(--mono);color:var(--ok);font-size:12px;">POLÍTICA DE SEGURIDAD P0 — FAIL-CLOSED ACTIVO</div>
+      <p class="small" style="margin:6px 0 0;color:var(--ink);">
+        <b>Principio rector:</b> La conservación de la cuenta de OpenAI del propietario tiene prioridad sobre cualquier funcionalidad de ISyMCP.
+      </p>
+      <ul class="small" style="margin:8px 0 0;padding-left:18px;color:var(--mute);">
+        <li><b>Interacción humana en Chrome visible:</b> <span style="color:var(--ok)">PERMITIDO (ALLOW)</span> — el humano conversa en ChatGPT y autoriza herramientas en su sandbox.</li>
+        <li><b>Automatización de UI web desatendida / Scraping:</b> <span style="color:var(--bad)">PROHIBIDO (DENY)</span> — vetado por Términos de Uso de OpenAI §2(c)(iii).</li>
+        <li><b>Bloqueos de seguridad de OpenAI:</b> <span style="color:var(--warn)">STOP INMEDIATO</span> — ante alertas del clasificador de seguridad, se prohíbe terminantemente evadir o conmutar herramientas.</li>
+        <li><b>Codex CLI (Proveedor <code>isymcp_web</code>):</b> <span style="color:var(--ok)">SOPORTADO OFICIALMENTE</span> — integración local en <code>~/.codex/config.toml</code>.</li>
+      </ul>
+      <p class="small muted" style="margin-top:8px;">Auditoría completa en <code>docs/compliance/FINAL_VERDICT.md</code>.</p>
+    </div>
+  </section>`;
+}
+
 /** El <main> del panel: lo re-pide el navegador cada pocos segundos. */
 export function renderMain(state: PanelState): string {
   const now = Date.parse(state.ts) || Date.now();
@@ -258,14 +327,16 @@ export function renderMain(state: PanelState): string {
       actions: button("tunnel-connect", "Conectar", "go") + button("tunnel-stop", "Detener", "stop"),
     }),
     tile({
-      title: "MCP STDIO", tone: state.mcp === "up" ? "ok" : "bad",
-      state: state.mcp === "up" ? "escuchando" : "caido",
-      detail: "Codex ISyMCP · sandbox bwrap",
+      title: "MCP STDIO", tone: state.mcp === "up" || state.tunnel === "ready" ? "ok" : "bad",
+      state: state.tunnel === "ready" ? "túnel listo" : state.mcp === "up" ? "escuchando" : "caido",
+      detail: state.activeBroker ? "Codex ISyMCP · broker activo (bwrap)" : "Codex ISyMCP · sandbox bwrap",
     }),
     tile({
-      title: "BROWSER", tone: state.browser === "ok" ? "ok" : "bad",
-      state: state.browser === "ok" ? "sano" : "pagina caida",
-      detail: state.browser === "ok" ? "Chrome headless" : "el reviver relanza en el proximo turno",
+      title: "BROWSER", tone: state.visibleSession ? "ok" : state.browser === "ok" ? "ok" : "bad",
+      state: state.visibleSession ? "Chrome visible" : state.browser === "ok" ? "sano" : "pagina caida",
+      detail: state.visibleSession
+        ? `${escapeHtml(state.visibleSession.model)} (${escapeHtml(state.visibleSession.effort)}) · ${escapeHtml(state.visibleSession.launchId.slice(0, 8))}…`
+        : state.browser === "ok" ? "Chrome headless" : "el reviver relanza en el proximo turno",
     }),
   ].join("\n");
 
@@ -318,6 +389,8 @@ export function renderMain(state: PanelState): string {
     <div class="actions">${button("session-list", "Listar en el CLI")}</div>
   </section>
 </div>
+${visibleBrowserCard(state.visibleSession, state.tunnel === "ready")}
+${complianceCard()}
 <section class="card">
   <h3>TAREAS DE CODEX <span class="muted small">· API Responses: una conversación de GPT.com por tarea</span></h3>
   ${codexTasksBody(state.codexTasks ?? [], now)}
