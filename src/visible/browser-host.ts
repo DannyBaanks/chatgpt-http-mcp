@@ -63,8 +63,8 @@ export async function openNormalBrowserHost(options:{profileDir:string;launchId:
  const landing=pathToFileURL(landingPath).href;
  const child=spawn(executable,[
   '--user-data-dir='+options.profileDir,'--new-window','--disable-background-mode',
-  '--no-first-run','--no-default-browser-check','--remote-debugging-address=127.0.0.1',
-  '--remote-debugging-port=0',landing,
+  '--no-first-run','--no-default-browser-check','--disable-blink-features=AutomationControlled',
+  '--remote-debugging-address=127.0.0.1','--remote-debugging-port=0',landing,
  ],{env:process.env,stdio:'ignore'});
  let launchFailed=false;child.once('error',()=>{launchFailed=true;});
  let browser:Browser|undefined;

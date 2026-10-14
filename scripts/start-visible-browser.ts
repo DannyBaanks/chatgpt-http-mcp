@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Local operator entry. New Chrome profile; no authentication import.
-import {randomUUID} from 'node:crypto';import {mkdirSync,writeFileSync} from 'node:fs';import {join} from 'node:path';import {homedir} from 'node:os';
+import {randomUUID} from 'node:crypto';import {mkdirSync,writeFileSync,rmSync,existsSync} from 'node:fs';import {join} from 'node:path';import {homedir} from 'node:os';
 import {openVisibleBrowser,pageDriver} from '../src/visible/browser-driver';
 import {createBrowserWorker} from '../src/visible/browser-worker';
 import {readBoundAnswer} from '../src/visible/browser-observer';
@@ -18,10 +18,11 @@ if(args.includes('--login')||!rest.length){
  status.state='browser_starting';save();
 }
 const browser=await openVisibleBrowser({profileDir:status.profileDir,launchId});status.state='browser_ready_auth_unverified';save();console.log(JSON.stringify({launchId,dir,state:status.state,authImported:false,globalConfigChanged:false}));
+const sockPath=join(dir,'browser.sock');if(existsSync(sockPath))rmSync(sockPath,{force:true});
 const worker=await createBrowserWorker({directory:dir,connectorId:'asdk_app_6ace90ad54848191912160b8880294c7',driver:pageDriver(browser.page),readAnswer:source=>readBoundAnswer(browser.page,source)});
 const credentialPath=join(dir,`browser-worker-private-${randomUUID()}.json`);
 writeFileSync(credentialPath,JSON.stringify({socketPath:worker.socketPath,token:worker.token}),{flag:'wx',mode:0o600});
 console.log(JSON.stringify({credentialPath,socketPath:worker.socketPath}));
 const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){return Response.json(status);}});console.log(JSON.stringify({statusUrl:`http://127.0.0.1:${server.port}`}));
-let stop!:()=>void;const done=new Promise<void>(r=>{stop=r;});process.once('SIGTERM',stop);process.once('SIGINT',stop);
-await done;server.stop(true);await worker.close();await browser.close();status.state='stopped';save();
+let stop!:()=>void;const done=new Promise<void>(r=>{stop=r;});process.once('SIGTERM',stop);process.once('SIGINT',stop);browser.page.once('close',stop);
+await done;server.stop(true);await worker.close();if(existsSync(sockPath))rmSync(sockPath,{force:true});await browser.close();status.state='stopped';save();

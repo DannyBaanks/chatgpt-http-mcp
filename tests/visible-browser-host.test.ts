@@ -21,7 +21,8 @@ test('normal host does not adopt another browser when its own process exits',asy
  writeFileSync(executable,'#!/bin/sh\nprintf "%s\\n" "$@" > "'+log+'"\nexit 7\n',{mode:0o700});
  await expect(openNormalBrowserHost({profileDir:join(directory,'profile'),launchId,executablePath:executable})).rejects.toThrow('visible_host_process_exited');
  const args=readFileSync(log,'utf8');expect(args).toContain('--remote-debugging-address=127.0.0.1');expect(args).toContain('--remote-debugging-port=0');
- expect(args).not.toMatch(/--no-sandbox|--enable-automation|--password-store=basic|--disable-blink-features/);
+ expect(args).toContain('--disable-blink-features=AutomationControlled');
+ expect(args).not.toMatch(/--no-sandbox|--enable-automation|--password-store=basic/);
 });
 test('devtools metadata pins a loopback endpoint and browser target',()=>{
  const path='/devtools/browser/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
