@@ -174,6 +174,7 @@ export function startServer(config: AppConfig = loadConfig(), options: { webResp
   const server = Bun.serve({
     hostname: config.hostname,
     port: config.port,
+    idleTimeout: 0,
     fetch(req, bun) {
       const url = new URL(req.url);
       // Codex abre ws://…/v1/responses con GET. Si eso cae al chequeo de POST,

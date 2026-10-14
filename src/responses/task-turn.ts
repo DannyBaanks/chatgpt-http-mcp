@@ -225,19 +225,44 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
         // appear in one Web user message, a later exact-output request (for
         // example, a canary marker) must not accidentally override the JSON
         // envelope that the outer Responses client requires.
+        let sender = deps.send;
+        let selectSettings = deps.selectSettings;
+        let isVisible = false;
+        if (!sender) {
+          const { findActiveVisibleSession, sendVisibleWebTurn } = await import("../visible/browser-turn");
+          const visible = await findActiveVisibleSession();
+          if (visible) {
+            sender = sendVisibleWebTurn as any;
+            isVisible = true;
+            selectSettings ??= async () => ({
+              model: webModelLabel(body.model),
+              effort: "High",
+              effortPosition: 3,
+              effortSteps: 3,
+              pill: "High",
+            });
+          } else {
+            sender = sendWebTurn;
+          }
+        }
+        selectSettings ??= selectComposerSettings;
+
         let nextPrompt = `${prompt}\n\n${protocol}`;
         let result: Awaited<ReturnType<typeof sendWebTurn>>;
         let answer: ReturnType<typeof decodeToolReply> | undefined;
         for (let lookup = 0; ; lookup++) {
-          result = await (deps.send ?? sendWebTurn)(nextPrompt, {
+          result = await sender(nextPrompt, {
           statePath: config.browserStatePath, browser: config.browser, headed: config.browserHeaded,
           deadlineMs: config.webTurnDeadlineMs, connector: "", submitOnce: true,
           navigate: target ? { to: "conversation", url: target } : { to: "new" },
           beforeSubmit: async (page) => {
             const current = canonicalConversationUrl(page.url());
+            if (isVisible && !target && current) {
+              target = current;
+            }
             if (target ? current !== target : current !== null)
               throw new WebTaskError("web_task_navigation_mismatch", 409, "browser is not at the task's intended conversation");
-            assertWebSelection(body.model, effort, await (deps.selectSettings ?? selectComposerSettings)(page, webModelLabel(body.model), "high"));
+            assertWebSelection(body.model, effort, await selectSettings(page, webModelLabel(body.model), "high"));
           },
           onSubmitAttempt: () => {
             attempted = true;
