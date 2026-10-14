@@ -4,12 +4,12 @@
 
 **Your ChatGPT subscription as a local chat, an HTTP API, and a verified tool for your other coding agents.**
 
-No API key. The Bun bridge has no Electron dependency; the optional desktop launcher uses your installed Codex App. Everything listens on `127.0.0.1`; the only thing that leaves your machine is the conversation with chatgpt.com.
+No API key. The Bun bridge has no Electron dependency; the optional desktop launcher uses your installed Codex App. Everything listens on `127.0.0.1`; the optional tunnel exposes the scoped MCP connector to remote clients.
 
 [![CI](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml)
-![Release: 1.0.0-rc.1](https://img.shields.io/badge/release-v1.0.0--rc.1-7cff9b)
-![Tests: 545 passed](https://img.shields.io/badge/tests-545%20passed-7cff9b)
-![License: MIT](https://img.shields.io/badge/license-MIT-7cff9b)
+[![Release candidate](https://img.shields.io/github/v/release/DannyBaanks/chatgpt-http-mcp?include_prereleases&label=release&color=7cff9b)](https://github.com/DannyBaanks/chatgpt-http-mcp/releases)
+[![Recorded tests: 545 passed](https://img.shields.io/badge/recorded%20tests-545%20passed-7cff9b)](docs/verification/2026-10-14-visible-two-way-pass.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-7cff9b)](LICENSE)
 ![Runtime: Bun](https://img.shields.io/badge/runtime-bun%201.4-111)
 ![Local only](https://img.shields.io/badge/listens%20on-127.0.0.1-111)
 
@@ -20,6 +20,14 @@ No API key. The Bun bridge has no Electron dependency; the optional desktop laun
 </div>
 
 ---
+
+## Releases & documentation
+
+**Current package: `v1.0.0-rc.2` · release candidate · Linux tool execution.**
+
+[Releases & downloads](https://github.com/DannyBaanks/chatgpt-http-mcp/releases) · [Tags](https://github.com/DannyBaanks/chatgpt-http-mcp/tags) · [Changelog](CHANGELOG.md) · [Guía en español](GUIA.md) · [Architecture](docs/ARCHITECTURE.md) · [Verification](docs/EVIDENCE.md)
+
+Release candidates appear on **Releases**, rather than GitHub’s stable `/releases/latest` endpoint. Download the versioned source archive and `SHA256SUMS` from the release assets. These are source distributions requiring Bun, not standalone binaries. See [release maintenance](docs/RELEASING.md) for the CI publication gate.
 
 ## What you get
 
@@ -71,7 +79,7 @@ local label without creating another Web conversation. The Web provider does
 not automatically retry failed or ambiguous rounds.
 
 ### 🔄 Verified Two-Way E2E Round Trip (`[CURRENT] PASS`)
-As of `v1.0.0-rc.1` (2026-10-14), the complete two-way round-trip between ChatGPT Web, the local native broker, isolated `bubblewrap` sandbox execution, and return to ChatGPT Web is **DEMONSTRATED and CERTIFIED**:
+As of `v1.0.0-rc.1` (2026-10-14), the complete two-way round-trip between ChatGPT Web, the local native broker, isolated `bubblewrap` sandbox execution, and return to ChatGPT Web is **recorded as PASS in the repository’s verification report**:
 - **Full Lifecycle**: `codex_turn_start` → `bootstrap.content` / `request.content` → `codex_tool_inventory` (8 tools) → `codex_exec` (live exit code `0`, `18 ms` duration) → `codex_turn_complete` (`completed: true`).
 - **Live Receipts**: Verified with unique canary nonce `ISYMCP_TWOWAY_4afa0c89`, real execution stdout `ISYMCP_E2E_VISIBLE_OK`, zero leaks, and zero child processes terminated.
 - **Evidence & Receipts**: See [2026-10-14 Two-Way Pass](docs/verification/2026-10-14-visible-two-way-pass.md) and [2026-10-14 Visible Chrome E2E Pass](docs/verification/2026-10-14-visible-chrome-e2e-pass.md).
@@ -127,7 +135,10 @@ Server, tunnel, MCP and browser health, the latest soak test turn by turn, the d
 ## Quickstart
 
 ```bash
-bun install
+git clone https://github.com/DannyBaanks/chatgpt-http-mcp.git
+cd chatgpt-http-mcp
+# For a published version, check out its tag from the Releases page.
+bun install --frozen-lockfile
 bun link                      # puts `isymcp` on your PATH
 
 # 1. Import your ChatGPT session once (keep the cookie file chmod 600)
@@ -316,7 +327,7 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 | `isymcp conversation new [--client cli\|app]` | Interactive Codex CLI or App launch with isolated `isymcp_web` provider |
 | `isymcp conversation list` | List confirmed conversations and linked thread IDs |
 | `isymcp conversation resume <id>` | Resume an active conversation thread |
-| `isymcp version` / `--version` | Display installed version (`v1.0.0-rc.1`) |
+| `isymcp version` / `--version` | Display installed package version |
 | `isymcp up` / `down` / `status` | Server + tunnel lifecycle and honest status |
 | `isymcp server start` / `stop` | Starts or stops the HTTP bridge |
 | `isymcp tunnel connect` / `stop` / `status` | MCP tunnel for ChatGPT tools |

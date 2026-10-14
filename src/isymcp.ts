@@ -541,7 +541,7 @@ async function menuSession(sub: string, rest: string[]): Promise<void> {
 }
 
 function help(): void {
-  console.log(`isymcp v1.0.0-rc.1 — consola del bridge Codex ISyMCP
+  console.log(`isymcp v${JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version} — consola del bridge Codex ISyMCP
 
   isymcp                     menu interactivo con todo (en una terminal);
                              sin terminal (pipe/script) imprime el estado
@@ -781,7 +781,7 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   if (leaked.length) throw new Error(`hook visible: ${leaked.join(",")}`);
 } else if (cmd === "version" || cmd === "--version" || cmd === "-v") {
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-  console.log(`isymcp v${pkg.version ?? "1.0.0-rc.1"}`);
+  console.log(`isymcp v${pkg.version ?? "unknown"}`);
 } else if (cmd === "help" || cmd === "--help" || cmd === "-h") {
   help();
 } else if (cmd === "up") {
