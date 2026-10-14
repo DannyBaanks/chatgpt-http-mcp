@@ -187,6 +187,103 @@ estos fallos al MCP ni se presupone seleccionado otro nivel de razonamiento.
 
 ---
 
+### Canario Native2 (actualización de 2026-10-12)
+
+**Canario Native2 — 2026-10-12:** su túnel volvió a aceptar llamadas y una
+llamada remota ejecutó un comando nativo en el CLI, con salida y código 0
+verificados. Mantiene su perfil y túnel separados del MCP multimedia.
+El helper antiguo de `CONTROL_PLANE_API_KEY` es histórico y ya no reemplaza
+una referencia de credencial guardada.
+
+La repetición de `ISYMCP_APP_CANARY` en la ventana aislada **«ISyMCP — prueba
+nativa»** ya pasó: Codex App ejecutó una sola llamada, devolvió código 0 y
+el identificador real `ISYMCP_NATIVE_9da0c3f4d2514ce1995d1445781e2637`.
+El recibo, el resultado MCP y el registro nativo coinciden. La ventana ya
+terminó su canario; no necesita otra repetición. El puerto 33653 y la etiqueta
+«M0 tools probe» corresponden a una prueba controlada, sin inferencia real de
+GPT.com. El recorrido remoto hasta la App y la conversación de Chrome siguen
+**NO PROBADOS**.
+
+El `m0_app_turn_pending` anterior esperaba un callback y confundía la
+petición auxiliar del título con el turno real. La nueva prueba separa
+el título, rechaza hilos ajenos y atiende la llamada MCP automáticamente.
+Revisa el recibo antes de repetir un comando entregado. M0 sigue abierto;
+[pruebas y límites](docs/verification/2026-10-12-native2-recovery.md).
+
+### Conversación real con Codex ISyMCP en Chrome — 2026-10-12
+
+Se probaron tres turnos en una conversación real de ChatGPT.com con el
+complemento **Codex ISyMCP** seleccionado: `media_list`, el ciclo
+`codex_turn_start → codex_tool_inventory → codex_exec → codex_turn_complete`,
+y un tercer mensaje que recordó la salida sin ejecutar de nuevo. El servidor
+registró una sola ejecución, código 0 y 17 ms. Recargar conservó los mensajes
+y no duplicó el comando. La prueba terminó con GPT-6, potencia Medium,
+verificados en el selector. [Evidencia y alcance](docs/verification/2026-10-12-isymcp-chrome-conversation.md).
+
+Para una prueba de lectura, crea una carpeta vacía y usa su ruta absoluta:
+
+```bash
+isymcp session mint --cwd '<ruta absoluta de la carpeta de prueba>' --ttl 0.5
+```
+
+Sin `--write`, el token es de lectura. Selecciona la mención real del
+complemento en Chrome y envía el token impreso junto con la orden de iniciar
+el turno, leer `bootstrap.content` y ejecutar un único `printf` de un marcador.
+Comprueba la salida, el código y el backend; termina con `codex_turn_complete`.
+Puedes cerrar la capacidad de prueba con `isymcp session revoke <fp>` usando
+solo su fingerprint. Ambos comandos CLI se verificaron con una capacidad
+nueva de lectura y se revocó exclusivamente esa capacidad.
+
+El ejecutor que informó esta conexión fue **`bwrap-read-only`**, del backend
+`codex-web-http sessions`. Esa prueba no ejecutó dentro del hilo activo de
+Codex CLI/App. El canario Native2 es una referencia distinta. Levantar un receptor
+con un perfil y proveedor propios no requiere cambiar `openai_base_url` en la
+configuración global; esa configuración se mantuvo idéntica en la prueba.
+
+### ISyMCP conectado a un turno activo del CLI — 2026-10-13
+
+Se verificó otra ruta, usando **nuestro mismo complemento Codex ISyMCP** en
+Chrome: start → inventory → un `codex_exec` → complete. El comando lo ejecutó
+el Codex CLI instalado, dentro de un hilo y turno propios de lectura. Devolvió
+el marcador real y código 0 con `backend: active-codex`. La respuesta de la
+herramienta y el resultado nativo llevan el mismo call ID. La configuración
+global de Codex se conservó idéntica. [Recibo y límites](docs/verification/2026-10-13-active-isymcp-cli.md).
+
+Esta ruta inicial admite **start, inventory, exec de lectura, tool_call a
+exec/inventory y complete**. No habilita patch, imagen, background ni stdin
+en el dueño nativo. Las ocho funciones del sandbox independiente siguen
+existiendo con sus tokens propios; un token nativo nunca cambia a ese backend.
+`output` es la salida combinada real del comando, no un stdout/stderr inventado.
+
+El diagnóstico guiado se inicia desde este repositorio con una carpeta privada
+**nueva**, que no debe existir antes:
+
+```bash
+bun run scripts/probe-active-isymcp.ts --evidence-dir '<ruta absoluta nueva>' --wait-seconds 1200
+```
+
+El comando crea un receptor nativo aislado y un broker privado propios, escribe
+`compose.txt` y `ready.json` en esa carpeta, y espera como máximo veinte minutos.
+No necesita iniciar el daemon de Native2. Con el complemento real elegido,
+el operador envía el compose una sola vez y obtiene el UUID del mensaje
+renderizado mediante el control de Chrome. Después vincula localmente ese UUID
+y la URL exacta de la conversación con `bindNativeSource(fp, {url, messageId})`
+de `src/mcp/active-native.ts`. Esta operación no está expuesta al MCP remoto.
+El arranque puede esperar hasta treinta segundos por la vinculación; sin ella
+no se permite ejecutar. Los pasos se ejecutaron en la prueba documentada.
+
+Al completar, se guarda el recibo y sus hashes, se revoca exclusivamente el
+token de prueba y se cierra el receptor propio. Se conservan los archivos de
+evidencia. Un fallo o una llamada pendiente no se reenvía automáticamente.
+El journal conserva resultados y estados inciertos; repetir el mismo argv/cwd
+en un turno reproduce el recibo, y `tool_call` admite un `call_id` explícito.
+
+Esto todavía es un **canario guiado**, no el flujo automático completo de
+conversación. La App con este adaptador, cancelación/reanudación y streaming
+progresivo de Chrome a Codex requieren pruebas propias.
+
+---
+
 ## 4. Conexión de Agentes y Harnesses (9 Herramientas Soportadas)
 
 ISyMCP detecta e instala automáticamente la herramienta `chatgpt_ask` en tus entornos favoritos de desarrollo:
@@ -572,3 +669,65 @@ bun scripts/media-sheet-smoke.ts media_122a35ba-e2b1-4da0-bed9-8f14dddd3e2d
 Salida completa en `docs/evidence/contact-sheet-20261009-smoke.json`; imagen local en `/tmp/isymcp-angel-contact-sheet.jpg`. La prueba recibió una hoja real de 16 fotogramas de Angel Engine mediante el entry point principal. Límite de imagen: 1 MiB; el JPEG puede comprimir más para respetarlo y reporta su calidad en el JSON. Comparte el worker y plazo de análisis de 60 segundos. Si una muestra no se decodifica, devuelve error en lugar de inventar o rellenar fotogramas.
 
 OCR es otro módulo: Tesseract reconoce texto mediante modelos OCR y no es un LLM. Debe procesar los fotogramas originales antes de reducirlos para la cuadrícula. **Todavía no se integró OCR**; esta herramienta devuelve imágenes y sus tiempos, no transcripciones de texto. Referencia oficial: https://tesseract-ocr.github.io/tessdoc/ . Prueba remota de esta nueva herramienta desde ChatGPT: **NOT_DEMONSTRATED**; refresca la lista de herramientas del complemento después del despliegue.
+
+## Canario de la App: conexión cerrada
+
+Mantén Chrome visible y su extensión conectada antes de enviar el marcador del canario. El receptor es una prueba temporal, no un proveedor de conversación general. No reutilices su token ni pulses Reintentar mientras exista un turno pendiente.
+
+Comando ejecutado desde el repo de implementación:
+
+```bash
+bun run scripts/probe-active-isymcp-app.ts --evidence-dir /home/danny/.codex-web-http/canaries/active-app-20261013-disconnect-fixed-01 --reuse-app-window
+```
+
+Salida real:
+
+```json
+{"state":"waiting_for_app_input","client":"app","marker":"ISYMCP_APP_CANARY_20261013","threadId":"01a12f10-6159-7791-b7fb-9744b683a7c8","profileReused":true,"appWindowReused":true,"configChanged":false,"authCopied":false,"port":33653}
+```
+
+La carpeta de evidencia debe ser nueva; ese comando concreto ya se ejecutó y no debe repetirse con el mismo destino. Envía el marcador una vez en el chat aislado y permite que el operador vincule la llamada desde Chrome. `native_app_disconnected_no_resubmission` significa que la App abandonó el turno: el receptor revoca su permiso y no reenvía nada. `Session terminated` requiere revisar el túnel/complemento; un puerto local sano no prueba la conexión remota. `native_app_turn_pending_no_resubmission` bloquea duplicados; no demuestra que el comando se haya ejecutado.
+
+Las pruebas de desconexión pasan; ejecución real del canario corregido en App: **NOT_DEMONSTRATED**, pendiente del nuevo marcador. Detalles y evidencia: `docs/verification/2026-10-13-app-transport-lifetime.md`.
+
+El marcador del canario admite texto plano, backticks completos o negrita Markdown completa (`**ISYMCP_APP_CANARY_20261013**`). No admite palabras adicionales. Si aparece `native_app_marker_mismatch`, el intento no llegó a la ejecución; revisa el texto recibido antes de atribuirlo a la red.
+
+## Resultado real del canario App — 13 de octubre
+
+La prueba coordinada Chrome → Codex ISyMCP → Codex App terminó: `printf` imprimió el marcador esperado con `exit_code: 0`, y `codex_turn_complete` cerró el mismo turno. El historial real de la App conserva la llamada y su resultado. Evidencia: `docs/verification/2026-10-13-active-isymcp-app.md`.
+
+La ventana «ISyMCP — canario App» sigue siendo un proveedor limitado de prueba: no sirve como chat general. Su receptor temporal ya terminó; no mandes más marcadores ahí esperando una conversación. La conexión nueva del complemento es `asdk_app_6ace90ad54848191912160b8880294c7`; las menciones al ID antiguo no prueban esta instalación. El catálogo multimedia funciona directamente desde .com sin un turno de coding.
+
+## Acceso en el perfil visible — en preparación
+
+El acceso manual se abrió con este comando real:
+
+```bash
+/usr/bin/google-chrome --user-data-dir=/home/danny/.codex-web-http/visible/dd1a17bc-4fee-4464-9e2e-0c0908ca07b3/chrome --new-window https://chatgpt.com/
+```
+
+Regla: ese perfil pertenece a esta prueba. Cierra su ventana después de iniciar sesión antes de que el controlador lo reutilice. No borres candados ni copies cookies de otro navegador. Chrome normal abrió la ventana; terminar el acceso todavía depende del usuario. El mensaje de Google «Es posible que no sean seguros este navegador o la app» apareció al intentar entrar en Chrome automatizado. El acceso manual con Chrome normal se está probando, no está confirmado.
+
+Reutilización del perfil: `bun run scripts/start-visible-browser.ts --launch-id dd1a17bc-4fee-4464-9e2e-0c0908ca07b3` — **NO PROBADO**, pendiente de cerrar la ventana manual y verificar su acceso. Este script prepara el navegador y un socket privado; todavía no inicia una conversación general desde Codex. `visible_profile_unowned` rechaza perfiles ajenos; `visible_submit_ambiguous_no_resubmission` requiere inspeccionar el recibo y el chat antes de actuar. No repitas automáticamente un envío incierto. Informe: `docs/verification/2026-10-13-visible-foundations.md`.
+
+Actualización del 14 de octubre: el script anterior sí se lanzó para inspección, pero no demostró acceso autenticado. Google también bloqueó el acceso manual en ese perfil. Se detuvo el controlador y se abrió el Chrome habitual con `/usr/bin/google-chrome --new-window https://chatgpt.com/`. Allí la sesión existente sigue abierta. Si Codex no ve las pestañas y muestra `Unable to load browser request-header policy`, desconecta y reconecta la extensión: esa recuperación se verificó hoy. No borres el perfil ni copies sus cookies. Usar esa sesión desde la extensión todavía no equivale a tener el puente autónomo conectado. Informe: `docs/verification/2026-10-14-chrome-access-recovery.md`.
+
+### Acceso manual antes de automatizar — nueva prueba
+
+```bash
+bun run scripts/start-visible-browser.ts --login
+```
+
+Regla: inicia sesión en la ventana nueva de Chrome normal y ciérrala únicamente cuando ChatGPT esté listo. El script espera a que cierre ese proceso antes de abrir la etapa automatizada con el mismo perfil. No cierres tu Chrome habitual ni copies sus cookies. Se conserva el almacén de contraseñas del sistema en ambas etapas.
+
+Estado real emitido en la prueba: `waiting_for_manual_login`; launch ID `d946b5e9-231e-4b13-83ce-5170cf353658`. La ventana normal sí arrancó; éxito del acceso todavía **NOT_DEMONSTRATED**. Si cierra normalmente, `browser_ready_auth_unverified` significa navegador preparado, no autenticación confirmada. `visible_manual_login_exit_*` significa que Chrome terminó con error; no se arranca la automatización. Para volver a solicitar acceso en un perfil propio existente, usa `--launch-id <UUID> --login` (**NO PROBADO** en esa combinación). Este lanzador sigue preparando el navegador: no sustituye al coordinador de conversación pendiente.
+
+Resultado posterior: Danny confirmó que **sí pudo iniciar sesión** en esa ventana nueva. Esa confirmación corresponde al acceso manual; la conservación de la sesión después de cerrar y abrir la etapa automatizada se verifica aparte.
+
+Si la etapa automatizada muestra «Verifique que es un ser humano», completa tú la verificación de Cloudflare. Esa pantalla por sí sola no indica que hayas perdido la sesión. El controlador corregido activa `chromiumSandbox: true`; se relanzó el mismo perfil y se verificó que Chrome ya no recibe `--no-sandbox`. No desactives protecciones ni borres el perfil para intentar superar la verificación. Evidencia: `docs/verification/2026-10-14-chrome-sandbox.md`.
+
+### Corrección del 14 de octubre: host Chrome normal y verificación humana
+
+El intento visible posterior confirmó que el host conectado a Chrome vuelve a mostrar el reto «Verify you are human». El usuario indicó que sigue bloqueado; no se envió ningún compose desde ese intento. `browser_ready_auth_unverified` solo describe el arranque del proceso y no confirma que ChatGPT esté disponible. `NOT_DEMONSTRATED`: invocación real del complemento desde este host y respuesta nativa en el mismo turno. Si el reto aparece, completa la verificación manualmente en esa ventana; el controlador ahora debe informar `visible_challenge_requires_human` antes de tocar el chat. No intentes resolverlo con automatización.
+
+El host de esta etapa inicia Chrome normal dentro del perfil aislado y se conecta únicamente al endpoint CDP loopback creado por ese proceso. Al cerrarlo, solicita primero `Browser.close` al mismo Chrome; esto evita dejar el perfil marcado como cierre inesperado. El cierre ordenado tiene pruebas de controlador, pero aún no se ha confirmado en una sesión real después de este cambio. Prueba focalizada: `bun test tests/visible-browser-host.test.ts tests/visible-driver.test.ts` — 10 aprobadas, 0 fallidas. Informe: `docs/verification/2026-10-14-visible-chrome-blocker.md`.

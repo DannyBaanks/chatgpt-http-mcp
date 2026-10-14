@@ -36,10 +36,12 @@ describe("M2: Electron fuera de este path", () => {
     }
   });
 
-  test("el bridge no usa Electron; solo el lanzador opcional de la App nativa conoce su perfil", () => {
+  test("el bridge no usa Electron; solo el lanzador y el canario opcionales de la App nativa conocen su perfil", () => {
     const offenders: string[] = [];
     for (const file of [...tsFiles(join(ROOT, "src")), ...tsFiles(join(ROOT, "scripts"))]) {
-      if (file === join(ROOT, "src", "codex-app.ts")) continue;
+      // Desktop-only profile/launch surfaces; none imports Electron or runs the Web bridge.
+      if ([join(ROOT, "src", "codex-app.ts"), join(ROOT, "src", "visible", "native-app-probe.ts"),
+        join(ROOT, "scripts", "probe-active-isymcp-app.ts")].includes(file)) continue;
       for (const line of codeLines(file)) {
         if (/\belectron\b/i.test(line)) offenders.push(`${file.slice(ROOT.length + 1)}: ${line.slice(0, 100)}`);
       }

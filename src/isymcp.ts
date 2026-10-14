@@ -541,7 +541,7 @@ async function menuSession(sub: string, rest: string[]): Promise<void> {
 }
 
 function help(): void {
-  console.log(`isymcp — consola del bridge Codex ISyMCP
+  console.log(`isymcp v1.0.0-rc.1 — consola del bridge Codex ISyMCP
 
   isymcp                     menu interactivo con todo (en una terminal);
                              sin terminal (pipe/script) imprime el estado
@@ -568,6 +568,7 @@ function help(): void {
                              --client app abre una ventana con perfil propio
   isymcp conversation list   hilos confirmados, con id completo
   isymcp conversation resume <launch-id|thread-id>
+  isymcp version             imprime la versión instalada
   isymcp codex launcher      instala lanzador ~/.local/bin/codex-isymcp y .desktop
                              es un CLI en terminal, no la app de Codex
   isymcp command "texto"     texto para pegar en chatgpt.com
@@ -778,6 +779,9 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   for (const label of visibleLabels()) console.log(`  ${label}`);
   const leaked = visibleLabels().filter((label) => label.startsWith("hook."));
   if (leaked.length) throw new Error(`hook visible: ${leaked.join(",")}`);
+} else if (cmd === "version" || cmd === "--version" || cmd === "-v") {
+  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  console.log(`isymcp v${pkg.version ?? "1.0.0-rc.1"}`);
 } else if (cmd === "help" || cmd === "--help" || cmd === "-h") {
   help();
 } else if (cmd === "up") {

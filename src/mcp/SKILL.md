@@ -30,6 +30,17 @@ real session through the user's local ISyMCP setup before claiming completion.
 
 ## Tools and progress
 
+The token selects its backend explicitly. When the inventory says
+`backend: active-codex`, calls go only to that registered native thread/turn.
+This first native adapter supports start, inventory, foreground exec, tool_call
+to exec/inventory, and complete, in read-only mode. Background, stdin, patch
+and image calls are unavailable there: never substitute the standalone sandbox.
+Native exec returns `output` (combined command output), `exit_code`, the native
+result and owner IDs. Do not invent separate stdout/stderr. Missing, expired,
+unbound or disconnected native owners are errors. A direct native exec with
+the same argv/cwd replays its recorded result once per turn; explicit tool_call
+IDs distinguish operations. Pending/uncertain calls must not be resubmitted.
+
 Use `codex_tool_inventory` to discover the exact tools and their argument
 schemas. Use the same authorized token for every call. These are MCP tools;
 you do not need to print a separate JSON reply protocol in the chat.
@@ -60,3 +71,7 @@ the full result summary in `response`. Completion cleans up background
 processes belonging to that session. Include the outcome, relevant artifacts
 and unresolved failures in the final chat response. Do not claim that unrelated
 processes, tools or environments were checked.
+
+For active-codex, completion waits for no pending calls and sends the summary
+back to the owned native controller. Codex retains process lifetime and sandbox
+authority; the MCP does not run an alternative executor or kill native processes.

@@ -7,6 +7,8 @@
 No API key. The Bun bridge has no Electron dependency; the optional desktop launcher uses your installed Codex App. Everything listens on `127.0.0.1`; the only thing that leaves your machine is the conversation with chatgpt.com.
 
 [![CI](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml)
+![Release: 1.0.0-rc.1](https://img.shields.io/badge/release-v1.0.0--rc.1-7cff9b)
+![Tests: 545 passed](https://img.shields.io/badge/tests-545%20passed-7cff9b)
 ![License: MIT](https://img.shields.io/badge/license-MIT-7cff9b)
 ![Runtime: Bun](https://img.shields.io/badge/runtime-bun%201.4-111)
 ![Local only](https://img.shields.io/badge/listens%20on-127.0.0.1-111)
@@ -68,12 +70,20 @@ Native Codex settings and chats stay independent. App title requests receive a
 local label without creating another Web conversation. The Web provider does
 not automatically retry failed or ambiguous rounds.
 
-Real GPT Web responses have caused native command execution in both clients.
-**The complete return-to-GPT/final-answer loop and real Web resume remain
-NOT_DEMONSTRATED.** Network failures and an unavailable reasoning control
-blocked the latest live attempts. [Verification scope and evidence](docs/verification/2026-10-10-web-provider-closure.md).
-The [MCP connector verification](docs/verification/2026-10-10-native-mcp-live.md)
-covers a separate path.
+### 🔄 Verified Two-Way E2E Round Trip (`[CURRENT] PASS`)
+As of `v1.0.0-rc.1` (2026-10-14), the complete two-way round-trip between ChatGPT Web, the local native broker, isolated `bubblewrap` sandbox execution, and return to ChatGPT Web is **DEMONSTRATED and CERTIFIED**:
+- **Full Lifecycle**: `codex_turn_start` → `bootstrap.content` / `request.content` → `codex_tool_inventory` (8 tools) → `codex_exec` (live exit code `0`, `18 ms` duration) → `codex_turn_complete` (`completed: true`).
+- **Live Receipts**: Verified with unique canary nonce `ISYMCP_TWOWAY_4afa0c89`, real execution stdout `ISYMCP_E2E_VISIBLE_OK`, zero leaks, and zero child processes terminated.
+- **Evidence & Receipts**: See [2026-10-14 Two-Way Pass](docs/verification/2026-10-14-visible-two-way-pass.md) and [2026-10-14 Visible Chrome E2E Pass](docs/verification/2026-10-14-visible-chrome-e2e-pass.md).
+
+### 🛡️ OpenAI Compliance & Account Safety Framework V1 (P0)
+ISyMCP operates under a strict fail-closed governance model. Owner account safety has absolute priority over functionality:
+- **Interactive Human Operation in Chrome Visible (`@Codex ISyMCP`):** `ALLOW` — The human owner interacts directly with ChatGPT in Chrome and authorizes local tool executions within their scoped sandbox.
+- **Unattended Consumer Web UI Automation / Scraping:** `DENY` — Prohibited per OpenAI Terms of Use §2(c)(iii). ISyMCP disables unattended automated typing or DOM scraping against consumer chat interfaces.
+- **Authoritative Platform Safety Signals:** `FAIL-CLOSED (HALT)` — When OpenAI's server-side safety classifier triggers, ISyMCP immediately halts and logs the block. No prompt evasion, no tool-hopping, and no automated retry loops.
+- **Codex CLI / Custom Provider (`isymcp_web`):** `ALLOW` — Official local provider configuration under `~/.codex/config.toml` without mutating global settings.
+- **Comprehensive Audit:** Complete 9-part governance register and threat model available in [`docs/compliance/`](docs/compliance/).
+
 
 ### A four-line ChatGPT command with a local task
 
@@ -303,6 +313,10 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 | `isymcp ask "text" [--new]` | Real ChatGPT turn from the terminal; keeps one terminal chat, stdin works too |
 | `isymcp codex [args...]` | Runs Codex with isolated ISyMCP web profile (without mutating `config.toml`) |
 | `isymcp codex launcher` | Installs desktop entry `Codex (ISyMCP Web)` and `~/.local/bin/codex-isymcp` |
+| `isymcp conversation new [--client cli\|app]` | Interactive Codex CLI or App launch with isolated `isymcp_web` provider |
+| `isymcp conversation list` | List confirmed conversations and linked thread IDs |
+| `isymcp conversation resume <id>` | Resume an active conversation thread |
+| `isymcp version` / `--version` | Display installed version (`v1.0.0-rc.1`) |
 | `isymcp up` / `down` / `status` | Server + tunnel lifecycle and honest status |
 | `isymcp server start` / `stop` | Starts or stops the HTTP bridge |
 | `isymcp tunnel connect` / `stop` / `status` | MCP tunnel for ChatGPT tools |
@@ -325,15 +339,18 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 - **Token Authentication (`CODEX_WEB_HTTP_TOKEN`):** Required for any non-loopback exposure. Clients must send `Authorization: Bearer <TOKEN>` or `x-isymcp-token`.
 - **Sandbox Isolation.** `bubblewrap` hides `$HOME` and the bridge's secret folder behind tmpfs, disables network access by default, and exposes only the selected session folder.
 - **Session Tokens.** Tokens expire (7 days by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
+- **OpenAI Compliance Fail-Closed:** Authoritative safety signal halts processing; no bot UI typing or credential evasion.
 
 ---
 
 ## Verification & Testing
 
-- **Full Test Suite:** **302 tests passing across 48 files** (`bun test`; verified locally on 2026-10-09).
+- **Full Test Suite:** **545 tests passing, 1 skipped, 0 failed across 81 files** (`bun test`; verified on 2026-10-14).
+- **Two-Way E2E Round Trip:** Certified with live canary nonces, 18 ms local sandbox execution, and return receipts to ChatGPT Web ([Receipts](docs/verification/2026-10-14-visible-two-way-pass.md)).
 - **Unified E2E Smoke:** Verified with `isymcp smoke` and `scripts/e2e-all.ts`.
 - **Soak Testing:** 99/100 successful real turns in soak baseline; 9/10 with tool execution inside sandbox.
 - **Canary:** Regular verification against live chatgpt.com DOM changes.
+- **Governance Audit:** 9 compliance registers and threat model in [`docs/compliance/`](docs/compliance/).
 
 See [`docs/EVIDENCE.md`](docs/EVIDENCE.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
