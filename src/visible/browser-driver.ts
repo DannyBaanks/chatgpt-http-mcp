@@ -43,7 +43,7 @@ export function submitOnce(directory:string,port:BrowserDriverPort,request:Submi
  })();inflight.set(key,{signature,promise});void promise.finally(()=>inflight.delete(key)).catch(()=>{});return promise;
 }
 
-import {chromium,type Page,type BrowserContext} from 'playwright-core';
+import {type Page,type BrowserContext} from 'playwright-core';
 import {mkdirSync,chmodSync} from 'node:fs';
 export function prepareVisibleProfile(options:{profileDir:string;launchId:string}):void {
  if(!isAbsolute(options.profileDir)||!uuid.test(options.launchId))throw Error('visible_profile_invalid');
@@ -59,22 +59,20 @@ export function prepareVisibleProfile(options:{profileDir:string;launchId:string
 }
 export async function openVisibleBrowser(options:{profileDir:string;launchId:string}):Promise<{page:Page;context:BrowserContext;close():Promise<void>}>{
  prepareVisibleProfile(options);
- // New owned persistent profile; never storageState, imported cookies, or a
- // remotely exposed debugging port. Authentication belongs to this profile.
- const context=await chromium.launchPersistentContext(options.profileDir,{
-  channel:'chrome',headless:false,locale:'es-MX',chromiumSandbox:true,
-  // Preserve the system credential store used during normal manual sign-in.
-  // This does not hide automation or import authentication from another profile.
-  ignoreDefaultArgs:['--password-store=basic','--use-mock-keychain'],
- });
- const page=context.pages()[0]??await context.newPage();await page.goto('https://chatgpt.com/');
- return {page,context,close:()=>context.close()};
+ const {openNormalBrowserHost}=await import('./browser-host');
+ return openNormalBrowserHost(options);
+}
+async function assertHumanChallengeCleared(page:Page){
+ const state=await page.evaluate(()=>({title:document.title,text:document.body?.innerText??''}));
+ if(state&&(/just a moment|verify you are human|verifying/i.test(state.title)||/verify you are human|checking your browser|verifying you are human/i.test(state.text)))
+  throw Error('visible_challenge_requires_human');
 }
 export function pageDriver(page:Page):BrowserDriverPort {
  const box=()=>page.getByRole('textbox',{name:/Pregunta a ChatGPT|Ask ChatGPT/});
  const chooser=()=>page.getByRole('button',{name:/Seleccionar modelo de ChatGPT|Select ChatGPT model/});
  return {
   async prepare(text,connectorId){
+   await assertHumanChallengeCleared(page);
    if(!await box().isVisible())throw Error('visible_login_required');
    await box().fill('@Codex ISyMCP');
    const candidate=page.getByRole('button',{name:'Codex ISyMCP Codex ISyMCP',exact:true});
@@ -84,6 +82,7 @@ export function pageDriver(page:Page):BrowserDriverPort {
    await box().press('End');await box().pressSequentially(' '+text);
   },
   async inspect(){
+   await assertHumanChallengeCleared(page);
    const mentions=box().locator('[app-mention-path]');
    const count=await mentions.count();
    if(count>1)throw Error('visible_connector_ambiguous');
@@ -100,6 +99,6 @@ export function pageDriver(page:Page):BrowserDriverPort {
    const messages=await page.evaluate(()=>Array.from(document.querySelectorAll('[data-turn-key]')).map(el=>({messageId:el.getAttribute('data-turn-key')??'',text:el.textContent??''})));
    return {url:page.url(),connectorId:connector?.replace(/^app:\/\//,'')??'',model,effort,messages};
   },
-  async send(){await page.getByRole('button',{name:/^(Enviar|Send)$/}).click();await page.waitForURL(/https:\/\/chatgpt\.com\/c\/[a-zA-Z0-9-]+/,{timeout:10000});},
+  async send(){await assertHumanChallengeCleared(page);await page.getByRole('button',{name:/^(Enviar|Send)$/}).click();await page.waitForURL(/https:\/\/chatgpt\.com\/c\/[a-zA-Z0-9-]+/,{timeout:10000});},
  };
 }

@@ -22,3 +22,7 @@ test('fresh chat inspection does not wait for a nonexistent connector mention',a
  const state=await pageDriver(page as any).inspect();
  expect(state.connectorId).toBe('');expect(state.model).toBe('GPT-6');expect(state.effort).toBe('medium');expect(absentReads).toBe(0);
 });
+test('Cloudflare human verification is reported before touching the chat UI',async()=>{
+ const page={evaluate:async()=>({title:'Just a moment...',text:'Verify you are human'}),getByRole:()=>{throw Error('chat controls must not be touched during challenge');}};
+ await expect(pageDriver(page as any).inspect()).rejects.toThrow('visible_challenge_requires_human');
+});
