@@ -76,13 +76,19 @@ export function pageDriver(page:Page):BrowserDriverPort {
    await box().press('End');await box().pressSequentially(' '+text);
   },
   async inspect(){
-   const connector=await box().locator('[app-mention-path]').getAttribute('app-mention-path');
-   const effortLabel=(await chooser().innerText()).trim();
-   const effort=({Media:'medium',Medium:'medium',Alta:'high',High:'high',Baja:'low',Low:'low'} as Record<string,string>)[effortLabel]??'unknown';
+   const mentions=box().locator('[app-mention-path]');
+   const count=await mentions.count();
+   if(count>1)throw Error('visible_connector_ambiguous');
+   const connector=count===1?await mentions.getAttribute('app-mention-path'):null;
    await chooser().click();
-   let model:string;
-   try{model=(await page.locator('[role="menuitemradio"][aria-checked="true"]').innerText()).trim();}
-   finally{await page.getByRole('menu',{name:/Seleccionar modelo de ChatGPT|Select ChatGPT model/}).press('Escape');}
+   const menu=page.getByRole('menu',{name:/Seleccionar modelo de ChatGPT|Select ChatGPT model/});
+   let model:string,effort='unknown';
+   try{
+    model=(await page.locator('[role="menuitemradio"][aria-checked="true"]').innerText()).trim();
+    const label=(await menu.getByRole('status').innerText()).trim().split(',')[0];
+    effort=({Media:'medium',Medium:'medium',Alta:'high',High:'high',Baja:'low',Low:'low'} as Record<string,string>)[label]??'unknown';
+   }
+   finally{await menu.press('Escape');}
    const messages=await page.evaluate(()=>Array.from(document.querySelectorAll('[data-turn-key]')).map(el=>({messageId:el.getAttribute('data-turn-key')??'',text:el.textContent??''})));
    return {url:page.url(),connectorId:connector?.replace(/^app:\/\//,'')??'',model,effort,messages};
   },
