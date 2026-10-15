@@ -8,9 +8,10 @@
 //
 //   bun run scripts/import-cookies.ts                     # ~/Development/cookie.txt
 //   bun run scripts/import-cookies.ts --file /ruta/x.txt --out /ruta/state.json
-import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { securePrivatePath } from "../src/platform/private-path";
 
 function argValue(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -28,7 +29,8 @@ if (!existsSync(file)) {
 // El archivo de entrada trae la sesion de ChatGPT en claro: avisar si otros
 // usuarios del sistema pueden leerlo.
 const inputMode = statSync(file).mode & 0o777;
-if (inputMode & 0o077) {
+if (process.platform === "win32") securePrivatePath(file, false);
+else if (inputMode & 0o077) {
   console.error(`AVISO: ${file} tiene permisos ${inputMode.toString(8)}; otros usuarios pueden leer tus cookies. Corre: chmod 600 ${JSON.stringify(file)}`);
 }
 const raw = await Bun.file(file).text();
@@ -68,8 +70,9 @@ if (cookies.length === 0) {
 }
 
 mkdirSync(join(out, ".."), { recursive: true, mode: 0o700 });
+securePrivatePath(join(out, ".."), true);
 await Bun.write(out, JSON.stringify({ cookies, origins: [] }, null, 2));
-chmodSync(out, 0o600);
+securePrivatePath(out, false);
 
 const names = cookies.map((cookie) => cookie.name as string);
 const session = names.filter((name) => /session|clearance|secure|csrf/i.test(name));

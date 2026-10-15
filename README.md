@@ -5,7 +5,7 @@
 **A local HTTP + MCP bridge for ChatGPT and coding-agent workflows.**  
 **Un puente local HTTP + MCP para ChatGPT y agentes de programación.**
 
-Scoped tools · Native Codex CLI/App experiments · Verifiable execution receipts · Bun + Linux
+Scoped tools · Native Codex CLI integration · Verifiable execution receipts · Bun on Linux & Windows
 
 [![CI](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml)
 [![Release candidate](https://img.shields.io/github/v/release/DannyBaanks/chatgpt-http-mcp?include_prereleases&label=prerelease)](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2)
@@ -33,6 +33,7 @@ Scoped tools · Native Codex CLI/App experiments · Verifiable execution receipt
 |---|---|
 | Download a versioned source package | [v1.0.0-rc.2 release](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2) |
 | Set up ISyMCP on Linux | [Quickstart](#quickstart) · [Spanish guide](GUIA.md) |
+| Set up ISyMCP on Windows | [Windows guide](docs/WINDOWS.md) |
 | See what was actually tested | [Verification records](docs/EVIDENCE.md) |
 | Understand scopes, tokens and sandboxing | [Architecture](docs/ARCHITECTURE.md) · [Protocol](docs/PROTOCOL.md) |
 | Check compatibility and account risks | [Limitations](#limitations--risks--read-before-using) · [Compliance review](docs/compliance/FINAL_VERDICT.md) |
@@ -57,7 +58,7 @@ Download `isymcp-v1.0.0-rc.2.tar.gz` or `.zip`, plus `SHA256SUMS`, from the rele
 <img src="docs/images/chat-live.png" alt="Live answer streaming with a blinking cursor and a running tool card" width="900">
 
 ### 🛠️ Tools you can actually verify
-Turn on **Codex ISyMCP** in a chat and ChatGPT can run commands in a folder you choose, inside a `bubblewrap` sandbox. Every card above an answer comes from the **execution trace**: what really ran, its exit code and how long it took. It is not the model's account of what it did.
+Turn on **Codex ISyMCP** in a chat and ChatGPT can run commands in a folder you choose, inside a sandbox. Linux hosts use `bubblewrap`; Windows defaults to the Docker Desktop Linux image and can opt into Codex CLI's native Windows sandbox. Every card above an answer comes from the **execution trace**: what really ran, its exit code and how long it took. It is not the model's account of what it did.
 
 When something fails, the card says **who** failed: OpenAI blocked it, your ChatGPT session expired, Chrome crashed, or the local bridge didn't finish.
 
@@ -80,23 +81,22 @@ The native tool adapter translates supplied function/custom declarations into
 Responses calls; **Codex executes them** and returns their real results. Calls
 are correlated to a task, turn and call ID, with durable replay and explicit
 handling of interrupted calls. WebSocket events use one JSON event per frame.
-The MCP connector has been exercised through Codex App, the native Codex CLI
-and ChatGPT.com. The separate Web-provider path now supports a private Linux
-Codex App window as well as the CLI:
+The MCP connector has been exercised through the native Codex CLI and
+ChatGPT.com. The separate Web-provider path currently supports Codex CLI:
 
 ```bash
 isymcp conversation new --client cli --cwd "$PWD" --model chatgpt-web/gpt-6
-isymcp conversation new --client app --cwd "$PWD" --model chatgpt-web/gpt-6
 isymcp conversation list
 isymcp conversation resume <launch-id-or-thread-id>
 ```
 
 The first committed Web response binds the Codex thread to its ChatGPT URL;
 that response may be a tool call, so a receipt alone does not prove the task
-finished. Each App launch has its own private profile and one linked thread.
-Native Codex settings and chats stay independent. App title requests receive a
-local label without creating another Web conversation. The Web provider does
-not automatically retry failed or ambiguous rounds.
+finished. Synthetic Desktop App profiles are disabled: they copied the
+account's private `auth.json` into an undocumented secondary profile, which
+the maintainer policy classifies as `UNKNOWN / NO EXECUTE`. Use the supported
+Codex CLI flow above. The Web provider does not automatically retry failed or
+ambiguous rounds.
 
 ### 🔄 Two-way execution: recorded evidence
 
@@ -157,6 +157,10 @@ Server, tunnel, MCP and browser health, the latest soak test turn by turn, the d
 
 ## Quickstart
 
+For Windows PowerShell, follow the [Windows setup guide](docs/WINDOWS.md).
+Windows can run native PowerShell commands through Codex's Windows sandbox or
+Linux commands through the Docker Desktop fallback.
+
 ```bash
 git clone https://github.com/DannyBaanks/chatgpt-http-mcp.git
 cd chatgpt-http-mcp
@@ -201,10 +205,10 @@ isymcp smoke                                       # automated end-to-end sanity
 - **Fragile Web adapter.** UI changes, browser challenges, session expiration and platform decisions may break output capture. Capture failures may leave sanitized diagnostic files under `~/.codex-web-http/run/`—inspect their contents before sharing.
 - **UI-rendered reasoning is not raw chain of thought.** The panel may display summaries visible in the interface, not the model's hidden reasoning.
 - **Cross-agent prompt injection.** `chatgpt_ask` output is untrusted input to receiving agents. Labels are advisory and cannot replace their approval or permission model.
-- **Local sandbox is not a perfect VM.** Bubblewrap hides the home/secret directories and disables network by default, but other system files can remain readable. A `--write` session can modify files in its authorized folder. `CODEX_WEB_HTTP_SANDBOX=off` weakens confinement; `CODEX_WEB_HTTP_SANDBOX_NET=1` enables network.
+- **Local sandbox is not a perfect VM.** Bubblewrap hides the home/secret directories; Windows MXC denies the current user's profile and known credential paths. Other host paths can remain readable, but writes stay in the authorized workspace. Network is disabled by default. `CODEX_WEB_HTTP_SANDBOX=off` weakens confinement; `CODEX_WEB_HTTP_SANDBOX_NET=1` enables network.
 - **Protect credentials.** Stored session data/cookies are sensitive; file mode `0600` is not protection against malware running as the same user. Never commit or share them.
 - **Provider blocks are final for the attempted operation.** Do not evade, tool-hop or auto-retry pending/unknown requests. A block does not by itself establish a contractual violation.
-- **Capacity & platform.** Browser-backed turns can be slow/serialized. Sandboxed local execution needs Linux and bubblewrap; Chrome is used by the experimental Web adapter.
+- **Capacity & platform.** Browser-backed turns can be slow/serialized. Linux hosts use bubblewrap; Windows defaults to Docker Desktop's Linux engine, with an opt-in native Windows MXC sandbox through Codex CLI. Native Windows MCP E2E is demonstrated on Windows 11 25H2; Docker-backed Windows execution remains **NOT_DEMONSTRATED** in this branch. Chrome or Edge is used by the experimental Web adapter.
 
 ---
 
@@ -216,7 +220,7 @@ OpenAI-compatible clients ─────────────┼──► br
 other agents ──► MCP isymcp-chatgpt ───┘          │
                                                   ├─ live thinking ──► streaming SSE (reasoning_content)
                                                   ├─ compaction ──────► automatic context pruning (>40 msgs)
-                                                  └─ tools: chatgpt.com ─► tunnel ─► MCP stdio ─► bwrap sandbox
+                                                  └─ tools: chatgpt.com ─► tunnel ─► MCP stdio ─► bwrap / Docker sandbox
 ```
 
 - **Bridge** (Bun): drives one persistent ChatGPT tab. Turns are **serialized** (one at a time, in order), so chats never write into each other. It reads the answer from the page as ChatGPT writes it, and rebuilds the Markdown.
@@ -346,8 +350,8 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 | `isymcp panel` | Opens the chat + status panel on :8798 (detached); `panel start` / `stop` / `status` / `run` |
 | `isymcp ask "text" [--new]` | Real ChatGPT turn from the terminal; keeps one terminal chat, stdin works too |
 | `isymcp codex [args...]` | Runs Codex with isolated ISyMCP web profile (without mutating `config.toml`) |
-| `isymcp codex launcher` | Installs desktop entry `Codex (ISyMCP Web)` and `~/.local/bin/codex-isymcp` |
-| `isymcp conversation new [--client cli\|app]` | Interactive Codex CLI or App launch with isolated `isymcp_web` provider |
+| `isymcp codex launcher` | Installs a desktop entry on Linux or Start Menu shortcut + `.cmd` launcher on Windows |
+| `isymcp conversation new [--client cli]` | Interactive Codex CLI launch with isolated `isymcp_web` provider |
 | `isymcp conversation list` | List confirmed conversations and linked thread IDs |
 | `isymcp conversation resume <id>` | Resume an active conversation thread |
 | `isymcp version` / `--version` | Display installed package version |
@@ -359,7 +363,7 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 | `isymcp harness list` | Lists detected coding agents and their `chatgpt_ask` installation status |
 | `isymcp harness install` / `uninstall <ids\|--all> [--apply]` | Installs `chatgpt_ask` (dry-run plan by default, `--apply` writes) |
 | `isymcp canary` / `canary status` | Real turn verification: capture, turn identity, Markdown |
-| `isymcp canary schedule [--apply]` | Daily systemd user timer for automated regression alerts |
+| `isymcp canary schedule [--apply]` | Daily systemd user timer or Windows Task Scheduler task for regression alerts |
 | `isymcp health` | Live health and diagnostic status of the bridge |
 | `isymcp metrics [--prom]` | Real-time telemetry (turns, tokens, latencies, memory) or Prometheus format |
 | `isymcp smoke` | Unified E2E verification suite (health, metrics, harnesses, launcher) |
@@ -371,7 +375,7 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 
 - **Local only, for real.** The bridge and the panel bind `127.0.0.1` *and* reject foreign `Host`/`Origin` headers and non-JSON POSTs (protection against CSRF and DNS rebinding).
 - **Token Authentication (`CODEX_WEB_HTTP_TOKEN`):** Required for any non-loopback exposure. Clients must send `Authorization: Bearer <TOKEN>` or `x-isymcp-token`.
-- **Sandbox Isolation.** `bubblewrap` hides `$HOME` and the bridge's secret folder behind tmpfs, disables network access by default, and exposes only the selected session folder.
+- **Sandbox Isolation.** `bubblewrap` on Linux, Docker Desktop on Windows, and the optional Codex native Windows MXC sandbox hide bridge secrets, deny network by default, and scope writes to the selected workspace. The native Windows MCP E2E is demonstrated in [the Windows guide](docs/WINDOWS.md); Docker-backed Windows execution is not demonstrated here.
 - **Session Tokens.** Tokens expire (7 days by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
 - **Platform safety boundaries:** Reported OpenAI blocks must halt the affected operation without bypass. This safeguard is not a blanket claim that every browser path has passed a compliance audit; see [open risks](docs/compliance/FINAL_VERDICT.md).
 

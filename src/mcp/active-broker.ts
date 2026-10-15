@@ -3,6 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
+import { isWindowsPipePath, localIpcPath } from "../platform/ipc";
 
 interface Call { callId: string; wireName: string; freeform: true; input: string; delivered: boolean; resolve: (r: unknown) => void; reject: (e: Error) => void }
 interface Channel {
@@ -12,7 +13,9 @@ interface Channel {
 }
 const key = (prefix: string) => prefix + randomBytes(24).toString("base64url");
 export async function createActiveBroker(socketPath: string) {
-  if (existsSync(socketPath)) throw Error("native_broker_path_exists_no_replacement");
+  const endpoint = localIpcPath(socketPath);
+  if (process.platform !== "win32" && existsSync(endpoint)) throw Error("native_broker_path_exists_no_replacement");
+  if (process.platform === "win32" && !isWindowsPipePath(endpoint)) throw Error("native_broker_invalid_pipe");
   const channels = new Map<string, Channel>(), bindings = new Map<string, { channel: Channel; activityId: string }>(), clients = new Set<Socket>();
   const get = (token: unknown) => {
     const c = typeof token === "string" ? channels.get(token) : undefined;
@@ -97,8 +100,8 @@ export async function createActiveBroker(socketPath: string) {
       void dispatch(r).then(result => socket.end(JSON.stringify({ id: r.id, result })), e => socket.end(JSON.stringify({ id: r.id, error: e.message })));
     });
   });
-  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
-  chmodSync(socketPath, 0o600);
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(endpoint, resolve); });
+  if (process.platform !== "win32") chmodSync(endpoint, 0o600);
   const expiry = setInterval(() => { for (const [token, c] of channels) if (c.expires <= Date.now()) revoke(token); }, 1000);
   expiry.unref();
   return { close: async () => {

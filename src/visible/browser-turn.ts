@@ -9,6 +9,8 @@ import { browserWorkerRpc } from "./browser-worker";
 import { bindNativeSource } from "../mcp/active-native";
 import { findSessionByToken } from "../codex-sessions";
 import type { WebTurnOptions, WebTurnResult } from "../web-turn";
+import { localIpcPath } from "../platform/ipc";
+import { ensurePrivatePath } from "../platform/private-path";
 
 export interface ActiveVisibleSession {
   launchId: string;
@@ -37,19 +39,27 @@ export function visibleSessionsRoot(): string {
 export async function findActiveVisibleSession(root = visibleSessionsRoot()): Promise<ActiveVisibleSession | null> {
   const visibleRoot = root;
   if (!existsSync(visibleRoot)) return null;
+  if (process.platform === "win32") {
+    try { ensurePrivatePath(visibleRoot, true); } catch { return null; }
+  }
 
   const entries = readdirSync(visibleRoot);
   for (const name of entries) {
     if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(name)) continue;
     const directory = join(visibleRoot, name);
-    const socketPath = join(directory, "browser.sock");
-    if (!existsSync(socketPath)) continue;
+    if (process.platform === "win32") {
+      try { ensurePrivatePath(directory, true); } catch { continue; }
+    }
+    const socketPath = localIpcPath(join(directory, "browser.sock"));
+    if (process.platform !== "win32" && !existsSync(socketPath)) continue;
 
-    try {
-      const stat = lstatSync(socketPath);
-      if (!stat.isSocket()) continue;
-    } catch {
-      continue;
+    if (process.platform !== "win32") {
+      try {
+        const stat = lstatSync(socketPath);
+        if (!stat.isSocket()) continue;
+      } catch {
+        continue;
+      }
     }
 
     const files = readdirSync(directory);
@@ -66,7 +76,9 @@ export async function findActiveVisibleSession(root = visibleSessionsRoot()): Pr
 
     for (const credEntry of credFiles) {
       try {
-        const credText = readFileSync(join(directory, credEntry.name), "utf8");
+        const credentialPath = join(directory, credEntry.name);
+        if (process.platform === "win32") ensurePrivatePath(credentialPath, false);
+        const credText = readFileSync(credentialPath, "utf8");
         const cred = JSON.parse(credText);
         if (!cred.token || typeof cred.token !== "string") continue;
 

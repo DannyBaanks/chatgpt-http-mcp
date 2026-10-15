@@ -19,8 +19,7 @@
 // verifica contra el archivo real antes de aplicar: si nada cuadra, rechazo.
 import { closeSync, constants, fchmodSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { relative } from "node:path";
-import { resolveWithin } from "../codex-sessions";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export class CodexPatchError extends Error {}
 
@@ -117,10 +116,12 @@ function parse(patch: string): FileOp[] {
   return ops;
 }
 
-function splitLines(text: string): { lines: string[]; finalNewline: boolean } {
-  if (text === "") return { lines: [], finalNewline: true };
-  const finalNewline = text.endsWith("\n");
-  return { lines: (finalNewline ? text.slice(0, -1) : text).split("\n"), finalNewline };
+function splitLines(text: string): { lines: string[]; finalNewline: boolean; lineEnding: "\n" | "\r\n" | "\r" } {
+  if (text === "") return { lines: [], finalNewline: true, lineEnding: "\n" };
+  const lineEnding = text.includes("\r\n") ? "\r\n" : text.includes("\r") ? "\r" : "\n";
+  const finalNewline = /(?:\r\n|\r|\n)$/.test(text);
+  const withoutFinalNewline = finalNewline ? text.replace(/(?:\r\n|\r|\n)$/, "") : text;
+  return { lines: withoutFinalNewline.split(/\r\n|\r|\n/), finalNewline, lineEnding };
 }
 
 /**
@@ -158,7 +159,7 @@ function locate(lines: string[], from: number, hunk: Hunk, path: string): number
 
 /** Aplica los hunks de un Update File y devuelve el contenido NUEVO completo. */
 function applyUpdate(original: string, op: { path: string; hunks: Hunk[] }): string {
-  const { lines, finalNewline } = splitLines(original);
+  const { lines, finalNewline, lineEnding } = splitLines(original);
   if (op.hunks.length === 0) throw new CodexPatchError(`Update File sin hunks: ${op.path}`);
   const out: string[] = [];
   let origIdx = 0;
@@ -195,18 +196,172 @@ function applyUpdate(original: string, op: { path: string; hunks: Hunk[] }): str
   if (out.length === 0) return "";
   // Nueva linea final: se conserva la del original; una adicion como ultima
   // linea la define con newline (regla deterministica, documentada).
-  return out.join("\n") + (finalNewline || lastEmitWasAdd ? "\n" : "");
+  return out.join(lineEnding) + (finalNewline || lastEmitWasAdd ? lineEnding : "");
+}
+
+function resolvePatchWithin(root: string, candidate: string): string | null {
+  const resolved = candidate ? resolve(root, candidate) : resolve(root);
+  const rel = process.platform === "win32"
+    ? relative(root.toLowerCase(), resolved.toLowerCase())
+    : relative(root, resolved);
+  if (rel === "") return resolved;
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+  return resolved;
+}
+
+function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
+  const requestedRoot = resolve(cwd);
+  // MXC can grant a workspace nested below a denied home directory. Relative
+  // filesystem calls use the already-authorized process CWD and avoid walking
+  // back through denied ancestors such as C:\Users\name\AppData.
+  const relativeIo = resolve(process.cwd()).toLowerCase() === requestedRoot.toLowerCase();
+  const root = relativeIo ? requestedRoot : realpathSync(cwd);
+  const createdDirs: string[] = [];
+  const scratch = new Set<string>();
+  const published: Array<{ target: string; backup?: string; add: boolean }> = [];
+  let retainBackups = false;
+  const normalized = ops.map((op) => {
+    const abs = resolvePatchWithin(root, op.path);
+    if (!abs || abs === root) throw new CodexPatchError(`path fuera del workspace: ${op.path}`);
+    const rel = relative(root, abs);
+    const parts = rel.split(/[\\/]/);
+    let current = relativeIo ? "." : root;
+    for (const part of parts.slice(0, -1)) {
+      current = join(current, part);
+      try {
+        const info = lstatSync(current);
+        if (info.isSymbolicLink() || !info.isDirectory()) throw new CodexPatchError(`padre no es directorio seguro: ${current}`);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        break;
+      }
+    }
+    return { op, rel, ioPath: relativeIo ? rel : abs, parts };
+  });
+  const names = new Set<string>();
+  for (const item of normalized) {
+    const key = item.rel.toLowerCase();
+    if (names.has(key)) throw new CodexPatchError(`ruta repetida en el patch: ${item.op.path}`);
+    names.add(key);
+  }
+  for (const item of normalized) {
+    for (let i = 1; i < item.parts.length; i++) {
+      if (names.has(item.parts.slice(0, i).join(sep).toLowerCase())) {
+        throw new CodexPatchError(`archivo usado como directorio en el patch: ${item.rel}`);
+      }
+    }
+  }
+
+  const planned = normalized.map((item) => {
+    let original: Buffer | undefined;
+    let mode = 0o644;
+    let identity: { dev: number; ino: number } | undefined;
+    try {
+      const info = lstatSync(item.ioPath);
+      if (item.op.op === "add") throw new CodexPatchError(`el archivo ya existe: ${item.op.path}`);
+      if (!info.isFile() || info.isSymbolicLink()) throw new CodexPatchError(`archivo no regular o symlink: ${item.op.path}`);
+      const fd = openSync(item.ioPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      try {
+        const actual = fstatSync(fd);
+        if (!actual.isFile()) throw new CodexPatchError(`archivo no regular: ${item.op.path}`);
+        original = readFileSync(fd);
+        mode = actual.mode & 0o777;
+        identity = { dev: actual.dev, ino: actual.ino };
+      } finally { closeSync(fd); }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (item.op.op !== "add" && original === undefined) throw new CodexPatchError(`el archivo no existe: ${item.op.path}`);
+    const content = item.op.op === "add" ? item.op.lines.join("\n") + (item.op.lines.length ? "\n" : "")
+      : item.op.op === "update" ? applyUpdate(original!.toString("utf8"), item.op) : undefined;
+    return { ...item, original, mode, identity, content, staged: undefined as string | undefined, backup: undefined as string | undefined };
+  });
+
+  try {
+    for (const item of planned) {
+      let current = relativeIo ? "." : root;
+      for (const part of item.parts.slice(0, -1)) {
+        current = join(current, part);
+        try {
+          const info = lstatSync(current);
+          if (info.isSymbolicLink() || !info.isDirectory()) throw new CodexPatchError(`padre no es directorio seguro: ${current}`);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          mkdirSync(current);
+          createdDirs.push(current);
+        }
+      }
+      if (item.original !== undefined) {
+        const fd = openSync(item.ioPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        try {
+          const info = fstatSync(fd);
+          if (info.dev !== item.identity!.dev || info.ino !== item.identity!.ino || !readFileSync(fd).equals(item.original)) {
+            throw new CodexPatchError(`archivo cambio durante el patch: ${item.rel}`);
+          }
+        } finally { closeSync(fd); }
+      } else {
+        try { lstatSync(item.ioPath); throw new CodexPatchError(`el archivo ya existe: ${item.rel}`); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      }
+      if (item.content !== undefined) {
+        item.staged = `${item.ioPath}.isymcp-stage-${randomUUID()}`;
+        const fd = openSync(item.staged, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), item.mode);
+        scratch.add(item.staged);
+        try { writeFileSync(fd, item.content); } finally { closeSync(fd); }
+      }
+    }
+    for (const item of planned) {
+      if (item.op.op === "add") {
+        linkSync(item.staged!, item.ioPath);
+        published.push({ target: item.ioPath, add: true });
+      } else {
+        item.backup = `${item.ioPath}.isymcp-backup-${randomUUID()}`;
+        renameSync(item.ioPath, item.backup);
+        scratch.add(item.backup);
+        published.push({ target: item.ioPath, backup: item.backup, add: false });
+        if (item.staged) { renameSync(item.staged, item.ioPath); scratch.delete(item.staged); }
+      }
+    }
+    return normalized.map((item) => item.rel);
+  } catch (error) {
+    const failures: string[] = [];
+    for (const item of published.reverse()) {
+      try {
+        if (item.add) unlinkSync(item.target);
+        else {
+          try { unlinkSync(item.target); } catch (removeError) {
+            if ((removeError as NodeJS.ErrnoException).code !== "ENOENT") throw removeError;
+          }
+          renameSync(item.backup!, item.target);
+          scratch.delete(item.backup!);
+        }
+      } catch {
+        const recoverable = item.backup ?? item.target;
+        try { failures.push(realpathSync(recoverable)); } catch { failures.push(recoverable); }
+      }
+    }
+    retainBackups = failures.length > 0;
+    throw new CodexPatchError(`${error instanceof Error ? error.message : String(error)}${failures.length ? `; rollback incompleto, backups conservados: ${failures.join(", ")}` : ""}`);
+  } finally {
+    for (const path of scratch) {
+      if (retainBackups && path.includes(".isymcp-backup-")) continue;
+      try { unlinkSync(path); } catch { /* preserve unrelated paths */ }
+    }
+    for (const path of createdDirs.reverse()) { try { rmdirSync(path); } catch { /* keep non-empty successful parents */ } }
+  }
 }
 
 /**
  * Validate all operations, stage every write and backup, then publish.
- * Directory descriptors and O_NOFOLLOW prevent symlink-parent escapes.
+ * Linux uses directory descriptors and O_NOFOLLOW; Windows runs this helper
+ * inside the native Codex sandbox and rejects reparse-point parents.
  * Publication is atomic per file; a commit error rolls back earlier files.
  * This is not a multi-file filesystem transaction for concurrent observers.
  */
 export function applyCodexPatch(cwd: string, patch: string): string[] {
   const ops = parse(patch);
-  if (process.platform !== "linux") throw new CodexPatchError("native patch confinement requires Linux directory descriptors");
+  if (process.platform === "win32") return applyCodexPatchWindows(cwd, ops);
+  if (process.platform !== "linux") throw new CodexPatchError("native patch confinement requires Linux directory descriptors or the Windows sandbox");
   const root = realpathSync(cwd);
   const dirs = new Map<string, number>();
   const createdDirs: string[] = [];
@@ -216,7 +371,7 @@ export function applyCodexPatch(cwd: string, patch: string): string[] {
   try {
     dirs.set("", openSync(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
     const normalized = ops.map(op => {
-      const abs = resolveWithin(root, op.path);
+      const abs = resolvePatchWithin(root, op.path);
       if (!abs || abs === root) throw new CodexPatchError(`path fuera del workspace: ${op.path}`);
       return { op, path: relative(root, abs), parts: relative(root, abs).split("/") };
     });

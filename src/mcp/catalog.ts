@@ -53,7 +53,7 @@ export function shapesFor(contract: "native" | "safe"): Record<ToolName, Record<
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   codex_turn_start: "Inicia el turno usando su token y devuelve la guía local verificada en bootstrap.content y, si está vinculada, la tarea local en request.content.",
   codex_exec:
-    "Ejecuta un argv en el backend autorizado por el token; consulta el inventario. Las sesiones independientes usan bwrap y admiten background=true con exec_id. Las sesiones active-codex envían comandos al dueño nativo y reportan output combinado; esta primera ruta solo admite lectura y foreground.",
+    "Ejecuta un argv en el backend autorizado por el token; consulta el inventario. Las sesiones independientes usan sandbox aislado (bwrap en Linux o contenedor Linux de Docker en Windows) y admiten background=true con exec_id. Las sesiones active-codex envían comandos al dueño nativo y reportan output combinado; esta primera ruta solo admite lectura y foreground.",
   codex_write_stdin:
     "Escribe al stdin de un proceso vivo iniciado con codex_exec background=true. Devuelve la salida nueva desde la ultima lectura; close_stdin manda EOF; signal TERM/KILL termina el proceso; wait_ms (0-10000, 2000 por defecto) acota la espera de salida.",
   codex_apply_patch:

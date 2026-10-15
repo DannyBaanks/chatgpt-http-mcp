@@ -32,6 +32,8 @@ import { MENU, brandHeader, findItem, select, visible, visibleLabels } from "./m
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
 import { detectTuis, installIntoOpencode } from "./tui";
 import { bridgeAuthHeaders } from "./local-guard";
+import { processMatches, stopProcessTree } from "./platform/process";
+import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
 
 const ROOT = join(import.meta.dir, "..");
 const PORT = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
@@ -111,7 +113,7 @@ function startServer(options: { connector?: string | null } = {}): void {
 function stopServer(): void {
   const pid = readPid();
   if (pid && alive(pid)) {
-    process.kill(pid, "SIGTERM");
+    stopProcessTree(pid);
     console.log(`server parado (pid ${pid})`);
   } else {
     console.log("server no estaba corriendo");
@@ -165,7 +167,7 @@ async function startPanelDetached(): Promise<boolean> {
 function stopPanel(): void {
   const pid = readPid(PANEL_PID);
   if (pid && alive(pid)) {
-    process.kill(pid, "SIGTERM");
+    stopProcessTree(pid);
     console.log(`panel parado (pid ${pid})`);
   } else {
     console.log("panel no estaba corriendo (o lo levantaste en primer plano: Ctrl+C alli)");
@@ -175,7 +177,7 @@ function stopPanel(): void {
 
 function openInBrowser(url: string): void {
   try {
-    const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
+    const child = spawn(process.platform === "win32" ? "explorer.exe" : "xdg-open", [url], { detached: true, stdio: "ignore" });
     child.on("error", () => console.log(`abre a mano: ${url}`));
     child.unref();
     console.log(`abriendo ${url}`);
@@ -346,7 +348,7 @@ async function canaryScheduleInteractive(sub: "schedule" | "unschedule"): Promis
 }
 
 function tunnelBin(): string {
-  return join(homedir(), ".codex-web-http", "bin", "tunnel-client");
+  return join(bridgeHome(), "bin", process.platform === "win32" ? "tunnel-client.exe" : "tunnel-client");
 }
 
 function tunnel(action: string): void {
@@ -377,10 +379,12 @@ function tunnel(action: string): void {
     // `runtimes stop` puede decir "Stopped" y dejar vivo el daemon en su sesion
     // tmux (visto 2026-10-06: un daemon de 15.9 h sobrevivio al stop y luego
     // toda llamada devolvia "Session terminated"). Cerrar el tmux a mano.
-    const list = sh(["tmux", "list-sessions", "-F", "#{session_name}"]);
-    for (const name of list.out.split("\n").map((s) => s.trim()).filter((s) => s.startsWith(`tunnel-mcp__${alias}__`))) {
-      const kill = sh(["tmux", "kill-session", "-t", name]);
-      if (kill.code === 0) console.log(`tmux ${name} cerrado`);
+    if (process.platform !== "win32") {
+      const list = sh(["tmux", "list-sessions", "-F", "#{session_name}"]);
+      for (const name of list.out.split("\n").map((s) => s.trim()).filter((s) => s.startsWith(`tunnel-mcp__${alias}__`))) {
+        const kill = sh(["tmux", "kill-session", "-t", name]);
+        if (kill.code === 0) console.log(`tmux ${name} cerrado`);
+      }
     }
     return;
   }
@@ -494,9 +498,8 @@ async function status(): Promise<void> {
   console.log(`  log      ${LOG}`);
   tunnel("status");
   // Por nombre de script, no por carpeta: el repo puede vivir en cualquier ruta.
-  const mcp = sh(["pgrep", "-af", "src/mcp/main.ts --contract"]);
-  const line = mcp.out.split("\n").find((l) => l.includes("mcp/main.ts") && !l.includes("pgrep"));
-  console.log(`  mcp      ${line ? "up" : "down"}`);
+  const mcp = processMatches("src/mcp/main.ts --contract");
+  console.log(`  mcp      ${mcp ? "up" : "down"}`);
   console.log(`  connector ${process.env.CODEX_WEB_HTTP_CONNECTOR ?? CONNECTOR_NAME}`);
   try {
     const sessFile = join(homedir(), ".codex-web-http", "sessions", "default.json");
@@ -563,9 +566,8 @@ function help(): void {
   isymcp models apply        prepara perfil aislado; no cambia Codex global
   isymcp models restore      restaura solo el perfil Web propio
   isymcp codex [args...]     ejecuta Codex con perfil ISyMCP aislado (sin mutar config.toml)
-  isymcp conversation new [--client cli|app] [--cwd dir] [--model alias]
+  isymcp conversation new [--client cli] [--cwd dir] [--model alias]
                              CLI interactivo, proveedor solo de ese proceso.
-                             --client app abre una ventana con perfil propio
   isymcp conversation list   hilos confirmados, con id completo
   isymcp conversation resume <launch-id|thread-id>
   isymcp version             imprime la versión instalada
@@ -586,7 +588,7 @@ function help(): void {
   isymcp session revoke <token|fp>
   isymcp canary              turno real de prueba (eco A, eco B sin A, markdown)
   isymcp canary status       ultimo resultado
-  isymcp canary schedule [--apply]   timer diario de systemd (sin --apply: solo muestra)
+  isymcp canary schedule [--apply]   programacion diaria (systemd / Task Scheduler; sin --apply: solo muestra)
   isymcp canary unschedule [--apply]
   isymcp harness list        CLIs/TUIs de agentes detectadas + si tienen isymcp-chatgpt
   isymcp harness install <ids|--all> [--apply]
@@ -677,7 +679,7 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
     await mediaCommand("prepare", []);
   },
   "conversation-new": async () => {
-    const client = (await ask("cliente [cli/app]: ")) || "cli";
+    const client = (await ask("cliente [cli]: ")) || "cli";
     const cwd = (await ask(`workspace (${process.cwd()}): `)) || process.cwd();
     const model = (await ask("modelo [chatgpt-web/gpt-5.6-sol]: ")) || "chatgpt-web/gpt-5.6-sol";
     await conversationCommand("new", ["--client", client, "--cwd", cwd, "--model", model]);
@@ -1031,16 +1033,29 @@ async function canaryCommand(sub: string, rest: string[]): Promise<void> {
     return;
   }
   if (sub !== "schedule" && sub !== "unschedule") throw new Error("uso: isymcp canary [run|status|schedule|unschedule] [--apply]");
+  const home = process.env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
   const unitDir = join(homedir(), ".config", "systemd", "user");
-  const launcher = join(process.env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http"), "bin", "isymcp-canary");
+  const launcher = join(home, "bin", process.platform === "win32" ? "isymcp-canary.ps1" : "isymcp-canary");
   const service = `[Unit]\nDescription=ISyMCP canario (captura de chatgpt.com)\n\n[Service]\nType=oneshot\nExecStart=${launcher}\n`;
   const timer = `[Unit]\nDescription=ISyMCP canario diario\n\n[Timer]\nOnCalendar=*-*-* 09:00:00\nPersistent=true\nRandomizedDelaySec=10m\n\n[Install]\nWantedBy=timers.target\n`;
-  const steps = sub === "schedule"
-    ? [`escribir ${launcher} (lanzador sin espacios)`, `escribir ${join(unitDir, "isymcp-canary.service")}`, `escribir ${join(unitDir, "isymcp-canary.timer")} (diario 09:00, Persistent)`, "systemctl --user daemon-reload", "systemctl --user enable --now isymcp-canary.timer"]
-    : ["systemctl --user disable --now isymcp-canary.timer", `borrar ${join(unitDir, "isymcp-canary.service")} y .timer`, "systemctl --user daemon-reload"];
+  const windows = process.platform === "win32";
+  const steps = windows
+    ? sub === "schedule"
+      ? [`escribir ${launcher} con ACL privada`, `crear tarea diaria de Windows a las 09:00 (solo cuando el usuario inicio sesion)`]
+      : [`eliminar tarea de Windows "ISyMCP Canary"`, `borrar ${launcher}`]
+    : sub === "schedule"
+      ? [`escribir ${launcher} (lanzador sin espacios)`, `escribir ${join(unitDir, "isymcp-canary.service")}`, `escribir ${join(unitDir, "isymcp-canary.timer")} (diario 09:00, Persistent)`, "systemctl --user daemon-reload", "systemctl --user enable --now isymcp-canary.timer"]
+      : ["systemctl --user disable --now isymcp-canary.timer", `borrar ${join(unitDir, "isymcp-canary.service")} y .timer`, "systemctl --user daemon-reload"];
   if (!rest.includes("--apply")) {
     console.log(`PLAN (${sub}) — no se toco nada. Repite con --apply:`);
     for (const step of steps) console.log(`  · ${step}`);
+    return;
+  }
+  if (windows) {
+    const { installWindowsCanaryTask, removeWindowsCanaryTask } = await import("./platform/canary-scheduler");
+    if (sub === "schedule") installWindowsCanaryTask({ home, bunPath: process.execPath, entryPath: join(import.meta.dir, "isymcp.ts") });
+    else removeWindowsCanaryTask(home);
+    console.log(sub === "schedule" ? "tarea activa: Windows Task Scheduler · diario 09:00 · usuario conectado" : "tarea quitada");
     return;
   }
   const { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
@@ -1066,7 +1081,14 @@ async function canaryCommand(sub: string, rest: string[]): Promise<void> {
 
 function spawnCodex(args: string[], extraEnv: Record<string, string> = {}): Promise<number> {
   return new Promise((resolve) => {
-    const child = spawn("codex", args, { stdio: "inherit", env: { ...process.env, ...extraEnv } });
+    const env = { ...process.env, ...extraEnv };
+    const executable = process.platform === "win32" ? findCodexWindowsCli(env) : "codex";
+    if (!executable) {
+      console.error("no se pudo iniciar Codex: falta codex.exe; instala @openai/codex o define ISYMCP_CODEX_CLI_BIN");
+      resolve(1);
+      return;
+    }
+    const child = spawn(executable, args, { stdio: "inherit", env });
     child.once("error", (error) => { console.error(`no se pudo iniciar Codex: ${error.message}`); resolve(1); });
     child.once("exit", (status, signal) => resolve(status ?? (signal ? 1 : 0)));
   });
@@ -1109,19 +1131,12 @@ async function conversationCommand(sub: string | undefined, rest: string[]): Pro
     const client = flag("--client", rest) ?? "cli";
     const cwd = flag("--cwd", rest) ?? process.cwd();
     const model = flag("--model", rest) ?? "chatgpt-web/gpt-5.6-sol";
+    if (client !== "cli") throw new Error("web_conversation_client_unsupported: isolated Desktop App profiles are UNKNOWN / NO EXECUTE; use --client cli");
     const plan = planNewConversation({ client, cwd, model });
     if (!existsSync(cwd)) throw new Error(`web_conversation_cwd_invalid: no existe ${cwd}`);
     writeLaunchIntent(dir, plan.intent);
     await ensureWebBridge();
     const profile = installWebModels({ apply: true, url: `${BRIDGE}/v1`, model, effort: "high", caps: process.env.CODEX_WEB_HTTP_CAPS });
-    if (client === "app") {
-      if (!profile.catalogReady) throw new Error("web_app_catalog_missing: native model metadata is required");
-      const { prepareCodexApp, launchCodexApp } = await import("./codex-app");
-      const app = prepareCodexApp(plan.intent, { port: PORT, catalogPath: profile.catalogPath });
-      await launchCodexApp(app);
-      console.log(`Codex App (ISyMCP Web): ${plan.intent.launchId}\nPerfil privado: ${app.home}\nEscribe la primera tarea en esa ventana; el primer resultado guarda el enlace de ChatGPT.`);
-      return;
-    }
     const code = await spawnCodex(plan.args({ port: PORT, catalogPath: profile.catalogReady ? profile.catalogPath : undefined }), plan.env);
     if (code !== 0) process.exitCode = code;
     return;
@@ -1130,24 +1145,17 @@ async function conversationCommand(sub: string | undefined, rest: string[]): Pro
     const id = commandPositionals(rest)[0];
     if (!id) throw new Error("uso: isymcp conversation resume <launch-id|thread-id>");
     const receipt = findConversation(dir, id);
+    if (receipt.client !== "cli") throw new Error("web_conversation_resume_invalid: only a committed CLI receipt can resume");
     await ensureWebBridge();
     const profile = installWebModels({
       apply: true, url: `${BRIDGE}/v1`, model: receipt.model, effort: receipt.effort, caps: process.env.CODEX_WEB_HTTP_CAPS,
     });
-    if (receipt.client === "app") {
-      if (!profile.catalogReady) throw new Error("web_app_catalog_missing");
-      const { prepareCodexApp, launchCodexApp } = await import("./codex-app");
-      await launchCodexApp(prepareCodexApp({ ...receipt, version: "isymcp-launch-intent/1" }, {
-        port: PORT, catalogPath: profile.catalogPath, threadId: receipt.threadId,
-      }));
-      return;
-    }
     const args = planResumeConversation(receipt, { port: PORT, catalogPath: profile.catalogReady ? profile.catalogPath : undefined });
     const code = await spawnCodex(args, { ISYMCP_LAUNCH_ID: receipt.launchId });
     if (code !== 0) process.exitCode = code;
     return;
   }
-  throw new Error("uso: isymcp conversation new [--client cli|app] [--cwd dir] [--model alias] | list | resume <launch-id|thread-id>");
+  throw new Error("uso: isymcp conversation new [--client cli] [--cwd dir] [--model alias] | list | resume <launch-id|thread-id>");
 }
 
 async function codexCommand(sub: string | undefined, rest: string[]): Promise<void> {
@@ -1185,11 +1193,7 @@ async function codexCommand(sub: string | undefined, rest: string[]): Promise<vo
     if (profile.catalogReady) catalogPath = profile.catalogPath;
   }
   const fullArgs = buildCodexArgs(userArgs, PORT, catalogPath);
-  const code = await new Promise<number>((resolve) => {
-    const child = spawn("codex", fullArgs, { stdio: "inherit", env: process.env });
-    child.once("error", (error) => { console.error(`no se pudo iniciar Codex: ${error.message}`); resolve(1); });
-    child.once("exit", (status, signal) => resolve(status ?? (signal ? 1 : 0)));
-  });
+  const code = await spawnCodex(fullArgs);
   // La invocacion desde el menu vuelve al menu; no termina todo isymcp.
   if (code !== 0) process.exitCode = code;
 }

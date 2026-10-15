@@ -119,7 +119,7 @@ export function renderChatView(): string {
     <div class="row"><h4>CODEX ISyMCP</h4>
       <button class="switch" id="tools-switch" role="switch" aria-checked="false" type="button" disabled><span></span><b>OFF</b></button>
       <select id="tools-session" class="select" disabled></select>
-      <div class="note" id="tools-note">Tools apagadas en cada chat nuevo. Al encenderlas, ChatGPT puede ejecutar comandos en la carpeta de la sesión elegida (sandbox bwrap). El token nunca pasa por esta página.</div></div>
+      <div class="note" id="tools-note">Tools apagadas en cada chat nuevo. Al encenderlas, ChatGPT puede ejecutar comandos en la carpeta de la sesión elegida (sandbox local aislado). El token nunca pasa por esta página.</div></div>
     <div class="row"><h4>CONVERSACIÓN</h4><div class="val" id="convlink"><span class="muted">sin /c/ todavía</span></div>
       <div class="note">Se crea con el primer mensaje.</div></div>
     <div class="row"><h4>BRIDGE</h4><div class="val" id="bridgestate">—</div></div>
@@ -187,7 +187,7 @@ function renderTools(c){const sw=$('tools-switch'),sel=$('tools-session'),note=$
   for(const x of sessionsList){const o=el('option','',sessionLabel(x));o.value=x.fp;o.disabled=x.expired;sel.appendChild(o);}
   sel.value=(c&&c.session_fp&&sessionsList.some(x=>x.fp===c.session_fp))?c.session_fp:'';
   const chosen=sessionsList.find(x=>x.fp===sel.value);
-  note.textContent=!c?'Abre o crea un chat para configurar sus tools.':!on?'Tools apagadas en este chat. Al encenderlas, ChatGPT puede ejecutar comandos en la carpeta de la sesión elegida (sandbox bwrap). El token nunca pasa por esta página.'
+  note.textContent=!c?'Abre o crea un chat para configurar sus tools.':!on?'Tools apagadas en este chat. Al encenderlas, ChatGPT puede ejecutar comandos en la carpeta de la sesión elegida (sandbox local aislado). El token nunca pasa por esta página.'
     :(chat.tunnel!=='ready'?'⚠ El túnel MCP está detenido: ChatGPT no podrá llamar a las tools (Estado → Túnel ▶). ':'')+(chosen?(chosen.writable?'Lectura y ESCRITURA en ':'Solo lectura en ')+chosen.cwd+'. Cada turno usa un token desechable; ves aquí lo que de verdad se ejecutó.':'Elige una sesión.');}
 async function saveTools(enabled,fp){if(!chat.current)return;const r=await api('/api/chats/'+encodeURIComponent(chat.current)+'/config',{method:'POST',body:JSON.stringify({tools_enabled:enabled,session_fp:fp||null})});
   if(r.ok){currentData={...currentData,...r.json};}else toast('✗ '+((r.json&&r.json.error&&r.json.error.message)||'no se pudo guardar'),'bad');renderTools(currentData);}

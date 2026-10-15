@@ -39,6 +39,19 @@ describe("codex-patch: Update File", () => {
     expect(read("probe.txt")).toBe("primera linea\nPATCHED\n");
   });
 
+  test("acepta y conserva los finales de linea CRLF de Windows", () => {
+    write("windows.txt", "primera linea\r\n");
+    applyCodexPatch(dir, [
+      "*** Begin Patch",
+      "*** Update File: windows.txt",
+      "@@",
+      " primera linea",
+      "+PATCHED",
+      "*** End Patch",
+    ].join("\n"));
+    expect(read("windows.txt")).toBe("primera linea\r\nPATCHED\r\n");
+  });
+
   test("reemplaza una linea en el medio con contexto alrededor", () => {
     write("a.txt", "uno\ndos\ntres\n");
     applyCodexPatch(dir, [

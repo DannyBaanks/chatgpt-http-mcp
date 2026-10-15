@@ -1,12 +1,22 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, lstatSync, existsSync } from 'node:fs';
+import { lstatSync, existsSync, chmodSync } from 'node:fs';
 import { createServer, createConnection } from 'node:net';
 import { isAbsolute, join } from 'node:path';
+import { isWindowsPipePath, localIpcPath } from '../platform/ipc';
+import { ensurePrivatePath } from '../platform/private-path';
 import { submitOnce, type BrowserDriverPort, type SubmissionRequest, type SubmissionReceipt } from './browser-driver';
 import type { ConversationSnapshot } from './browser-observer';
 
 const MAX_FRAME = 1024 * 1024;
 function privatePath(path: string, socket = false) {
+  if (process.platform === 'win32' && socket) {
+    if (!isWindowsPipePath(path)) throw Error('visible_worker_path_not_private');
+    return;
+  }
+  if (!socket && process.platform === 'win32') {
+    ensurePrivatePath(path, true);
+    return;
+  }
   const stat = lstatSync(path);
   if (stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) ||
       (socket ? !stat.isSocket() : !stat.isDirectory())) throw Error('visible_worker_path_not_private');
@@ -27,8 +37,8 @@ export async function createBrowserWorker(options: {
 }) {
   if (!isAbsolute(options.directory)) throw Error('visible_worker_path_not_private');
   privatePath(options.directory);
-  const socketPath = join(options.directory, 'browser.sock');
-  if (existsSync(socketPath)) throw Error('visible_worker_endpoint_exists');
+  const socketPath = localIpcPath(join(options.directory, 'browser.sock'));
+  if (process.platform !== 'win32' && existsSync(socketPath)) throw Error('visible_worker_endpoint_exists');
   const token = randomBytes(32).toString('hex');
   const sources = new Map<string, SubmissionReceipt>();
   let queue = Promise.resolve();
@@ -77,7 +87,7 @@ export async function createBrowserWorker(options: {
     });
   });
   await new Promise<void>((resolve, reject) => {
-    server.once('error', reject); server.listen(socketPath, () => { chmodSync(socketPath, 0o600); resolve(); });
+    server.once('error', reject); server.listen(socketPath, () => { if (process.platform !== 'win32') chmodSync(socketPath, 0o600); resolve(); });
   });
   return {
     socketPath, token,

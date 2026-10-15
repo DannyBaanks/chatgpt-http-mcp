@@ -6,6 +6,16 @@
 **Prioridad:** P0 — Account Safety  
 **Objeto:** Evaluación de los mecanismos de integración con las herramientas oficiales Codex de OpenAI.
 
+## Estado operativo actualizado — 2026-10-15
+
+`src/codex-app.ts` ahora falla de forma segura antes de leer credenciales o
+crear un perfil, e `isymcp conversation new --client app` se rechaza antes de
+iniciar el bridge o escribir configuración. Los intents y recibos nuevos solo
+aceptan el cliente Codex CLI soportado. Los resultados de generación de perfiles
+que aparecen abajo son evidencia histórica de viabilidad técnica, no de soporte
+actual ni de autorización. No hay registrado un contrato oficial de autenticación
+multi-perfil, por lo que sigue vigente la decisión P0 `UNKNOWN / NO EXECUTE`.
+
 ---
 
 ## 1. Distinción Fundamental de Niveles de Integración

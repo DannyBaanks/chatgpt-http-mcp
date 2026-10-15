@@ -8,6 +8,7 @@
 // Sin sesion/cookies no inventa nada: devuelve error nombrado.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { defaultBrowserExecutable } from "./platform/browser";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { sanitizeEvidenceText } from "./sanitize";
 import { domToMarkdown, markdownMatchesText } from "./dom-markdown";
@@ -188,6 +189,7 @@ async function selectConnector(page: Page, appName: string): Promise<void> {
 }
 
 function shellBinary(): string {
+  if (process.platform === "win32") return CHROME_BINARY;
   const base = join(homedir(), ".cache", "ms-playwright");
   const dirs = readdirSync(base)
     .filter((name) => name.startsWith("chromium_headless_shell-"))
@@ -214,7 +216,7 @@ function chromeVersion(bin: string): string {
   }
 }
 /** Chrome completo; CODEX_WEB_HTTP_CHROME para rutas fuera de Ubuntu/Debian. */
-const CHROME_BINARY = process.env.CODEX_WEB_HTTP_CHROME?.trim() || "/usr/bin/google-chrome";
+const CHROME_BINARY = process.env.CODEX_WEB_HTTP_CHROME?.trim() || defaultBrowserExecutable();
 const normalUA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion(CHROME_BINARY)} Safari/537.36`;
 
 /** Extrae la ultima respuesta del asistente a partir de las marcas de la UI. */

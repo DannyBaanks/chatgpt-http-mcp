@@ -5,7 +5,7 @@
 //
 // Con un turn_token que coincide con una sesion del registro
 // (~/.codex-web-http/codex-sessions.json) TODAS las tools ejecutan de verdad
-// con la politica de esa sesion (read-only | writable) y sandbox bwrap:
+// con la politica de esa sesion (read-only | writable) y un sandbox disponible:
 //   - codex_exec: comando foreground, o background=true → exec_id persistente
 //   - codex_write_stdin: stdin de un proceso vivo + delta de salida
 //   - codex_apply_patch: formato nativo Codex (*** Begin Patch) o git diff
@@ -22,13 +22,13 @@
 //
 // Session tokens (v0.3): si el turn_token coincide con una sesion del registro
 // (~/.codex-web-http/codex-sessions.json), las tools ejecutan de verdad con la
-// politica de esa sesion (read-only | writable) y sandbox bwrap. Un token
+// politica de esa sesion (read-only | writable) y un sandbox disponible. Un token
 // desconocido conserva el comportamiento stub (compat OpenISy).
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { extname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import {
   bridgeHome,
@@ -38,13 +38,17 @@ import {
   patchPaths,
   resolveWithin,
   resolveWithinReal,
-  sandboxArgv,
   sandboxAvailable,
+  sandboxBackend,
+  sandboxLabel,
+  sandboxPlan,
+  sandboxUnavailableReason,
+  stopSandboxPlan,
+  watchSandboxProcess,
   type CodexSession,
 } from "../codex-sessions";
 import { readMcpBootstrap } from "./bootstrap";
 import { routeNativeTool } from "./active-native";
-import { applyCodexPatch, CodexPatchError } from "./codex-patch";
 import { capabilities, shapesFor, TOOL_DESCRIPTIONS, WIRE_ALIASES, type ToolName } from "./catalog";
 import { drain, findLive, killSessionExecs, registerLiveExec, writeStdin as stdinWrite, type BgProc } from "./exec-registry";
 import { CODEX_TOOLS, buildInstructions } from "./identity";
@@ -64,7 +68,7 @@ const contract = option("--contract", "native");
 if (contract !== "native" && contract !== "safe") {
   throw new Error(`--contract debe ser native o safe, recibido: ${contract}`);
 }
-const brokerSocketPath = option("--broker-socket", "/tmp/codex-web-http-broker.sock");
+const brokerSocketPath = option("--broker-socket", process.platform === "win32" ? "\\\\.\\pipe\\isymcp-broker" : "/tmp/codex-web-http-broker.sock");
 
 const turnKey = contract === "safe" ? "request_id" : "turn_token";
 
@@ -174,22 +178,34 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
   if (!workdir || !existsSync(workdir) || !statSync(workdir).isDirectory()) {
     return fail(`cwd fuera del workspace o inexistente: ${String(cwdArg ?? ".")}`, { session: sessionMeta(session) });
   }
-  const argv = sandboxArgv(session, workdir, command as string[]);
-  if (!argv) {
-    return fail("fail-closed: bwrap no disponible (sin sandbox no se ejecuta; CODEX_WEB_HTTP_SANDBOX=off solo habilita sesiones writable)", { session: sessionMeta(session) });
+  const launch = sandboxPlan(session, workdir, command as string[]);
+  if (!launch) {
+    return fail(`fail-closed: ${sandboxUnavailableReason()} (sin sandbox no se ejecuta; CODEX_WEB_HTTP_SANDBOX=off solo habilita sesiones writable)`, { session: sessionMeta(session) });
   }
+  const { argv } = launch;
+  const sandbox = launch.backend === "none" ? "none" : sandboxLabel(session);
   const started = Date.now();
   if (background === true) {
     // Proceso persistente: stdin abierto, exec_id para codex_write_stdin.
     // NO sufre el timeout de foreground; lo limita el TTL del registro.
+    let raw: ReturnType<typeof Bun.spawn> | undefined;
     try {
-      const proc = Bun.spawn(argv, {
+      raw = Bun.spawn(argv, {
         cwd: workdir,
         stdout: "pipe",
         stderr: "pipe",
         stdin: "pipe",
-        env: process.env,
-      }) as unknown as BgProc;
+        env: launch.env ?? process.env,
+      });
+      watchSandboxProcess(launch, raw.exited);
+      const proc: BgProc = {
+        stdin: raw.stdin as unknown as BgProc["stdin"],
+        stdout: raw.stdout,
+        stderr: raw.stderr,
+        kill: (signal) => { stopSandboxPlan(launch); raw.kill(signal); },
+        exited: raw.exited,
+        idleOutputMs: launch.backend === "docker" || launch.backend === "codex-windows" ? 1000 : 250,
+      };
       const rec = registerLiveExec({ sessionFp: session.fp, command: command as string[], cwd: workdir, proc });
       trace("exec.bg.spawn", { exec_id: rec.id, writable: session.writable, workdir });
       const initial = await drain(rec, clampInt(captureMs, 0, 5000, 1500));
@@ -197,7 +213,7 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
         executed: true,
         background: true,
         exec_id: rec.id,
-        sandbox: sandboxAvailable() ? (session.writable ? "bwrap-workspace-write" : "bwrap-read-only") : "none",
+        sandbox,
         session: sessionMeta(session),
         command,
         cwd: workdir,
@@ -209,6 +225,18 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
         duration_ms: Date.now() - started,
       });
     } catch (err) {
+      // registerLiveExec puede fallar después de que el watcher marque el
+      // sandbox como observado; en ese estado stopSandboxPlan ya no mata el
+      // proceso nativo. Cierra también el hijo directo para no dejarlo huérfano.
+      if (raw) {
+        try {
+          raw.kill();
+          await raw.exited;
+        } catch {
+          /* se conserva el error original de registro/spawn */
+        }
+      }
+      stopSandboxPlan(launch);
       return fail(`background spawn fallo: ${String(err)}`, { session: sessionMeta(session) });
     }
   }
@@ -221,12 +249,14 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
       cwd: workdir,
       stdout: "pipe",
       stderr: "pipe",
-      env: process.env,
+      env: launch.env ?? process.env,
     });
+    watchSandboxProcess(launch, proc.exited);
     trace("exec.spawn", { writable: session.writable, workdir });
     const timer = setTimeout(() => {
       timedOut = true;
       trace("exec.kill", {});
+      stopSandboxPlan(launch);
       proc.kill();
     }, execTimeoutMs);
     const stdout = await new Response(proc.stdout).text();
@@ -238,7 +268,7 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
     clearTimeout(timer);
     return jsonText({
       executed: true,
-      sandbox: sandboxAvailable() ? (session.writable ? "bwrap-workspace-write" : "bwrap-read-only") : "none",
+      sandbox,
       session: sessionMeta(session),
       command,
       cwd: workdir,
@@ -249,6 +279,7 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
       duration_ms: Date.now() - started,
     });
   } catch (err) {
+    stopSandboxPlan(launch);
     return fail(`spawn fallo: ${String(err)}`, { session: sessionMeta(session) });
   }
 }
@@ -257,63 +288,85 @@ async function runApplyPatch(session: CodexSession, patch: unknown) {
   if (typeof patch !== "string" || !patch.trim()) return fail("patch requerido");
   if (!session.writable) return fail("sesion read-only: apply_patch denegado", { session: sessionMeta(session) });
   const { paths, codexFormat } = patchPaths(patch);
-  if (codexFormat) {
-    // Formato nativo Codex (*** Begin Patch): validacion completa en memoria
-    // antes de escribir; un patch invalido no toca disco.
-    try {
-      const files = applyCodexPatch(session.cwd, patch);
-      return jsonText({
-        executed: true,
-        format: "codex-native",
-        session: sessionMeta(session),
-        files,
-        exit_code: 0,
-        stdout: "",
-        stderr: "",
-      });
-    } catch (err) {
-      if (err instanceof CodexPatchError) return fail(err.message, { format: "codex-native", session: sessionMeta(session) });
-      throw err;
-    }
-  }
-  if (paths.length === 0) return fail("no se detectaron paths en el patch", { session: sessionMeta(session) });
+  if (!codexFormat && paths.length === 0) return fail("no se detectaron paths en el patch", { session: sessionMeta(session) });
   for (const p of paths) {
     if (!resolveWithin(session.cwd, p)) {
       return fail(`path fuera del workspace: ${p}`, { session: sessionMeta(session) });
     }
   }
-  const tmpFile = join(tmpdir(), `isyco-patch-${process.pid}-${Date.now()}.diff`);
+  const backend = sandboxBackend();
+  const windowsDocker = process.platform === "win32" && backend === "docker";
+  const patchModule = windowsDocker ? "/opt/isymcp/src/mcp/codex-patch.ts" : join(import.meta.dir, "codex-patch.ts");
+  let patchHelper: string | undefined;
+  let patchModuleSpecifier = patchModule;
+  if (codexFormat && !windowsDocker) {
+    // The sandbox deliberately hides the bridge's home/application tree. Put
+    // this one trusted helper in the authorized workspace so Bun can resolve
+    // it after that isolation is applied, then remove it on every exit path.
+    patchHelper = join(session.cwd, `.isymcp-codex-patch-${randomUUID()}.ts`);
+    try {
+      writeFileSync(patchHelper, readFileSync(patchModule), { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      return fail(`no se pudo preparar apply_patch aislado: ${String(error)}`, { session: sessionMeta(session) });
+    }
+    patchModuleSpecifier = `./${basename(patchHelper)}`;
+  }
+  const patchRoot = windowsDocker ? "/workspace" : session.cwd;
+  const command = codexFormat
+    ? ["bun", "-e", `import { applyCodexPatch } from ${JSON.stringify(patchModuleSpecifier)}; const patch = await Bun.stdin.text(); try { console.log(JSON.stringify({files: applyCodexPatch(${JSON.stringify(patchRoot)}, patch)})); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }`]
+    : ["git", "apply", "--whitespace=nowarn", "-"];
+  const launch = sandboxPlan(session, session.cwd, command);
+  if (!launch) {
+    if (patchHelper) { try { unlinkSync(patchHelper); } catch { /* preserve fail-closed result */ } }
+    return fail(`fail-closed: ${sandboxUnavailableReason()} (no se aplica el patch fuera del sandbox)`, { session: sessionMeta(session) });
+  }
   try {
     // git apply exige newline final; los modelos suelen omitirlo.
     const normalizedPatch = patch.endsWith("\n") ? patch : `${patch}\n`;
-    writeFileSync(tmpFile, normalizedPatch, { mode: 0o600 });
-    const proc = Bun.spawn(["git", "apply", "--whitespace=nowarn", tmpFile], {
+    const proc = Bun.spawn(launch.argv, {
       cwd: session.cwd,
       stdout: "pipe",
       stderr: "pipe",
-      env: process.env,
+      stdin: "pipe",
+      env: launch.env ?? process.env,
     });
-    const timer = setTimeout(() => proc.kill(), 60_000);
+    watchSandboxProcess(launch, proc.exited);
+    proc.stdin.write(normalizedPatch);
+    proc.stdin.end();
+    const timer = setTimeout(() => { stopSandboxPlan(launch); proc.kill(); }, 60_000);
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
     clearTimeout(timer);
+    if (exitCode !== 0) {
+      const reason = stderr.trim() || stdout.trim() || `patch termino con exit ${exitCode}`;
+      return fail(reason, {
+        executed: false,
+        ...(codexFormat ? { format: "codex-native" } : {}),
+        session: sessionMeta(session),
+        files: [...new Set(paths)],
+        exit_code: exitCode,
+        stdout: clip(stdout),
+        stderr: clip(stderr),
+      });
+    }
+    const result = codexFormat && exitCode === 0 ? JSON.parse(stdout) as { files?: string[] } : undefined;
     return jsonText({
       executed: exitCode === 0,
+      ...(codexFormat ? { format: "codex-native" } : {}),
       session: sessionMeta(session),
-      files: [...new Set(paths)],
+      files: codexFormat ? result?.files ?? paths : [...new Set(paths)],
       exit_code: exitCode,
       stdout: clip(stdout),
       stderr: clip(stderr),
     });
+  } catch (err) {
+    stopSandboxPlan(launch);
+    return fail(`patch sandbox fallo: ${String(err)}`, { session: sessionMeta(session) });
   } finally {
-    try {
-      unlinkSync(tmpFile);
-    } catch {
-      /* tmp */
-    }
+    if (patchHelper) { try { unlinkSync(patchHelper); } catch { /* helper may already be absent */ } }
   }
 }
 
@@ -386,7 +439,7 @@ function sessionInventory(session: CodexSession) {
     tools: [...CODEX_TOOLS],
     capabilities: capabilities(contract),
     source: "codex-web-http sessions",
-    sandbox: sandboxAvailable() ? "bwrap" : "none",
+    sandbox: sandboxLabel(session),
   });
 }
 
@@ -675,5 +728,5 @@ registerMediaTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`[codex-web-http MCP] contract=${contract} broker=${brokerSocketPath} sessions=${sandboxAvailable() ? "bwrap" : "no-bwrap"}`);
-trace("startup", { pid: process.pid, contract, sandbox: sandboxAvailable() });
+console.error(`[codex-web-http MCP] contract=${contract} broker=${brokerSocketPath} sandbox=${sandboxAvailable() ? sandboxLabel({ writable: false }) : "unavailable"}`);
+trace("startup", { pid: process.pid, contract, sandbox: sandboxAvailable() ? sandboxLabel({ writable: false }) : "unavailable" });

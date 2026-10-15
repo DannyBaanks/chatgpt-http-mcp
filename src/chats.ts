@@ -11,10 +11,11 @@
 // chat la UI tiene que mostrar el historial sin navegar Chrome (que esta
 // serializado y tarda segundos). Se limita a los ultimos MAX_MESSAGES.
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
 import type { ToolCard } from "./tool-trace";
+import { securePrivatePath } from "./platform/private-path";
 
 export const CHAT_ID_RE = /^c_[0-9a-f]{16}$/;
 export const MAX_MESSAGES = 200;
@@ -61,7 +62,7 @@ export function chatPath(id: string): string | null {
 
 function ensureDir(): void {
   mkdirSync(chatsDir(), { recursive: true, mode: 0o700 });
-  chmodSync(chatsDir(), 0o700);
+  securePrivatePath(chatsDir(), true);
 }
 
 export function saveChat(chat: ChatRecord): void {
@@ -72,7 +73,7 @@ export function saveChat(chat: ChatRecord): void {
   const tmp = `${path}.tmp-${process.pid}`;
   writeFileSync(tmp, `${JSON.stringify(trimmed, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, path);
-  chmodSync(path, 0o600);
+  securePrivatePath(path, false);
 }
 
 export function createChat(title = "Nuevo chat"): ChatRecord {

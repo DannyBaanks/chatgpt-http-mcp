@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import { prepareVisibleProfile } from './browser-driver';
+import { defaultBrowserExecutable } from '../platform/browser';
 
 // Authentication precedes Playwright and stays in this exact owned profile.
 // Browser exit is only a handoff signal: it never establishes authentication.
@@ -8,7 +9,8 @@ export async function manualVisibleLogin(options: {
  profileDir: string; launchId: string; executablePath?: string;
 }): Promise<{manualBrowserClosed:true; authenticated:'not_verified'}> {
  prepareVisibleProfile(options);
- const executable = options.executablePath ?? '/usr/bin/google-chrome';
+ const executable = options.executablePath ?? defaultBrowserExecutable();
+ if (!executable) throw Error('visible_host_chrome_not_found');
  if (!isAbsolute(executable)) throw Error('visible_manual_login_executable_requires_absolute_path');
  const child = spawn(executable, [
   '--user-data-dir='+options.profileDir, '--new-window',

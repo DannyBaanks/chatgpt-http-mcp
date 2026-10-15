@@ -9,10 +9,11 @@
 //   bun run scripts/install-tunnel.ts
 //   bun run scripts/install-tunnel.ts --tunnel-file ~/Development/tunnel.txt \
 //       --key-file "$HOME/Development/api key openai.txt" --force
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { securePrivatePath } from "../src/platform/private-path";
 
 export const TUNNEL_VERSION = "0.0.12";
 const RELEASE_BASE = `https://github.com/openai/tunnel-client/releases/download/v${TUNNEL_VERSION}`;
@@ -29,10 +30,25 @@ function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 function platformAsset(): string {
-  const os = process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : undefined;
+  const os = process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : process.platform === "win32" ? "windows" : undefined;
   const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "amd64" : undefined;
   if (!os || !arch) throw new Error(`sin build pineado para ${process.platform}/${process.arch}`);
   return `tunnel-client-v${TUNNEL_VERSION}-${os}-${arch}.zip`;
+}
+
+function extractTunnelBinary(archivePath: string, outPath: string): void {
+  if (process.platform === "win32") {
+    const dir = `${outPath}.dir`;
+    const encode = (value: string) => Buffer.from(value, "utf16le").toString("base64");
+    const script = `$ErrorActionPreference='Stop'; $archive=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${encode(archivePath)}')); $dir=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${encode(dir)}')); $dest=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${encode(outPath)}')); Expand-Archive -LiteralPath $archive -DestinationPath $dir -Force; $file=Get-ChildItem -LiteralPath $dir -Filter 'tunnel-client.exe' -File -Recurse | Select-Object -First 1; if ($null -eq $file) { throw 'asset sin tunnel-client.exe' }; Copy-Item -LiteralPath $file.FullName -Destination $dest -Force`;
+    const result = Bun.spawnSync(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { stdout: "ignore", stderr: "pipe", timeout: 30_000 });
+    if (result.exitCode !== 0) throw new Error(`extraccion fallo: ${result.stderr.toString().slice(0, 300)}`);
+    rmSync(dir, { recursive: true, force: true });
+    return;
+  }
+  const py = `import zipfile,sys\nz=zipfile.ZipFile(sys.argv[1])\nnames=[n for n in z.namelist() if n.rstrip('/').split('/')[-1]=='tunnel-client']\nassert names, 'asset sin tunnel-client'\nopen(sys.argv[2],'wb').write(z.read(names[0]))`;
+  const result = Bun.spawnSync(["python3", "-c", py, archivePath, outPath]);
+  if (result.exitCode !== 0) throw new Error(`extraccion fallo: ${result.stderr.toString().slice(0, 300)}`);
 }
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const controller = new AbortController();
@@ -50,7 +66,8 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
 function atomicWrite(path: string, bytes: Uint8Array, mode: number): void {
   const tmp = `${path}.tmp-${process.pid}`;
   writeFileSync(tmp, bytes);
-  chmodSync(tmp, mode);
+  if (process.platform === "win32") securePrivatePath(tmp, false);
+  else chmodSync(tmp, mode);
   renameSync(tmp, path);
 }
 function runVersion(binary: string): string {
@@ -63,6 +80,7 @@ export async function installTunnelClient(force = false): Promise<string> {
   const binary = join(binDir, process.platform === "win32" ? "tunnel-client.exe" : "tunnel-client");
   const manifestPath = join(binDir, "tunnel-client-manifest.json");
   mkdirSync(binDir, { recursive: true, mode: 0o700 });
+  if (process.platform === "win32") securePrivatePath(binDir, true);
 
   if (!force && existsSync(binary) && existsSync(manifestPath)) {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { binarySha256?: string; tunnelClientVersion?: string };
@@ -87,21 +105,16 @@ export async function installTunnelClient(force = false): Promise<string> {
 
   const archivePath = join(binDir, `${asset}.download`);
   writeFileSync(archivePath, archive);
-  const outPath = join(binDir, "tunnel-client.extract");
-  const py = `import zipfile,sys
-z=zipfile.ZipFile(sys.argv[1])
-names=[n for n in z.namelist() if n.rstrip('/').split('/')[-1]=='tunnel-client']
-assert names, 'asset sin tunnel-client'
-open(sys.argv[2],'wb').write(z.read(names[0]))`;
-  const proc = Bun.spawnSync(["python3", "-c", py, archivePath, outPath]);
-  if (proc.exitCode !== 0) throw new Error(`extraccion fallo: ${proc.stderr.toString().slice(0, 300)}`);
+  const outPath = join(binDir, process.platform === "win32" ? "tunnel-client.extract.exe" : "tunnel-client.extract");
+  extractTunnelBinary(archivePath, outPath);
   const binaryBytes = new Uint8Array(readFileSync(outPath));
   const staged = `${binary}.install-${process.pid}`;
   atomicWrite(staged, binaryBytes, 0o700);
   const version = runVersion(staged);
   if (!version.includes(TUNNEL_VERSION)) throw new Error(`el binario no reporta ${TUNNEL_VERSION}: ${version.slice(0, 120)}`);
   renameSync(staged, binary);
-  chmodSync(binary, 0o700);
+  if (process.platform === "win32") securePrivatePath(binary, false);
+  else chmodSync(binary, 0o700);
   writeFileSync(manifestPath, JSON.stringify({
     version: 1,
     tunnelClientVersion: TUNNEL_VERSION,
@@ -109,9 +122,7 @@ open(sys.argv[2],'wb').write(z.read(names[0]))`;
     archiveSha256: archiveHash,
     binarySha256: sha256(binaryBytes),
   }, null, 2) + "\n");
-  for (const leftover of [archivePath, outPath]) {
-    try { Bun.spawnSync(["rm", "-f", leftover]); } catch { /* best effort */ }
-  }
+  for (const leftover of [archivePath, outPath]) rmSync(leftover, { force: true });
   return binary;
 }
 
@@ -121,6 +132,7 @@ export function installRuntimeKey(sourceFile: string): string {
   if (key.length === 0 || key.length > 64 * 1024) throw new Error("key vacia o demasiado grande");
   const dest = join(home(), "secrets", "tunnel-runtime.key");
   mkdirSync(join(home(), "secrets"), { recursive: true, mode: 0o700 });
+  if (process.platform === "win32") securePrivatePath(join(home(), "secrets"), true);
   atomicWrite(dest, new TextEncoder().encode(key), 0o600);
   return dest;
 }

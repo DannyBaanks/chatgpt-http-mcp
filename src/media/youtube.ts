@@ -6,8 +6,9 @@ import { verifyDownloadedYouTubeId } from './youtube-url';
 export { verifyDownloadedYouTubeId } from './youtube-url';
 export type YouTubeDownloadResult = { path:string; video_id:string; source_url:string };
 export function youtubeDownloaderBinary(env:NodeJS.ProcessEnv=process.env):string {
- const installed=join(homedir(),'.oamaestro/bin/yt-dlp');
- return env.ISYMCP_YTDLP_BIN || (existsSync(installed)?installed:'yt-dlp');
+ const command=process.platform==='win32'?'yt-dlp.exe':'yt-dlp';
+ const installed=join(homedir(),'.oamaestro','bin',command);
+ return env.ISYMCP_YTDLP_BIN || (existsSync(installed)?installed:command);
 }
 export function downloadBudget(dir:string,maxBytes:number):string|undefined {
  let sum=0;

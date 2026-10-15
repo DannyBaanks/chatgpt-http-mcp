@@ -8,6 +8,7 @@ import { z } from "zod";
 import { bridgeHome, findSessionByToken, isExpired, mintSession, resolveWithinReal, updateSession, type CodexSession } from "../codex-sessions";
 import { capabilities, shapesFor, WIRE_ALIASES, type ToolName } from "./catalog";
 import { readMcpBootstrap } from "./bootstrap";
+import { isWindowsPipePath, localIpcPath } from "../platform/ipc";
 
 type Owner = NonNullable<CodexSession["nativeOwner"]>;
 const supported: ToolName[] = ["codex_turn_start", "codex_tool_inventory", "codex_exec", "codex_tool_call", "codex_turn_complete"];
@@ -17,13 +18,19 @@ const metadata = (session: CodexSession) => ({ fp: session.fp, cwd: session.cwd,
 
 function socketIdentity(path: string) {
   if (!isAbsolute(path)) throw Error("native_socket_requires_absolute_path");
-  const stat = lstatSync(path);
+  const endpoint = localIpcPath(path);
+  if (process.platform === "win32") {
+    if (!isWindowsPipePath(endpoint)) throw Error("native_socket_not_private_owned_socket");
+    const socketInode = Number.parseInt(createHash("sha256").update(endpoint.toLowerCase()).digest("hex").slice(0, 12), 16);
+    return { socketDevice: 0, socketInode };
+  }
+  const stat = lstatSync(endpoint);
   if (!stat.isSocket() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0) throw Error("native_socket_not_private_owned_socket");
   return { socketDevice: stat.dev, socketInode: stat.ino };
 }
 export function nativeRpc(socketPath: string, payload: Record<string, unknown>, timeoutMs = 15000): Promise<any> {
   return new Promise((resolve, reject) => {
-    const id = randomUUID(), socket = createConnection(socketPath);
+    const id = randomUUID(), socket = createConnection(localIpcPath(socketPath));
     let raw = "", settled = false;
     const finish = (error?: Error, result?: unknown) => {
       if (settled) return; settled = true; clearTimeout(timer); socket.destroy();
@@ -90,8 +97,15 @@ export function bindNativeSource(fp: string, source: { url: string; messageId: s
   });
 }
 const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+function nativeCommandLine(command: string[]): string {
+  if (process.platform !== "win32") return command.map(shellQuote).join(" ");
+  const argv = Buffer.from(JSON.stringify(command), "utf8").toString("base64");
+  const script = `$__isymcp_json = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${argv}')); $__isymcp_argv = @($__isymcp_json | ConvertFrom-Json); $__isymcp_exe = [string]$__isymcp_argv[0]; $__isymcp_args = @($__isymcp_argv | Select-Object -Skip 1); & $__isymcp_exe @__isymcp_args; $__isymcp_success = $?; $__isymcp_exit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue; if ($null -ne $__isymcp_exit) { exit $__isymcp_exit }; if ($__isymcp_success) { exit 0 } else { exit 1 }`;
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  return `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}`;
+}
 export function nativeGateway(command: string[], cwd: string): string {
-  const cmd = command.map(shellQuote).join(" ");
+  const cmd = nativeCommandLine(command);
   const exec = { cmd, workdir: cwd, yield_time_ms: 1000, max_output_tokens: 8000, tty: false };
   const shell = { command: cmd, workdir: cwd, timeout_ms: 60000 };
   return [
