@@ -112,6 +112,7 @@ function policyConfig(input: {
   workspace: string;
   bridgeHome: string;
   nativeCodexHome: string;
+  userHome: string;
   profileHome: string;
   scratch: string;
   pathDirectories: string[];
@@ -137,8 +138,11 @@ function policyConfig(input: {
     throw Error("windows_sandbox_workspace_conflicts_with_private_data");
   }
 
-  const denied = [...new Set(protectedPaths.map((path) => path.toLowerCase()))]
-    .map((path) => protectedPaths.find((candidate) => candidate.toLowerCase() === path)!)
+  // MXC needs a readable root to resolve --cd. Deny the user's profile and
+  // reopen only the authorized workspace, scratch directory, and PATH entries.
+  const deniedPaths = [...protectedPaths, absoluteLocalPath(input.userHome)];
+  const denied = [...new Set(deniedPaths.map((path) => path.toLowerCase()))]
+    .map((path) => deniedPaths.find((candidate) => candidate.toLowerCase() === path)!)
     .map((path) => `${tomlString(path)} = "deny"`);
   const pathReads = [...new Set([...input.pathDirectories, ...input.readPaths].map((path) => path.toLowerCase()))]
     .filter((path) => !protectedPaths.some((protectedPath) => within(protectedPath, path) || within(path, protectedPath)))
@@ -149,10 +153,10 @@ function policyConfig(input: {
     `default_permissions = ${tomlString(PROFILE)}`,
     "",
     "[windows]",
-    'sandbox = "elevated"',
+    'sandbox = "mxc"',
     "",
     `[permissions.${PROFILE}.filesystem]`,
-    '":root" = "deny"',
+    '":root" = "read"',
     '":minimal" = "read"',
     `${tomlString(input.workspace)} = ${tomlString(workspaceAccess)}`,
     `${tomlString(input.scratch)} = "write"`,
@@ -218,6 +222,7 @@ export function buildCodexWindowsSandboxPlan(input: CodexWindowsSandboxInput): C
       workspace,
       bridgeHome,
       nativeCodexHome,
+      userHome: homedir(),
       profileHome: codexHome,
       scratch,
       pathDirectories,
@@ -228,7 +233,7 @@ export function buildCodexWindowsSandboxPlan(input: CodexWindowsSandboxInput): C
     securePrivatePath(configPath, false);
 
     return {
-      argv: [cli, "--strict-config", "sandbox", "--permission-profile", PROFILE, "--cd", workdir, "--", ...input.command],
+      argv: [cli, "sandbox", "--permission-profile", PROFILE, "--cd", workdir, "--", ...input.command],
       env: commandEnvironment(input.env ?? process.env, codexHome, scratch),
       cleanupRoot,
     };

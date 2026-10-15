@@ -116,10 +116,12 @@ function parse(patch: string): FileOp[] {
   return ops;
 }
 
-function splitLines(text: string): { lines: string[]; finalNewline: boolean } {
-  if (text === "") return { lines: [], finalNewline: true };
-  const finalNewline = text.endsWith("\n");
-  return { lines: (finalNewline ? text.slice(0, -1) : text).split("\n"), finalNewline };
+function splitLines(text: string): { lines: string[]; finalNewline: boolean; lineEnding: "\n" | "\r\n" | "\r" } {
+  if (text === "") return { lines: [], finalNewline: true, lineEnding: "\n" };
+  const lineEnding = text.includes("\r\n") ? "\r\n" : text.includes("\r") ? "\r" : "\n";
+  const finalNewline = /(?:\r\n|\r|\n)$/.test(text);
+  const withoutFinalNewline = finalNewline ? text.replace(/(?:\r\n|\r|\n)$/, "") : text;
+  return { lines: withoutFinalNewline.split(/\r\n|\r|\n/), finalNewline, lineEnding };
 }
 
 /**
@@ -157,7 +159,7 @@ function locate(lines: string[], from: number, hunk: Hunk, path: string): number
 
 /** Aplica los hunks de un Update File y devuelve el contenido NUEVO completo. */
 function applyUpdate(original: string, op: { path: string; hunks: Hunk[] }): string {
-  const { lines, finalNewline } = splitLines(original);
+  const { lines, finalNewline, lineEnding } = splitLines(original);
   if (op.hunks.length === 0) throw new CodexPatchError(`Update File sin hunks: ${op.path}`);
   const out: string[] = [];
   let origIdx = 0;
@@ -194,7 +196,7 @@ function applyUpdate(original: string, op: { path: string; hunks: Hunk[] }): str
   if (out.length === 0) return "";
   // Nueva linea final: se conserva la del original; una adicion como ultima
   // linea la define con newline (regla deterministica, documentada).
-  return out.join("\n") + (finalNewline || lastEmitWasAdd ? "\n" : "");
+  return out.join(lineEnding) + (finalNewline || lastEmitWasAdd ? lineEnding : "");
 }
 
 function resolvePatchWithin(root: string, candidate: string): string | null {
@@ -208,7 +210,12 @@ function resolvePatchWithin(root: string, candidate: string): string | null {
 }
 
 function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
-  const root = realpathSync(cwd);
+  const requestedRoot = resolve(cwd);
+  // MXC can grant a workspace nested below a denied home directory. Relative
+  // filesystem calls use the already-authorized process CWD and avoid walking
+  // back through denied ancestors such as C:\Users\name\AppData.
+  const relativeIo = resolve(process.cwd()).toLowerCase() === requestedRoot.toLowerCase();
+  const root = relativeIo ? requestedRoot : realpathSync(cwd);
   const createdDirs: string[] = [];
   const scratch = new Set<string>();
   const published: Array<{ target: string; backup?: string; add: boolean }> = [];
@@ -218,7 +225,7 @@ function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
     if (!abs || abs === root) throw new CodexPatchError(`path fuera del workspace: ${op.path}`);
     const rel = relative(root, abs);
     const parts = rel.split(/[\\/]/);
-    let current = root;
+    let current = relativeIo ? "." : root;
     for (const part of parts.slice(0, -1)) {
       current = join(current, part);
       try {
@@ -229,7 +236,7 @@ function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
         break;
       }
     }
-    return { op, abs, rel, parts };
+    return { op, rel, ioPath: relativeIo ? rel : abs, parts };
   });
   const names = new Set<string>();
   for (const item of normalized) {
@@ -250,10 +257,10 @@ function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
     let mode = 0o644;
     let identity: { dev: number; ino: number } | undefined;
     try {
-      const info = lstatSync(item.abs);
+      const info = lstatSync(item.ioPath);
       if (item.op.op === "add") throw new CodexPatchError(`el archivo ya existe: ${item.op.path}`);
       if (!info.isFile() || info.isSymbolicLink()) throw new CodexPatchError(`archivo no regular o symlink: ${item.op.path}`);
-      const fd = openSync(item.abs, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      const fd = openSync(item.ioPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
       try {
         const actual = fstatSync(fd);
         if (!actual.isFile()) throw new CodexPatchError(`archivo no regular: ${item.op.path}`);
@@ -272,7 +279,7 @@ function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
 
   try {
     for (const item of planned) {
-      let current = root;
+      let current = relativeIo ? "." : root;
       for (const part of item.parts.slice(0, -1)) {
         current = join(current, part);
         try {
@@ -285,7 +292,7 @@ function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
         }
       }
       if (item.original !== undefined) {
-        const fd = openSync(item.abs, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        const fd = openSync(item.ioPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
         try {
           const info = fstatSync(fd);
           if (info.dev !== item.identity!.dev || info.ino !== item.identity!.ino || !readFileSync(fd).equals(item.original)) {
@@ -293,11 +300,11 @@ function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
           }
         } finally { closeSync(fd); }
       } else {
-        try { lstatSync(item.abs); throw new CodexPatchError(`el archivo ya existe: ${item.rel}`); }
+        try { lstatSync(item.ioPath); throw new CodexPatchError(`el archivo ya existe: ${item.rel}`); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       }
       if (item.content !== undefined) {
-        item.staged = `${item.abs}.isymcp-stage-${randomUUID()}`;
+        item.staged = `${item.ioPath}.isymcp-stage-${randomUUID()}`;
         const fd = openSync(item.staged, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), item.mode);
         scratch.add(item.staged);
         try { writeFileSync(fd, item.content); } finally { closeSync(fd); }
@@ -305,14 +312,14 @@ function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
     }
     for (const item of planned) {
       if (item.op.op === "add") {
-        linkSync(item.staged!, item.abs);
-        published.push({ target: item.abs, add: true });
+        linkSync(item.staged!, item.ioPath);
+        published.push({ target: item.ioPath, add: true });
       } else {
-        item.backup = `${item.abs}.isymcp-backup-${randomUUID()}`;
-        renameSync(item.abs, item.backup);
+        item.backup = `${item.ioPath}.isymcp-backup-${randomUUID()}`;
+        renameSync(item.ioPath, item.backup);
         scratch.add(item.backup);
-        published.push({ target: item.abs, backup: item.backup, add: false });
-        if (item.staged) { renameSync(item.staged, item.abs); scratch.delete(item.staged); }
+        published.push({ target: item.ioPath, backup: item.backup, add: false });
+        if (item.staged) { renameSync(item.staged, item.ioPath); scratch.delete(item.staged); }
       }
     }
     return normalized.map((item) => item.rel);

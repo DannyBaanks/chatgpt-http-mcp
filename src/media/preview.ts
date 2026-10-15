@@ -143,7 +143,7 @@ export async function chooseOutputDirectory(options: {
       throw Error('The native folder chooser could not be opened; check the Windows desktop session and retry');
     }
   }
-  if (platform !== 'linux') throw Error('The native folder chooser is not supported on this platform');
+  if (platform !== 'linux') throw Error('The native folder chooser is only supported on Windows or Linux');
   const pathValue = env.PATH ?? '/usr/bin:/bin';
   const zenity = executableInPath('zenity', pathValue);
   const kdialog = executableInPath('kdialog', pathValue);

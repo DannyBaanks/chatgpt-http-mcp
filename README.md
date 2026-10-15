@@ -205,10 +205,10 @@ isymcp smoke                                       # automated end-to-end sanity
 - **Fragile Web adapter.** UI changes, browser challenges, session expiration and platform decisions may break output capture. Capture failures may leave sanitized diagnostic files under `~/.codex-web-http/run/`—inspect their contents before sharing.
 - **UI-rendered reasoning is not raw chain of thought.** The panel may display summaries visible in the interface, not the model's hidden reasoning.
 - **Cross-agent prompt injection.** `chatgpt_ask` output is untrusted input to receiving agents. Labels are advisory and cannot replace their approval or permission model.
-- **Local sandbox is not a perfect VM.** Bubblewrap hides the home/secret directories and disables network by default, but other system files can remain readable. A `--write` session can modify files in its authorized folder. `CODEX_WEB_HTTP_SANDBOX=off` weakens confinement; `CODEX_WEB_HTTP_SANDBOX_NET=1` enables network.
+- **Local sandbox is not a perfect VM.** Bubblewrap hides the home/secret directories; Windows MXC denies the current user's profile and known credential paths. Other host paths can remain readable, but writes stay in the authorized workspace. Network is disabled by default. `CODEX_WEB_HTTP_SANDBOX=off` weakens confinement; `CODEX_WEB_HTTP_SANDBOX_NET=1` enables network.
 - **Protect credentials.** Stored session data/cookies are sensitive; file mode `0600` is not protection against malware running as the same user. Never commit or share them.
 - **Provider blocks are final for the attempted operation.** Do not evade, tool-hop or auto-retry pending/unknown requests. A block does not by itself establish a contractual violation.
-- **Capacity & platform.** Browser-backed turns can be slow/serialized. Linux hosts use bubblewrap; Windows defaults to Docker Desktop's Linux engine, with an opt-in native Windows sandbox through Codex CLI. Live Windows execution remains **NOT_DEMONSTRATED** in this branch. Chrome or Edge is used by the experimental Web adapter.
+- **Capacity & platform.** Browser-backed turns can be slow/serialized. Linux hosts use bubblewrap; Windows defaults to Docker Desktop's Linux engine, with an opt-in native Windows MXC sandbox through Codex CLI. Native Windows MCP E2E is demonstrated on Windows 11 25H2; Docker-backed Windows execution remains **NOT_DEMONSTRATED** in this branch. Chrome or Edge is used by the experimental Web adapter.
 
 ---
 
@@ -375,7 +375,7 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 
 - **Local only, for real.** The bridge and the panel bind `127.0.0.1` *and* reject foreign `Host`/`Origin` headers and non-JSON POSTs (protection against CSRF and DNS rebinding).
 - **Token Authentication (`CODEX_WEB_HTTP_TOKEN`):** Required for any non-loopback exposure. Clients must send `Authorization: Bearer <TOKEN>` or `x-isymcp-token`.
-- **Sandbox Isolation.** `bubblewrap` on Linux, Docker Desktop on Windows, and the optional Codex native Windows sandbox hide bridge secrets, deny network by default, and scope writes to the selected workspace. The native Windows mode uses Codex CLI's documented permission profiles; live native execution is not demonstrated here.
+- **Sandbox Isolation.** `bubblewrap` on Linux, Docker Desktop on Windows, and the optional Codex native Windows MXC sandbox hide bridge secrets, deny network by default, and scope writes to the selected workspace. The native Windows MCP E2E is demonstrated in [the Windows guide](docs/WINDOWS.md); Docker-backed Windows execution is not demonstrated here.
 - **Session Tokens.** Tokens expire (7 days by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
 - **Platform safety boundaries:** Reported OpenAI blocks must halt the affected operation without bypass. This safeguard is not a blanket claim that every browser path has passed a compliance audit; see [open risks](docs/compliance/FINAL_VERDICT.md).
 

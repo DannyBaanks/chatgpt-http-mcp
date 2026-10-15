@@ -24,11 +24,11 @@
 // (~/.codex-web-http/codex-sessions.json), las tools ejecutan de verdad con la
 // politica de esa sesion (read-only | writable) y un sandbox disponible. Un token
 // desconocido conserva el comportamiento stub (compat OpenISy).
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { extname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import {
   bridgeHome,
@@ -297,15 +297,29 @@ async function runApplyPatch(session: CodexSession, patch: unknown) {
   const backend = sandboxBackend();
   const windowsDocker = process.platform === "win32" && backend === "docker";
   const patchModule = windowsDocker ? "/opt/isymcp/src/mcp/codex-patch.ts" : join(import.meta.dir, "codex-patch.ts");
-  const patchModuleUrl = windowsDocker ? patchModule : pathToFileURL(patchModule).href;
+  let patchHelper: string | undefined;
+  let patchModuleSpecifier = patchModule;
+  if (codexFormat && !windowsDocker) {
+    // The sandbox deliberately hides the bridge's home/application tree. Put
+    // this one trusted helper in the authorized workspace so Bun can resolve
+    // it after that isolation is applied, then remove it on every exit path.
+    patchHelper = join(session.cwd, `.isymcp-codex-patch-${randomUUID()}.ts`);
+    try {
+      writeFileSync(patchHelper, readFileSync(patchModule), { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      return fail(`no se pudo preparar apply_patch aislado: ${String(error)}`, { session: sessionMeta(session) });
+    }
+    patchModuleSpecifier = `./${basename(patchHelper)}`;
+  }
   const patchRoot = windowsDocker ? "/workspace" : session.cwd;
   const command = codexFormat
-    ? ["bun", "-e", `import { applyCodexPatch } from ${JSON.stringify(patchModuleUrl)}; const patch = await Bun.stdin.text(); try { console.log(JSON.stringify({files: applyCodexPatch(${JSON.stringify(patchRoot)}, patch)})); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }`]
+    ? ["bun", "-e", `import { applyCodexPatch } from ${JSON.stringify(patchModuleSpecifier)}; const patch = await Bun.stdin.text(); try { console.log(JSON.stringify({files: applyCodexPatch(${JSON.stringify(patchRoot)}, patch)})); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }`]
     : ["git", "apply", "--whitespace=nowarn", "-"];
-  const launch = sandboxPlan(session, session.cwd, command, {
-    readPaths: process.platform === "win32" && backend === "codex-windows" ? [patchModule] : [],
-  });
-  if (!launch) return fail(`fail-closed: ${sandboxUnavailableReason()} (no se aplica el patch fuera del sandbox)`, { session: sessionMeta(session) });
+  const launch = sandboxPlan(session, session.cwd, command);
+  if (!launch) {
+    if (patchHelper) { try { unlinkSync(patchHelper); } catch { /* preserve fail-closed result */ } }
+    return fail(`fail-closed: ${sandboxUnavailableReason()} (no se aplica el patch fuera del sandbox)`, { session: sessionMeta(session) });
+  }
   try {
     // git apply exige newline final; los modelos suelen omitirlo.
     const normalizedPatch = patch.endsWith("\n") ? patch : `${patch}\n`;
@@ -351,6 +365,8 @@ async function runApplyPatch(session: CodexSession, patch: unknown) {
   } catch (err) {
     stopSandboxPlan(launch);
     return fail(`patch sandbox fallo: ${String(err)}`, { session: sessionMeta(session) });
+  } finally {
+    if (patchHelper) { try { unlinkSync(patchHelper); } catch { /* helper may already be absent */ } }
   }
 }
 

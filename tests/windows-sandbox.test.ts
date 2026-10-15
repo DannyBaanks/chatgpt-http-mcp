@@ -1,5 +1,46 @@
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { expect, test } from "bun:test";
+import { buildCodexWindowsSandboxPlan, cleanupCodexWindowsSandboxPath } from "../src/platform/codex-windows-sandbox";
 import { buildWindowsDockerSandboxPlan } from "../src/platform/docker-sandbox";
+
+test("native Windows profile is launchable by Codex and keeps the user profile denied", () => {
+  const root = join(tmpdir(), `isymcp-native-plan-${randomUUID()}`);
+  const workspace = join(root, "workspace");
+  const cli = join(root, "codex.exe");
+  const nativeCodexHome = join(root, "native-codex-home");
+  const bridgeHome = join(root, "bridge-home");
+  mkdirSync(workspace, { recursive: true });
+  mkdirSync(nativeCodexHome);
+  mkdirSync(bridgeHome);
+  writeFileSync(cli, "plan-only fake executable");
+  const plan = buildCodexWindowsSandboxPlan({
+    workspace,
+    workdir: workspace,
+    bridgeHome,
+    command: ["cmd.exe", "/d", "/c", "echo ok"],
+    writable: true,
+    network: false,
+    env: { ISYMCP_CODEX_CLI_BIN: cli, CODEX_HOME: nativeCodexHome, PATH: "" },
+  });
+
+  try {
+    const config = readFileSync(join(plan.env.CODEX_HOME!, "config.toml"), "utf8");
+    expect(plan.argv).toContain("sandbox");
+    expect(plan.argv).not.toContain("--strict-config");
+    expect(config).toContain('sandbox = "mxc"');
+    expect(config).toContain('":root" = "read"');
+    expect(config).toContain(`${JSON.stringify(homedir())} = "deny"`);
+    expect(config).toContain(`${JSON.stringify(bridgeHome)} = "deny"`);
+    expect(config).toContain(`${JSON.stringify(workspace)} = "write"`);
+    expect(config).toContain('enabled = false');
+  } finally {
+    cleanupCodexWindowsSandboxPath(plan.cleanupRoot);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("Windows sandbox mounts only the chosen workspace and keeps its root read-only", () => {
   const plan = buildWindowsDockerSandboxPlan({

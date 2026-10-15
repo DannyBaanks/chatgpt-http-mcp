@@ -2,16 +2,18 @@
 
 ISyMCP's CLI, HTTP bridge, panel, browser integration, session storage, and
 tunnel client can run on a Windows host. Sandboxed commands can run as native
-PowerShell or inside the Docker Desktop Linux fallback. Native Windows mode
-delegates enforcement to Codex CLI's documented permission profiles and
-restricted-token sandbox.
+PowerShell in Codex's Microsoft Execution Containers (MXC) sandbox or inside
+the Docker Desktop Linux fallback. Native enforcement uses Codex CLI permission
+profiles and Windows process isolation.
 
 ## Requirements
 
 - Windows 10/11 x64.
 - Bun 1.4.2 or newer.
-- Codex CLI for native PowerShell execution, or Docker Desktop using its Linux
-  engine for the Linux command fallback.
+- Codex CLI 0.162.0 or newer and an MXC-capable Windows 11 build for native
+  PowerShell execution. MXC is available on Windows 11 24H2 build 26100.9278
+  and 25H2 build 26200.9278 or newer; other devices can use Docker Desktop's
+  Linux engine.
 - Google Chrome or Microsoft Edge for browser-backed features.
 - FFmpeg and FFprobe on `PATH` for media analysis.
 - Node.js 24 LTS for the optional video-frame provider.
@@ -80,12 +82,28 @@ $env:CODEX_WEB_HTTP_WINDOWS_SANDBOX_BACKEND = 'native'
 isymcp server start
 ```
 
-Restart the MCP server after changing the setting. On first use, Codex CLI may
-ask Windows to provision its elevated sandbox users and network rules. Accept
-that setup to run native commands; if setup is unavailable, execution fails
-closed. This works independently of the Windows Sandbox feature, which is not
-available on Windows Home. See [Codex sandboxing](https://learn.chatgpt.com/docs/sandboxing)
+Restart the MCP server after changing the setting. Native mode explicitly uses
+MXC and does not need the optional Windows Sandbox feature or administrator
+provisioning. If the device does not support MXC, native execution fails closed;
+select the Docker backend instead. See [Codex Windows sandbox requirements](https://learn.chatgpt.com/docs/windows/windows-sandbox)
 and the [permission profile guide](https://learn.chatgpt.com/docs/permissions).
+
+The MXC profile requires `:root` read access so Codex can resolve workspaces on
+any drive. It denies the current user's profile and known credential paths,
+then reopens only the selected workspace, private scratch directory, and
+executable search paths. Other host paths are read-only. Writes stay inside the
+selected workspace, and network access is disabled by default. Choose Docker
+when a task needs read isolation from other host paths as well.
+
+Run the native MCP E2E check on an MXC-capable host with Codex CLI installed:
+
+```powershell
+$env:ISYMCP_WINDOWS_NATIVE_E2E = '1'
+bun test tests/windows-native-e2e.test.ts tests/windows-sandbox.test.ts
+```
+
+The network check first confirms the host can connect to `1.1.1.1:443`; if that
+control is unavailable, it skips only the outbound-network assertion.
 
 The Docker fallback is selected with
 `$env:CODEX_WEB_HTTP_WINDOWS_SANDBOX_BACKEND = 'docker'`; build its image with
@@ -177,9 +195,11 @@ and CI coverage, with live runtime status listed below.
 
 ## Current evidence on Windows
 
-The Windows-specific CI job and regression cases are included in this change;
-they have not been run in this session. Docker-backed execution and native
-Codex Windows sandbox execution are both **NOT_DEMONSTRATED** in this checkout.
-The native sandbox requires the installed Codex CLI and its one-time Windows
-provisioning. Do not treat Linux-container results as evidence for Windows-only
-APIs.
+Verified 2026-10-15 on Windows 11 25H2, build 26200.9457, with Bun 1.4.2 and
+Codex CLI 0.162.0-alpha.17.2. The command above completed with **7 pass, 0 fail**
+(45 assertions). Its live MCP flow wrote and patched a CRLF file in the selected
+workspace, denied reads from the current user's private paths, denied writes
+outside the workspace and in a read-only session, and blocked an external TCP
+connection after a successful host-side control. The Windows-host CI suite also
+passes; the Linux CI suite exercises bubblewrap. Docker-backed execution on this
+host remains **NOT_DEMONSTRATED** because its daemon storage is read-only.

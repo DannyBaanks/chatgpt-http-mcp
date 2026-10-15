@@ -18,6 +18,10 @@ import { join } from "node:path";
 import { mintSession, sandboxBackend } from "../src/codex-sessions";
 import { McpClient } from "./helpers/mcp-client";
 
+function assertExecuted(result: Record<string, unknown>, operation: string): void {
+  if (result.executed !== true) throw new Error(`${operation} failed: ${JSON.stringify(result)}`);
+}
+
 let home: string;
 let workspace: string;
 let client: McpClient;
@@ -65,7 +69,7 @@ describe("TEST A — operaciones basicas con formato nativo", () => {
         "*** End Patch",
       ].join("\n"),
     });
-    expect(patch.executed).toBe(true);
+    assertExecuted(patch, "codex_apply_patch native format");
     expect(patch.format).toBe("codex-native");
     expect(patch.files).toEqual(["probe.txt"]);
 
@@ -132,7 +136,7 @@ describe("TEST B — codex_tool_inventory y codex_tool_call", () => {
       wire_name: "codex_exec",
       arguments: { command: ["sh", "-c", "echo nativo"], cwd: "." },
     });
-    expect(out.executed).toBe(true);
+    assertExecuted(out, "codex_tool_call codex_exec");
     expect(out.exit_code).toBe(0);
     expect(String(out.stdout)).toContain("nativo");
   }, 30_000);
@@ -143,7 +147,7 @@ describe("TEST B — codex_tool_inventory y codex_tool_call", () => {
       wire_name: "exec",
       arguments: { command: ["echo", "alias"] },
     });
-    expect(out.executed).toBe(true);
+    assertExecuted(out, "codex_tool_call apply_patch");
     expect(String(out.stdout)).toContain("alias");
   }, 30_000);
 
@@ -276,7 +280,7 @@ describe("TEST D — equivalencia de formatos de parche", () => {
       turn_token: rw.token,
       patch: ["*** Begin Patch", "*** Update File: copia_a/x.txt", "@@", " hola", "+mundo ISYMCP", "*** End Patch"].join("\n"),
     });
-    expect(native.executed).toBe(true);
+    assertExecuted(native, "codex_apply_patch native format equivalence");
 
     const unified = await client.call("codex_apply_patch", {
       turn_token: rw.token,
@@ -288,7 +292,7 @@ describe("TEST D — equivalencia de formatos de parche", () => {
         "+mundo ISYMCP",
       ].join("\n"),
     });
-    expect(unified.executed).toBe(true);
+    assertExecuted(unified, "codex_apply_patch unified diff");
 
     const a = await client.call("codex_exec", { turn_token: ro.token, command: ["cat", "copia_a/x.txt"] });
     const b = await client.call("codex_exec", { turn_token: ro.token, command: ["cat", "copia_b/x.txt"] });
