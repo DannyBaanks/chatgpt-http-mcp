@@ -54,6 +54,7 @@ import { drain, findLive, killSessionExecs, registerLiveExec, writeStdin as stdi
 import { CODEX_TOOLS, buildInstructions } from "./identity";
 import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
+import { sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
 
 const args = process.argv.slice(2);
 function option(name: string, fallback: string): string {
@@ -100,7 +101,7 @@ function fail(reason: string, extra: Record<string, unknown> = {}) {
 function trace(event: string, detail: Record<string, unknown>): void {
   try {
     mkdirSync(bridgeHome(), { recursive: true });
-    appendFileSync(join(bridgeHome(), "mcp-trace.log"), `${new Date().toISOString()} ${event} ${JSON.stringify(detail)}\n`, { mode: 0o600 });
+    appendFileSync(join(bridgeHome(), "mcp-trace.log"), `${new Date().toISOString()} ${event} ${JSON.stringify(sanitizeToolTraceValue(detail))}\n`, { mode: 0o600 });
   } catch {
     /* la traza nunca debe romper el server */
   }
@@ -113,11 +114,12 @@ process.on("unhandledRejection", (err) => {
   trace("unhandledRejection", { message: String((err as Error)?.message ?? err) });
 });
 
-function sessionFrom(input: Record<string, unknown>, tool = "-"): CodexSession | null {
+function sessionFrom(input: Record<string, unknown>, tool: string, callId: string): CodexSession | null {
   const token = String(input[turnKey] ?? "");
   const session = token ? findSessionByToken(token) : null;
   trace("call", {
     tool,
+    call_id: callId,
     token_fp: token ? fingerprint(token) : null,
     session: session ? `${session.label}[${session.fp}]` : null,
     turn_id: session?.turnId ?? null,
@@ -130,29 +132,52 @@ function sessionFrom(input: Record<string, unknown>, tool = "-"): CodexSession |
  * "tarjeta de tool". Va con token_fp (y turn_id si es un token de turno) para
  * correlacionar con el turno exacto. Nunca guarda stdout/stderr ni el token.
  */
-function traceResult(session: CodexSession, tool: string, out: { content: Array<{ type: string; text?: string }>; isError?: boolean }): void {
+function traceResult(session: CodexSession | null, tool: string, callId: string, token: string, out: { content: Array<{ type: string; text?: string }>; isError?: boolean }): void {
   try {
     const text = out.content.find((c) => c.type === "text")?.text ?? "{}";
     const r = JSON.parse(text) as Record<string, unknown>;
-    const clipStr = (v: unknown) => (typeof v === "string" ? v.slice(0, 300) : undefined);
+    const clipStr = (v: unknown) => typeof v === "string"
+      ? sanitizeToolTraceText(v.replaceAll(token, token ? "[token redacted]" : "")).slice(0, 300)
+      : undefined;
     trace("tool.result", {
       tool,
-      token_fp: session.fp,
-      turn_id: session.nativeOwner?.owner.turnId ?? session.turnId ?? null,
+      call_id: callId,
+      token_fp: session?.fp ?? (token ? fingerprint(token) : null),
+      turn_id: session?.nativeOwner?.owner.turnId ?? session?.turnId ?? null,
       backend: r.backend,
-      native_thread_id: session.nativeOwner?.owner.threadId,
+      native_thread_id: session?.nativeOwner?.owner.threadId,
       ok: !out.isError && r.error === undefined && (r.executed !== false || tool === "codex_tool_inventory"),
-      command: Array.isArray(r.command) ? (r.command as unknown[]).map(String).join(" ").slice(0, 300) : undefined,
+      command: Array.isArray(r.command) ? clipStr((r.command as unknown[]).map(String).join(" ")) : undefined,
       exit_code: typeof r.exit_code === "number" ? r.exit_code : undefined,
       timed_out: r.timed_out === true ? true : undefined,
       duration_ms: typeof r.duration_ms === "number" ? r.duration_ms : undefined,
-      files: Array.isArray(r.files) ? (r.files as unknown[]).map(String).slice(0, 20) : undefined,
+      files: Array.isArray(r.files) ? (r.files as unknown[]).map((value) => clipStr(String(value))).slice(0, 20) : undefined,
       path: clipStr(r.path),
       bytes: typeof r.bytes === "number" ? r.bytes : undefined,
       error: clipStr(r.error),
     });
   } catch {
     /* la traza nunca rompe la tool */
+  }
+}
+
+/** Owns the call identity for one MCP dispatch and its matching receipt. */
+async function tracedCall(
+  tool: string,
+  input: Record<string, unknown>,
+  dispatch: (session: CodexSession | null, callId: string) => Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean }> | { content: Array<{ type: string; text?: string }>; isError?: boolean },
+) {
+  const callId = randomUUID();
+  const session = sessionFrom(input, tool, callId);
+  const token = String(input[turnKey] ?? "");
+  try {
+    const result = await dispatch(session, callId);
+    traceResult(session, tool, callId, token, result);
+    return result;
+  } catch (error) {
+    const result = fail(`tool dispatch failed: ${String(error)}`);
+    traceResult(session, tool, callId, token, result);
+    return result;
   }
 }
 
@@ -562,11 +587,10 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_turn_start,
     inputSchema: S.codex_turn_start,
   },
-  async (input: Record<string, unknown>) => {
+  async (input: Record<string, unknown>) => tracedCall("codex_turn_start", input, async (session) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
-    const session = sessionFrom(input, "codex_turn_start");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_turn_start", input, contract as "native" | "safe"); traceResult(session, "codex_turn_start", out); return out; }
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_turn_start", input, contract as "native" | "safe");
     if (session) {
       try {
         const bootstrap = readMcpBootstrap();
@@ -577,7 +601,7 @@ server.registerTool(
       }
     }
     return jsonText({ started: true, turn_token: token });
-  },
+  }),
 );
 
 server.registerTool(
@@ -586,12 +610,11 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_exec,
     inputSchema: S.codex_exec,
   },
-  async (input: Record<string, unknown>) => {
+  async (input: Record<string, unknown>) => tracedCall("codex_exec", input, async (session) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
-    const session = sessionFrom(input, "codex_exec");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_exec", input, contract as "native" | "safe"); traceResult(session, "codex_exec", out); return out; }
-    if (session) { const out = await runExec(session, input.command, input.cwd, input.background, input.capture_ms); traceResult(session, "codex_exec", out); return out; }
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_exec", input, contract as "native" | "safe");
+    if (session) return runExec(session, input.command, input.cwd, input.background, input.capture_ms);
     const command = input.command as string[];
     return jsonText({
       turn_token: token,
@@ -602,7 +625,7 @@ server.registerTool(
       stderr: "broker not connected (V1 stub)",
       exit_code: null,
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -611,21 +634,20 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_turn_complete,
     inputSchema: S.codex_turn_complete,
   },
-  async (input: Record<string, unknown>) => {
+  async (input: Record<string, unknown>) => tracedCall("codex_turn_complete", input, async (session) => {
     const token = String(input[turnKey] ?? "");
     const response = String(input.response ?? "");
     if (!token || !response) {
       return fail(`${turnKey} y response requeridos`);
     }
-    const session = sessionFrom(input, "codex_turn_complete");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_turn_complete", input, contract as "native" | "safe"); traceResult(session, "codex_turn_complete", out); return out; }
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_turn_complete", input, contract as "native" | "safe");
     if (session) {
       // Cerrar el turno no deja procesos huérfanos de esa sesion.
       const killed = killSessionExecs(session.fp);
       return jsonText({ completed: true, session: sessionMeta(session), live_execs_killed: killed });
     }
     return jsonText({ completed: true, turn_token: token });
-  },
+  }),
 );
 
 server.registerTool(
@@ -634,13 +656,10 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_tool_inventory,
     inputSchema: S.codex_tool_inventory,
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_tool_inventory");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_tool_inventory", input, contract as "native" | "safe"); traceResult(session, "codex_tool_inventory", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_tool_inventory", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_tool_inventory", input, contract as "native" | "safe");
     if (session) {
-      const out = sessionInventory(session);
-      traceResult(session, "codex_tool_inventory", out);
-      return out;
+      return sessionInventory(session);
     }
     // Modo stub (token sin sesion): NADA es ejecutable. No se anuncian
     // tools que no corren; se dice como conseguir una sesion real.
@@ -649,7 +668,7 @@ server.registerTool(
       source: "codex-web-http V1 stub",
       reason: `${turnKey} no corresponde a una sesion registrada: en modo stub nada es ejecutable (isymcp session mint --cwd <dir> --write)`,
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -658,15 +677,14 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_write_stdin,
     inputSchema: S.codex_write_stdin,
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_write_stdin");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_write_stdin", input, contract as "native" | "safe"); traceResult(session, "codex_write_stdin", out); return out; }
-    if (session) { const out = await runWriteStdin(session, input); traceResult(session, "codex_write_stdin", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_write_stdin", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_write_stdin", input, contract as "native" | "safe");
+    if (session) return runWriteStdin(session, input);
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -675,15 +693,14 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_apply_patch,
     inputSchema: S.codex_apply_patch,
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_apply_patch");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_apply_patch", input, contract as "native" | "safe"); traceResult(session, "codex_apply_patch", out); return out; }
-    if (session) { const out = await runApplyPatch(session, input.patch); traceResult(session, "codex_apply_patch", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_apply_patch", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_apply_patch", input, contract as "native" | "safe");
+    if (session) return runApplyPatch(session, input.patch);
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -692,15 +709,14 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_view_image,
     inputSchema: S.codex_view_image,
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_view_image");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_view_image", input, contract as "native" | "safe"); traceResult(session, "codex_view_image", out); return out; }
-    if (session) { const out = runViewImage(session, input.path); traceResult(session, "codex_view_image", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_view_image", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_view_image", input, contract as "native" | "safe");
+    if (session) return runViewImage(session, input.path);
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -711,17 +727,16 @@ server.registerTool(
     inputSchema: S.codex_tool_call,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_tool_call");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_tool_call", input, contract as "native" | "safe"); traceResult(session, "codex_tool_call", out); return out; }
-    if (session) { const out = await runToolCall(session, input); traceResult(session, "codex_tool_call", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_tool_call", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_tool_call", input, contract as "native" | "safe");
+    if (session) return runToolCall(session, input);
     return jsonText({
       turn_token: input[turnKey],
       wire_name: input.wire_name,
       executed: false,
       receipt: "V1: broker no implementado — la tool llega pero no ejecuta todavia",
     });
-  },
+  }),
 );
 
 registerMediaTools(server);
