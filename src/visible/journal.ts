@@ -1,6 +1,7 @@
 import { openSync, closeSync, readFileSync, appendFileSync, writeFileSync, lstatSync, unlinkSync, constants } from 'node:fs';
 import { dirname, isAbsolute } from 'node:path';
 import type { OwnerRef } from './contracts';
+import { ensurePrivatePath, securePrivatePath } from '../platform/private-path';
 export type ConversationEvent =
  | {kind:'user';messageId:string;text:string}
  | {kind:'assistant';messageId:string;markdown:string;complete:boolean}
@@ -16,13 +17,11 @@ export class ConversationJournal {
  private bytes=0;
  constructor(private path:string,private owner:OwnerRef){
   if(!isAbsolute(path)||Object.values(owner).length!==4||!Object.values(owner).every(x=>uuid.test(x)))throw Error('journal_owner_invalid');
-  const parent=lstatSync(dirname(path));
-  if(!parent.isDirectory()||parent.isSymbolicLink()||parent.uid!==process.getuid?.()||(parent.mode&0o077)!==0)throw Error('journal_parent_not_private');
+  try { ensurePrivatePath(dirname(path),true); } catch { throw Error('journal_parent_not_private'); }
   try {writeFileSync(path,JSON.stringify({version:'isymcp-conversation-journal/1',owner})+'\n',{flag:'wx',mode:0o600});}
   catch(e:any){if(e.code!=='EEXIST')throw e;}
-  const stat=lstatSync(path);
-  if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid?.()||(stat.mode&0o077)!==0)throw Error('journal_not_private');
-  const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
+  try { ensurePrivatePath(path,false); } catch { throw Error('journal_not_private'); }
+  const fd=openSync(path,constants.O_RDONLY|(process.platform==='win32'?0:constants.O_NOFOLLOW));
   let text:string;try{text=readFileSync(fd,'utf8');}finally{closeSync(fd);}
   if(!text.endsWith('\n'))throw Error('journal_corrupt_tail_preserved');
   const lines=text.trimEnd().split('\n');let header:any;
@@ -37,9 +36,9 @@ export class ConversationJournal {
   try{fd=openSync(lock,'wx',0o600);}catch{throw Error('journal_writer_conflict');}
   try{
    const stat=lstatSync(this.path);
-   if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid?.()||stat.size!==this.bytes)throw Error('journal_writer_changed');
+   if(!stat.isFile()||stat.isSymbolicLink()||(process.platform!=='win32'&&stat.uid!==process.getuid?.())||stat.size!==this.bytes)throw Error('journal_writer_changed');
    const entry:ConversationEntry={sequence:this.entries.length+1,at:new Date().toISOString(),owner:this.owner,event:structuredClone(event)};
-   const line=JSON.stringify(entry)+'\n';const out=openSync(this.path,constants.O_WRONLY|constants.O_APPEND|constants.O_NOFOLLOW);
+   const line=JSON.stringify(entry)+'\n';const out=openSync(this.path,constants.O_WRONLY|constants.O_APPEND|(process.platform==='win32'?0:constants.O_NOFOLLOW));
    try{appendFileSync(out,line);}finally{closeSync(out);}
    this.bytes+=Buffer.byteLength(line);this.entries.push(entry);return structuredClone(entry);
   }finally{closeSync(fd);unlinkSync(lock);}

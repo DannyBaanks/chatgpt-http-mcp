@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
-import {writeFileSync,readFileSync,existsSync,lstatSync} from 'node:fs';
+import {writeFileSync,readFileSync,existsSync,lstatSync,mkdirSync} from 'node:fs';
 import {join,isAbsolute} from 'node:path';
+import {ensurePrivatePath,securePrivatePath} from '../platform/private-path';
 export interface SubmissionRequest {requestId:string;prompt:string;connectorId:string;model:string;effort:string}
 export interface DriverObservation {url:string;connectorId:string;model:string;effort:string;messages:{messageId:string;text:string}[]}
 export interface BrowserDriverPort {prepare(text:string,connectorId:string):Promise<void>;inspect():Promise<DriverObservation>;send():Promise<void>}
@@ -8,10 +9,10 @@ export interface SubmissionReceipt {url:string;userMessageId:string;requestId:st
 const inflight=new Map<string,{signature:string;promise:Promise<SubmissionReceipt>}>();
 const hash=(text:string)=>createHash('sha256').update(text).digest('hex');
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
-function privateFile(path:string){const stat=lstatSync(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid?.()||(stat.mode&0o077))throw Error('visible_submission_file_not_private');return JSON.parse(readFileSync(path,'utf8'));}
+function privateFile(path:string){if(process.platform==='win32')ensurePrivatePath(path,false);else{const stat=lstatSync(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid?.()||(stat.mode&0o077))throw Error('visible_submission_file_not_private');}return JSON.parse(readFileSync(path,'utf8'));}
 export function submitOnce(directory:string,port:BrowserDriverPort,request:SubmissionRequest):Promise<SubmissionReceipt>{
  if(!isAbsolute(directory)||!uuid.test(request.requestId)||!request.prompt.trim()||!request.connectorId.trim()||!request.model.trim()||!request.effort.trim())return Promise.reject(Error('visible_submission_invalid'));
- const stat=lstatSync(directory);if(!stat.isDirectory()||stat.isSymbolicLink()||stat.uid!==process.getuid?.()||(stat.mode&0o077))return Promise.reject(Error('visible_submission_home_not_private'));
+ if(process.platform==='win32'){try{ensurePrivatePath(directory,true);}catch{return Promise.reject(Error('visible_submission_home_not_private'));}}else{const stat=lstatSync(directory);if(!stat.isDirectory()||stat.isSymbolicLink()||stat.uid!==process.getuid?.()||(stat.mode&0o077))return Promise.reject(Error('visible_submission_home_not_private'));}
  const key=join(directory,request.requestId),signature=hash(JSON.stringify(request)),prior=inflight.get(key);
  if(prior)return prior.signature===signature?prior.promise:Promise.reject(Error('visible_submission_arguments_changed'));
  const promise=(async()=>{
@@ -24,7 +25,7 @@ export function submitOnce(directory:string,port:BrowserDriverPort,request:Submi
    const matches=state.messages.filter(m=>uuid.test(m.messageId)&&m.text.includes(marker));
    if(matches.length!==1)return;
    const receipt={url:state.url,userMessageId:matches[0].messageId,requestId:request.requestId};
-   writeFileSync(observed,JSON.stringify({signature,receipt}),{mode:0o600,flag:'wx'});return receipt;
+   writeFileSync(observed,JSON.stringify({signature,receipt}),{mode:0o600,flag:'wx'});securePrivatePath(observed,false);return receipt;
   };
   if(existsSync(attempted)){
    const ack=reconcile(await port.inspect());if(ack)return ack;
@@ -44,18 +45,17 @@ export function submitOnce(directory:string,port:BrowserDriverPort,request:Submi
 }
 
 import {type Page,type BrowserContext} from 'playwright-core';
-import {mkdirSync,chmodSync} from 'node:fs';
 export function prepareVisibleProfile(options:{profileDir:string;launchId:string}):void {
  if(!isAbsolute(options.profileDir)||!uuid.test(options.launchId))throw Error('visible_profile_invalid');
  const existed=existsSync(options.profileDir);
  if(!existed)mkdirSync(options.profileDir,{recursive:true,mode:0o700});
  const stat=lstatSync(options.profileDir);
- if(!stat.isDirectory()||stat.isSymbolicLink()||stat.uid!==process.getuid?.())throw Error('visible_profile_not_owned');
+ if(!stat.isDirectory()||stat.isSymbolicLink()||(process.platform!=='win32'&&stat.uid!==process.getuid?.()))throw Error('visible_profile_not_owned');
+ securePrivatePath(options.profileDir,true);
  const marker=join(options.profileDir,'isymcp-visible-profile.json');
  if(existed&&!existsSync(marker))throw Error('visible_profile_unowned');
  if(existsSync(marker)){if(privateFile(marker).launchId!==options.launchId)throw Error('visible_profile_owner_mismatch');}
- else writeFileSync(marker,JSON.stringify({version:'isymcp-visible-profile/1',launchId:options.launchId}),{mode:0o600,flag:'wx'});
- chmodSync(options.profileDir,0o700);
+ else {writeFileSync(marker,JSON.stringify({version:'isymcp-visible-profile/1',launchId:options.launchId}),{mode:0o600,flag:'wx'});securePrivatePath(marker,false);}
 }
 export async function openVisibleBrowser(options:{profileDir:string;launchId:string}):Promise<{page:Page;context:BrowserContext;close():Promise<void>}>{
  prepareVisibleProfile(options);

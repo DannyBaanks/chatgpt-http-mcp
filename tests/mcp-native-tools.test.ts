@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mintSession } from "../src/codex-sessions";
+import { mintSession, sandboxBackend } from "../src/codex-sessions";
 import { McpClient } from "./helpers/mcp-client";
 
 let home: string;
@@ -299,7 +299,7 @@ describe("TEST D — equivalencia de formatos de parche", () => {
   test("read-only puede ejecutar el flujo de lectura completo", async () => {
     const read = await client.call("codex_exec", { turn_token: ro.token, command: ["sh", "-c", "cat probe.txt; pwd"] });
     expect(read.exit_code).toBe(0);
-    expect(read.sandbox).toBe("bwrap-read-only");
+    expect(read.sandbox).toBe(sandboxBackend() === "docker" ? "docker-linux-read-only" : "bwrap-read-only");
     expect(String(read.stdout)).toContain("PATCHED");
   }, 30_000);
 });

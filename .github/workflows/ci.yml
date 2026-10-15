@@ -66,3 +66,27 @@ jobs:
 
       - name: Tests
         run: bun test
+
+  windows-host:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - run: bun install --frozen-lockfile
+
+      # Host integration checks do not require Docker Desktop on the runner.
+      # Run tests/sandbox-isolation.test.ts on a Windows development machine
+      # with Docker Desktop to exercise the Linux-container command path.
+      - name: Windows host integration
+        run: >-
+          bun test
+          tests/windows-sandbox.test.ts
+          tests/codex-launcher.test.ts
+          tests/active-native-mcp.test.ts
+          tests/visible-browser-worker.test.ts
+          tests/visible-journal.test.ts

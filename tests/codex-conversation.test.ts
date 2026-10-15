@@ -12,9 +12,9 @@ const launchA = "11111111-1111-4111-8111-111111111111";
 const launchB = "22222222-2222-4222-8222-222222222222";
 const taskKey = "a".repeat(64);
 
-test("an App launch has its own intent and invalid clients fail before persistence", () => {
-  expect(planNewConversation({ client: "app", cwd: "/tmp/workspace" }).intent.client).toBe("app");
-  expect(() => validateConversationClient("daemon")).toThrow("web_conversation_client_invalid");
+test("synthetic App profiles fail closed before persistence", () => {
+  expect(() => planNewConversation({ client: "app", cwd: "/tmp/workspace" })).toThrow("UNKNOWN / NO EXECUTE");
+  expect(() => validateConversationClient("daemon")).toThrow("web_conversation_client_unsupported");
 });
 
 test("a CLI launch is per-process, interactive, and carries the launch header", () => {

@@ -16,6 +16,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync,
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
+import { securePrivatePath } from "./platform/private-path";
 
 export const MCP_NAME = "isymcp-chatgpt";
 
@@ -263,12 +264,19 @@ export async function detect(ids?: string[]): Promise<HarnessStatus[]> {
 
 /** Lanzador sin espacios en la ruta (los configs guardan el comando tal cual). */
 export function launcherPath(): string {
-  return join(bridgeHome(), "bin", "isymcp-chatgpt-mcp");
+  return join(bridgeHome(), "bin", process.platform === "win32" ? "isymcp-chatgpt-mcp.cmd" : "isymcp-chatgpt-mcp");
 }
 
 export function ensureLauncher(mainTs = join(import.meta.dir, "mcp", "chatgpt.ts")): string {
   const path = launcherPath();
-  mkdirSync(join(bridgeHome(), "bin"), { recursive: true });
+  const binDir = join(bridgeHome(), "bin");
+  mkdirSync(binDir, { recursive: true });
+  securePrivatePath(binDir, true);
+  if (process.platform === "win32") {
+    writeFileSync(path, `@echo off\r\n"${process.execPath}" run "${mainTs}" %*\r\n`);
+    securePrivatePath(path, false);
+    return path;
+  }
   const quoted = `'${mainTs.replace(/'/g, `'\\''`)}'`;
   writeFileSync(path, `#!/usr/bin/env bash\n# generado por chatgpt-http-mcp (src/harness.ts)\nexec bun run ${quoted} "$@"\n`, { mode: 0o700 });
   chmodSync(path, 0o700);

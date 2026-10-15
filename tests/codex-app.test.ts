@@ -1,66 +1,39 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareCodexApp } from "../src/codex-app";
-import { planNewConversation, writeLaunchIntent, commitConversationReceipt } from "../src/codex-conversation";
 import { localAppTitle } from "../src/web-responses";
 
-test("App profile and receipt isolate credentials, routing and workspace from native Codex", () => {
-  const dir = mkdtempSync(join(tmpdir(), "app-")), nativeHome = join(dir, "native");
+test("synthetic App launcher is disabled before touching authentication or profile files", () => {
+  const dir = mkdtempSync(join(tmpdir(), "app-disabled-"));
+  const nativeHome = join(dir, "native");
   mkdirSync(nativeHome);
-  writeFileSync(join(nativeHome, "auth.json"), '{"fixture":"private"}');
-  writeFileSync(join(nativeHome, "config.toml"), 'model="native"\n');
-  const catalogPath = join(dir, "models.json"); writeFileSync(catalogPath, '{"models":[]}');
-  const intent = planNewConversation({ client: "app", cwd: dir, model: "chatgpt-web/gpt-6" }).intent;
-  const options = { port: "8791", catalogPath, nativeHome, appRoot: join(dir, "apps"), executable: process.execPath };
-  const app = prepareCodexApp(intent, options);
-  expect(readFileSync(join(nativeHome, "config.toml"), "utf8")).toBe('model="native"\n');
-  expect(app.env.CODEX_HOME).not.toBe(nativeHome);
-  expect(app.env.ISYMCP_LAUNCH_ID).toBe(intent.launchId);
-  const config = readFileSync(join(app.env.CODEX_HOME, "config.toml"), "utf8");
-  expect(config).toContain('model_provider="isymcp_web"');
-  expect(config).toContain('model="chatgpt-web/gpt-6"');
-  expect(config).not.toContain("private");
-  expect(config).not.toContain("openai_base_url");
-  expect(statSync(join(app.env.CODEX_HOME, "auth.json")).mode & 0o777).toBe(0o600);
-  expect(statSync(app.home).mode & 0o777).toBe(0o700);
-  writeLaunchIntent(dir, intent);
-  const receipt = commitConversationReceipt(dir, { launchId: intent.launchId, threadId: "thread-test", taskKey: "a".repeat(64),
-    url: "https://chatgpt.com/c/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", model: intent.model, effort: "high" });
-  expect(receipt.client).toBe("app");
-  const resume = prepareCodexApp(intent, { ...options, threadId: receipt.threadId });
-  expect(resume.home).toBe(app.home);
-  expect(resume.args.at(-1)).toBe("codex://threads/thread-test");
-  const preferences = '\n[desktop]\nfollowUpQueueMode="queue"\n[plugins."fixture"]\nenabled=true\n';
-  writeFileSync(join(app.env.CODEX_HOME, "config.toml"), config + preferences);
-  const refreshed = prepareCodexApp(intent, { ...options, port: "18791", threadId: receipt.threadId });
-  const updated = readFileSync(join(refreshed.env.CODEX_HOME, "config.toml"), "utf8");
-  expect(updated).toContain('base_url="http://127.0.0.1:18791/v1"');
-  expect(updated).toEndWith(preferences);
-  expect(prepareCodexApp(intent, { ...options, port: "18791" }).home).toBe(app.home);
-  writeFileSync(join(app.env.CODEX_HOME, "config.toml"), 'model="user-edit"\n');
-  expect(() => prepareCodexApp(intent, options)).toThrow("web_app_profile_changed");
-  expect(readFileSync(join(app.env.CODEX_HOME, "config.toml"), "utf8")).toBe('model="user-edit"\n');
+  const auth = join(nativeHome, "auth.json");
+  writeFileSync(auth, '{"fixture":"private"}');
+  const intent = {
+    version: "isymcp-launch-intent/1",
+    launchId: "11111111-1111-4111-8111-111111111111",
+    client: "app",
+    cwd: dir,
+    model: "chatgpt-web/gpt-6",
+    effort: "high",
+  };
+
+  expect(() => prepareCodexApp(intent, { nativeHome, appRoot: join(dir, "apps") })).toThrow("UNKNOWN / NO EXECUTE");
+  expect(existsSync(join(dir, "apps"))).toBe(false);
+  expect(readFileSync(auth, "utf8")).toBe('{"fixture":"private"}');
 });
 
-test("App startup rejects unowned directories and overlong socket paths before copying credentials", () => {
-  const dir = mkdtempSync(join(tmpdir(), "app-"));
-  const intent = planNewConversation({ client: "app", cwd: dir }).intent;
-  const nativeHome = join(dir, "native"); mkdirSync(nativeHome); writeFileSync(join(nativeHome, "auth.json"), "{}");
-  const catalogPath = join(dir, "models.json"); writeFileSync(catalogPath, "{}");
-  const options = { port: "8791", catalogPath, nativeHome, appRoot: dir, executable: process.execPath };
-  mkdirSync(join(dir, intent.launchId));
-  expect(() => prepareCodexApp(intent, options)).toThrow("web_app_profile_unowned");
-  expect(() => prepareCodexApp(intent, { ...options, appRoot: join(dir, "x".repeat(110)) })).toThrow("web_app_home_too_long");
-});
-
-test("only the owned App's auxiliary title gets a local label without a conversation receipt", () => {
+test("legacy App title metadata gets a local label without starting a private profile", () => {
   const dir = mkdtempSync(join(tmpdir(), "app-title-"));
-  const intent = planNewConversation({ client: "app", cwd: dir, model: "chatgpt-web/gpt-6" }).intent;
-  writeLaunchIntent(dir, intent);
-  const req = new Request("http://localhost/v1/responses", { headers: { "x-isymcp-launch-id": intent.launchId } });
-  const body = { model: intent.model, input: "generate title", reasoning: { effort: "low" }, client_metadata: {
+  const launchId = "22222222-2222-4222-8222-222222222222";
+  const model = "chatgpt-web/gpt-6";
+  writeFileSync(join(dir, `intent-${launchId}.json`), JSON.stringify({
+    version: "isymcp-launch-intent/1", launchId, client: "app", cwd: dir, model, effort: "high",
+  }));
+  const req = new Request("http://localhost/v1/responses", { headers: { "x-isymcp-launch-id": launchId } });
+  const body = { model, input: "generate title", reasoning: { effort: "low" }, client_metadata: {
     thread_id: "auxiliary-thread", turn_id: "auxiliary-turn", "x-codex-turn-metadata": JSON.stringify({ thread_source: "thread_title", turn_trigger: "thread_title" }),
   } };
   expect(localAppTitle(req, body, dir)).toMatchObject({ output_text: "ISyMCP Web", metadata: { isymcp_source: "local_thread_title", isymcp_tools_executed: false } });

@@ -5,6 +5,8 @@ import {randomUUID} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {chromium,type Browser} from 'playwright-core';
 import {prepareVisibleProfile} from './browser-driver';
+import {defaultBrowserExecutable} from '../platform/browser';
+import {securePrivatePath} from '../platform/private-path';
 
 export function parseDevtoolsEndpoint(raw:string) {
  const lines=raw.trim().split('\n');
@@ -46,13 +48,15 @@ export async function selectOwnedHostPage(browser:Pick<Browser,'contexts'>,landi
 // and page; it does not launch Chrome or supply its default browser switches.
 export async function openNormalBrowserHost(options:{profileDir:string;launchId:string;executablePath?:string}) {
  prepareVisibleProfile(options);
- const executable=options.executablePath??'/usr/bin/google-chrome';
+ const executable=options.executablePath??defaultBrowserExecutable();
+ if(!executable)throw Error('visible_host_chrome_not_found');
  if(!isAbsolute(executable))throw Error('visible_host_executable_invalid');
  const active=join(options.profileDir,'DevToolsActivePort');
  const fingerprint=()=>{
   if(!existsSync(active))return '';
   const stat=lstatSync(active);
-  if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid?.())throw Error('visible_host_endpoint_not_owned');
+  if(!stat.isFile()||stat.isSymbolicLink()||(process.platform!=='win32'&&stat.uid!==process.getuid?.()))throw Error('visible_host_endpoint_not_owned');
+  if(process.platform==='win32')securePrivatePath(active,false);
   return stat.mtimeMs+':'+readFileSync(active,'utf8');
  };
  const prior=fingerprint();
@@ -102,7 +106,7 @@ function renderHostLandingHtml(options: { launchId: string; profileDir: string }
       <div class="row"><span class="lbl">Destino:</span><span class="val ok">https://chatgpt.com/</span></div>
     </div>
     <div class="notice">
-      <b>Modo Seguro Activo (Compliance P0):</b> Utiliza esta ventana a mano con tu sesión. Los comandos solicitados por ChatGPT se ejecutan en tu máquina bajo sandbox local (<code>bwrap-read-only</code>). La automatización desatendida de la interfaz de usuario está deshabilitada para proteger tu cuenta de OpenAI.
+      <b>Modo Seguro Activo (Compliance P0):</b> Utiliza esta ventana a mano con tu sesión. Los comandos solicitados por ChatGPT se ejecutan bajo sandbox local aislado. La automatización desatendida de la interfaz de usuario está deshabilitada para proteger tu cuenta de OpenAI.
     </div>
     <div class="footer">
       ISyMCP · Protocolo de Aislamiento de Procesos Locales · Loopback Only
@@ -116,6 +120,7 @@ function renderHostLandingHtml(options: { launchId: string; profileDir: string }
  // about:blank fragments can be replaced by its configured new-tab surface.
  const landingPath=join(dirname(options.profileDir),'host-landing-'+randomUUID()+'.html');
  writeFileSync(landingPath,renderHostLandingHtml(options),{mode:0o600,flag:'wx'});
+ securePrivatePath(landingPath,false);
  const landing=pathToFileURL(landingPath).href;
  const child=spawn(executable,[
   '--user-data-dir='+options.profileDir,'--new-window','--disable-background-mode',
@@ -155,7 +160,9 @@ function renderHostLandingHtml(options: { launchId: string; profileDir: string }
    const session=await browser.newBrowserCDPSession().catch(()=>undefined);
    if(session)try{const targets=await session.send('Target.getTargets');observation.targets=targets.targetInfos.map(t=>({type:t.type,url:safeUrl(t.url)}));}finally{await session.detach().catch(()=>{});}
   }
-  writeFileSync(join(dirname(options.profileDir),'host-failure-'+randomUUID()+'.json'),JSON.stringify(observation,null,2),{mode:0o600,flag:'wx'});
+  const failurePath=join(dirname(options.profileDir),'host-failure-'+randomUUID()+'.json');
+  writeFileSync(failurePath,JSON.stringify(observation,null,2),{mode:0o600,flag:'wx'});
+  securePrivatePath(failurePath,false);
   if(browser)await closeOwnedBrowser(browser,child).catch(()=>{});
   else await stopOwnedProcess(child).catch(()=>{});
   throw error;

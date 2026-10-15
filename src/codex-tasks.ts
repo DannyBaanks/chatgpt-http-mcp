@@ -15,6 +15,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
 import { canonicalConversationUrl } from "./web-turn";
+import { windowsCanaryScheduled } from "./platform/canary-scheduler";
 
 export interface CodexTaskView {
   id: string;
@@ -56,8 +57,9 @@ export function listCodexTasks(dir = codexTasksDir(), limit = 12): CodexTaskView
   return out.sort((a, b) => b.updated.localeCompare(a.updated)).slice(0, limit);
 }
 
-/** ¿Esta programado el canario diario (timer de systemd de usuario)? */
+/** ¿Esta programado el canario diario en systemd o Windows Task Scheduler? */
 export function canaryScheduled(): boolean | null {
+  if (process.platform === "win32") return windowsCanaryScheduled();
   try {
     const p = Bun.spawnSync(["systemctl", "--user", "is-enabled", "isymcp-canary.timer"], { stdout: "pipe", stderr: "ignore" });
     return p.stdout.toString().trim() === "enabled";

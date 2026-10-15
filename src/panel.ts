@@ -7,7 +7,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isExpired, listUserSessions } from "./codex-sessions";
+import { isExpired, listUserSessions, sandboxLabel } from "./codex-sessions";
+import { processMatches } from "./platform/process";
 import { bridgeAuthHeaders, guardLocalRequest } from "./local-guard";
 import { readLatestCanary, type CanaryResult } from "./canary";
 import { canaryScheduled, listCodexTasks, type CodexTaskView } from "./codex-tasks";
@@ -17,8 +18,7 @@ import { apply as harnessApply, detect as harnessDetect, plan as harnessPlan, ty
 import type { SystemMetrics } from "./metrics";
 
 function pgrep(pattern: string): boolean {
-  const p = Bun.spawnSync(["pgrep", "-f", pattern], { stdout: "ignore", stderr: "ignore" });
-  return (p.exitCode ?? 1) === 0;
+  return processMatches(pattern);
 }
 
 export interface PanelSession {
@@ -156,8 +156,8 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
     /* visible check opcional */
   }
 
-  const tunnel = pgrep("tunnel-client run") ? "ready" : "stopped";
-  const mcp = pgrep("mcp/main.ts --contract native --broker") || pgrep("broker.sock") ? "up" : "down";
+  const tunnel = pgrep("tunnel-client") ? "ready" : "stopped";
+  const mcp = pgrep("mcp/main.ts --contract native --broker") || pgrep("isymcp-broker") || pgrep("broker.sock") ? "up" : "down";
 
   return {
     ts: new Date().toISOString(),
@@ -168,7 +168,7 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
     mcp,
     browser: browserCrashed ? "page-crashed" : "ok",
     visibleSession,
-    activeBroker: tunnel === "ready" || pgrep("broker.sock"),
+    activeBroker: tunnel === "ready" || mcp === "up",
     conversation,
     sessions,
     lastErrors,
@@ -277,7 +277,7 @@ function visibleBrowserCard(v?: PanelState["visibleSession"], tunnelReady?: bool
     </div>
     <p class="small" style="margin-top:10px">
       <b>Conector:</b> <code>@Codex ISyMCP</code> · <b>URL activa:</b> <a href="${escapeHtml(v.url)}" target="_blank" rel="noreferrer">${escapeHtml(v.url.replace(/^https?:\/\//, ""))} ↗</a><br>
-      <b>Túnel MCP:</b> <span class="pill tone-${tunnelReady ? "ok" : "warn"}">${tunnelReady ? "conectado a ChatGPT" : "detenido"}</span> · <b>Sandbox:</b> <code>bwrap-read-only</code>
+      <b>Túnel MCP:</b> <span class="pill tone-${tunnelReady ? "ok" : "warn"}">${tunnelReady ? "conectado a ChatGPT" : "detenido"}</span> · <b>Sandbox:</b> <code>${escapeHtml(sandboxLabel({ writable: false }))}</code>
     </p>
   </section>`;
 }
@@ -329,7 +329,7 @@ export function renderMain(state: PanelState): string {
     tile({
       title: "MCP STDIO", tone: state.mcp === "up" || state.tunnel === "ready" ? "ok" : "bad",
       state: state.tunnel === "ready" ? "túnel listo" : state.mcp === "up" ? "escuchando" : "caido",
-      detail: state.activeBroker ? "Codex ISyMCP · broker activo (bwrap)" : "Codex ISyMCP · sandbox bwrap",
+      detail: state.activeBroker ? `Codex ISyMCP · broker activo (${sandboxLabel({ writable: false })})` : `Codex ISyMCP · sandbox ${sandboxLabel({ writable: false })}`,
     }),
     tile({
       title: "BROWSER", tone: state.visibleSession ? "ok" : state.browser === "ok" ? "ok" : "bad",
@@ -378,7 +378,7 @@ export function renderMain(state: PanelState): string {
     <h3>ULTIMA PRUEBA</h3>
     ${soakBody}
     ${canaryLine(state.canary ?? null, now)}
-    <p class="small muted">${state.canaryScheduled === true ? "Programado: todos los días 09:00 (systemd)." : state.canaryScheduled === false ? "Sin programar · <code>isymcp canary schedule --apply</code>" : ""}</p>
+    <p class="small muted">${state.canaryScheduled === true ? `Programado: todos los días 09:00 (${process.platform === "win32" ? "Task Scheduler" : "systemd"}).` : state.canaryScheduled === false ? "Sin programar · <code>isymcp canary schedule --apply</code>" : ""}</p>
     <div class="actions">${button("canary-run", "Correr canario", "go")}</div>
   </section>
   <section class="card">
@@ -739,7 +739,7 @@ export function publicSessions() {
   } catch {
     /* registro ilegible: lista vacia, el CLI explica */
   }
-  return { sessions, tunnel: pgrep("tunnel-client run") ? "ready" : "stopped" };
+  return { sessions, tunnel: pgrep("tunnel-client") ? "ready" : "stopped" };
 }
 
 /**

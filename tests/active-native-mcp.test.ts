@@ -9,6 +9,7 @@ import { bindNativeSource, mintNativeSession, routeNativeTool, nativeGateway } f
 import { findSessionByToken, registryPath } from "../src/codex-sessions";
 import { createActiveBroker } from "../src/mcp/active-broker";
 import { nativeRpc } from "../src/mcp/active-native";
+import { localIpcPath } from "../src/platform/ipc";
 
 async function fixture() {
   const home = mkdtempSync(join(tmpdir(), "isymcp-native-routing-"));
@@ -33,7 +34,9 @@ async function fixture() {
       socket.end(JSON.stringify({ id: request.id, result }));
     });
   });
-  await new Promise<void>(resolve => server.listen(socketPath, resolve)); chmodSync(socketPath, 0o600);
+  const endpoint = localIpcPath(socketPath);
+  await new Promise<void>(resolve => server.listen(endpoint, resolve));
+  if (process.platform !== "win32") chmodSync(endpoint, 0o600);
   const previous = process.env.CODEX_WEB_HTTP_HOME; process.env.CODEX_WEB_HTTP_HOME = home;
   const session = await mintNativeSession({ cwd: home, socketPath, ownerToken: "turn_private-owner-capability",
     owner: { launchId: "launch-123", threadId: "thread-123", turnId: "turn-123", epoch: "epoch-123" }, ttlMinutes: 2 });

@@ -150,15 +150,21 @@ describe("codex-launcher (perfil aislado sin tocar config.toml)", () => {
     expect(existsSync(installed.desktopPath)).toBe(true);
 
     const binContent = readFileSync(installed.binPath, "utf8");
-    expect(binContent).toContain('exec isymcp codex "$@"');
-    expect(binContent).not.toContain("openai_base_url");
-    expect(binContent).toContain('CODEX_WEB_HTTP_PORT="${CODEX_WEB_HTTP_PORT:-8791}"');
+    if (process.platform === "win32") {
+      expect(binContent).toContain("codex %*");
+      expect(binContent).toContain("CODEX_WEB_HTTP_PORT=8791");
+      expect(installed.desktopPath.endsWith(".lnk")).toBe(true);
+    } else {
+      expect(binContent).toContain('exec isymcp codex "$@"');
+      expect(binContent).not.toContain("openai_base_url");
+      expect(binContent).toContain('CODEX_WEB_HTTP_PORT="${CODEX_WEB_HTTP_PORT:-8791}"');
 
-    const desktopContent = readFileSync(installed.desktopPath, "utf8");
-    expect(desktopContent).toContain("[Desktop Entry]");
-    expect(desktopContent).toContain("Name=Codex (ISyMCP Web)");
-    expect(desktopContent).toContain("Terminal=true");
-    expect(desktopContent).not.toContain("%U");
+      const desktopContent = readFileSync(installed.desktopPath, "utf8");
+      expect(desktopContent).toContain("[Desktop Entry]");
+      expect(desktopContent).toContain("Name=Codex (ISyMCP Web)");
+      expect(desktopContent).toContain("Terminal=true");
+      expect(desktopContent).not.toContain("%U");
+    }
 
     const removed = removeDesktopLauncher({ binDir, appDir });
     expect(removed.removedBin).toBe(true);

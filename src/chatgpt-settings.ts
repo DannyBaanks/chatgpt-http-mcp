@@ -15,7 +15,8 @@
 //   - El storage-state solo se reemplaza si el snapshot sigue logueado; antes
 //     se respalda el anterior (<state>.bak-<ts>, 0600; se conservan 5).
 //   - El headless se relanza solo en el siguiente turno con el estado nuevo.
-import { chmodSync, existsSync, readdirSync, renameSync, unlinkSync, writeFileSync, copyFileSync } from "node:fs";
+import { existsSync, readdirSync, renameSync, unlinkSync, writeFileSync, copyFileSync } from "node:fs";
+import { securePrivatePath } from "./platform/private-path";
 import { basename, dirname, join } from "node:path";
 import type { Locator, Page } from "playwright-core";
 import type { AppConfig } from "./config";
@@ -260,12 +261,12 @@ export function replaceStorageState(statePath: string, storage: unknown, now = D
   if (existsSync(statePath)) {
     backup = `${statePath}.bak-${new Date(now).toISOString().replace(/[:.]/g, "-")}`;
     copyFileSync(statePath, backup);
-    chmodSync(backup, 0o600);
+    securePrivatePath(backup, false);
   }
   const tmp = `${statePath}.tmp-${process.pid}`;
   writeFileSync(tmp, JSON.stringify(storage), { mode: 0o600 });
   renameSync(tmp, statePath);
-  chmodSync(statePath, 0o600);
+  securePrivatePath(statePath, false);
   // Solo NUESTROS backups (mismo prefijo exacto), los mas viejos primero.
   const prefix = `${basename(statePath)}.bak-`;
   const backups = readdirSync(dirname(statePath)).filter((n) => n.startsWith(prefix)).sort();

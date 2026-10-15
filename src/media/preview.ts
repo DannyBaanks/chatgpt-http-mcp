@@ -131,8 +131,19 @@ export async function chooseOutputDirectory(options: {
   env?: NodeJS.ProcessEnv;
 } = {}): Promise<string | null> {
   const platform = options.platform ?? process.platform;
-  if (platform !== 'linux') throw Error('The native folder chooser is currently supported on Linux only');
   const env = options.env ?? process.env;
+  if (platform === 'win32') {
+    const executable = env.SystemRoot ? join(env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') : 'powershell.exe';
+    const script = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Windows.Forms; $dialog=New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description='Choose a folder for the prepared video'; if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::WriteLine($dialog.SelectedPath) }`;
+    try {
+      const output = await (options.runner ?? run)(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-Command', script], 64 * 1024, 120000, { env });
+      const selected = output.toString('utf8').trim();
+      return selected ? validateSelectedDirectory(selected) : null;
+    } catch {
+      throw Error('The native folder chooser could not be opened; check the Windows desktop session and retry');
+    }
+  }
+  if (platform !== 'linux') throw Error('The native folder chooser is not supported on this platform');
   const pathValue = env.PATH ?? '/usr/bin:/bin';
   const zenity = executableInPath('zenity', pathValue);
   const kdialog = executableInPath('kdialog', pathValue);
