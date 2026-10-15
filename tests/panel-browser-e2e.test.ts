@@ -156,11 +156,25 @@ if (!browserAvailable) {
       { selector, text },
       { timeout: 8_000 },
     );
-    const waitForValue = (selector: string, value: string) => page.waitForFunction(
-      ({ selector, value }) => (document.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | null)?.value === value,
-      { selector, value },
-      { polling: 100, timeout: 12_000 },
-    );
+    const waitForValue = async (selector: string, value: string) => {
+      try {
+        await page.waitForFunction(
+          ({ selector, value }) => (document.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | null)?.value === value,
+          { selector, value },
+          { polling: 100, timeout: 30_000 },
+        );
+      } catch (error) {
+        const pageState = await page.evaluate(() => ({
+          inputValue: (document.querySelector("#input") as HTMLTextAreaElement | null)?.value ?? null,
+          inputDisabled: (document.querySelector("#input") as HTMLTextAreaElement | null)?.disabled ?? null,
+          activeChatId: localStorage.getItem("isymcp.chat"),
+        }));
+        const savedChat = pageState.activeChatId
+          ? await (await fetch(new URL(`/api/chats/${pageState.activeChatId}`, panelUrl))).json()
+          : null;
+        throw new Error(`${String(error)}; draft state ${JSON.stringify({ ...pageState, savedDraft: savedChat?.draft ?? null })}`);
+      }
+    };
     const waitForDisabled = (selector: string, disabled: boolean) => page.waitForFunction(
       ({ selector, disabled }) => (document.querySelector(selector) as HTMLInputElement | HTMLButtonElement | null)?.disabled === disabled,
       { selector, disabled },

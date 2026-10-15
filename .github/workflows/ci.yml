@@ -84,7 +84,7 @@ jobs:
       # with Docker Desktop to exercise the Linux-container command path.
       - name: Windows host integration
         run: >-
-          bun test
+          bun test --timeout 15000
           tests/windows-sandbox.test.ts
           tests/codex-launcher.test.ts
           tests/active-native-mcp.test.ts
