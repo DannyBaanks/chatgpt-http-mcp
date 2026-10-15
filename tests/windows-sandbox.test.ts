@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { buildCodexWindowsSandboxPlan, cleanupCodexWindowsSandboxPath } from "../src/platform/codex-windows-sandbox";
 import { buildWindowsDockerSandboxPlan } from "../src/platform/docker-sandbox";
 
-test("native Windows profile is launchable by Codex and keeps the user profile denied", () => {
+(process.platform === "win32" ? test : test.skip)("native Windows profile is launchable by Codex and keeps the user profile denied", () => {
   const root = join(tmpdir(), `isymcp-native-plan-${randomUUID()}`);
   const workspace = join(root, "workspace");
   const cli = join(root, "codex.exe");
