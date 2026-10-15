@@ -35,6 +35,7 @@ if (!browserAvailable) {
   const bridgeTurnRequests: Array<Record<string, unknown>> = [];
   const browserErrors: string[] = [];
   const browserRequests: string[] = [];
+  const browserRequestDetails: Array<{ method: string; url: string }> = [];
 
   beforeAll(async () => {
     previousHome = process.env.CODEX_WEB_HTTP_HOME;
@@ -121,7 +122,19 @@ if (!browserAvailable) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     page = await context.newPage();
     page.on("pageerror", (error) => browserErrors.push(error.message));
-    page.on("request", (request) => browserRequests.push(request.url()));
+    page.on("request", (request) => {
+      browserRequests.push(request.url());
+      browserRequestDetails.push({ method: request.method(), url: request.url() });
+    });
+    await page.addInitScript(() => {
+      const trace: string[] = [];
+      Object.defineProperty(window, "__isymcpChatSelectionTrace", { value: trace });
+      const setItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key === "isymcp.chat") trace.push(value);
+        return setItem.call(this, key, value);
+      };
+    });
     await page.goto(panelUrl, { waitUntil: "domcontentloaded" });
     await page.locator("#input").waitFor({ state: "visible" });
   }, 30_000);
@@ -168,11 +181,16 @@ if (!browserAvailable) {
           inputValue: (document.querySelector("#input") as HTMLTextAreaElement | null)?.value ?? null,
           inputDisabled: (document.querySelector("#input") as HTMLTextAreaElement | null)?.disabled ?? null,
           activeChatId: localStorage.getItem("isymcp.chat"),
+          selectionTrace: (window as Window & { __isymcpChatSelectionTrace?: string[] }).__isymcpChatSelectionTrace ?? [],
         }));
         const savedChat = pageState.activeChatId
           ? await (await fetch(new URL(`/api/chats/${pageState.activeChatId}`, panelUrl))).json()
           : null;
-        throw new Error(`${String(error)}; draft state ${JSON.stringify({ ...pageState, savedDraft: savedChat?.draft ?? null })}`);
+        const recentChatRequests = browserRequestDetails
+          .filter(({ url }) => new URL(url).pathname.startsWith("/api/chats/"))
+          .slice(-20)
+          .map(({ method, url }) => `${method} ${new URL(url).pathname}`);
+        throw new Error(`${String(error)}; draft state ${JSON.stringify({ ...pageState, savedDraft: savedChat?.draft ?? null, recentChatRequests })}`);
       }
     };
     const waitForDisabled = (selector: string, disabled: boolean) => page.waitForFunction(
