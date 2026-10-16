@@ -213,7 +213,7 @@ if (!browserAvailable) {
     await page.locator("#newchat").click();
     const seedResponse = await send("Seed chat A");
     if (seedResponse.status() !== 200) throw new Error(`Seed chat failed: HTTP ${seedResponse.status()} ${await seedResponse.text()}`);
-    await waitForText("#msgs", "Respuesta sintética: Seed chat A");
+    await waitForText("#msgs .msg.assistant .body:not(.live-body)", "Respuesta sintética: Seed chat A");
     const chatId = await page.evaluate(() => localStorage.getItem("isymcp.chat"));
     expect(chatId).toMatch(/^c_[0-9a-f]{16}$/);
     let releaseQueuedWrite!: () => void;
@@ -250,9 +250,37 @@ if (!browserAvailable) {
     expect((await staleWrite).status()).toBe(409);
     await page.unroute(draftRoute);
 
+    let releaseCreation!: () => void;
+    let creationStarted!: () => void;
+    const creationGate = new Promise<void>((resolve) => { releaseCreation = resolve; });
+    const creationRequestStarted = new Promise<void>((resolve) => { creationStarted = resolve; });
+    const chatsUrl = `${new URL(panelUrl).origin}/api/chats`;
+    await page.route(chatsUrl, async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      creationStarted();
+      await creationGate;
+      await route.fulfill({ response });
+    });
+    const creationResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/chats" && response.request().method() === "POST",
+    );
     await page.locator("#newchat").click();
+    await creationRequestStarted;
+    try {
+      expect(await page.locator("#input").isDisabled()).toBe(true);
+    } finally {
+      releaseCreation();
+    }
+    expect((await creationResponse).status()).toBe(201);
+    await page.waitForFunction((previousId) => {
+      const input = document.querySelector("#input") as HTMLTextAreaElement | null;
+      return localStorage.getItem("isymcp.chat") !== previousId && input?.disabled === false;
+    }, chatId, { timeout: 8_000 });
     const secondChatId = await page.evaluate(() => localStorage.getItem("isymcp.chat"));
     expect(secondChatId).toMatch(/^c_[0-9a-f]{16}$/);
+    expect(secondChatId).not.toBe(chatId);
+    await page.unroute(chatsUrl);
     await page.locator("#input").fill("B-only draft must stay with chat B");
     await page.waitForResponse((response) => new URL(response.url()).pathname.endsWith("/draft") && response.status() === 200);
 
