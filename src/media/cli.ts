@@ -5,6 +5,7 @@ import { prepareMedia } from './preparation';
 import { MediaPreparationStore, PreparationManifest } from './preparation-store';
 import { chooseOutputDirectory, inspectYouTube, YouTubePreview } from './preview';
 import { exportMediaPackage, PackageCollisionError, PackageExportError } from './export';
+import { MediaFailure } from './error-codes';
 
 export type MediaCommandDependencies = {
  catalog?: MediaCatalog;
@@ -20,6 +21,11 @@ export type MediaCommandDependencies = {
 };
 
 type PreparedSource = {asset:Awaited<ReturnType<MediaCatalog['resolve']>>;manifest:PreparationManifest;segmentCount:number;sheetCount:number};
+
+function requireSourceUrl(input:string):string {
+ try { return youtubeSource(input); }
+ catch(error) { throw new MediaFailure('media_invalid_url', error instanceof Error?error.message:undefined); }
+}
 
 async function ask(question:string):Promise<string> {
  const prompt=createInterface({input:process.stdin,output:process.stdout});
@@ -70,11 +76,11 @@ async function resolveOrImport(
   if(job.phase!==lastPhase){lastPhase=job.phase;errorOut(`import: ${job.phase}`);}
   job=await importer.status(job.job_id,10);
  }
- if(job.state!=='complete'||!job.asset) throw Error(job.error??'Download or media validation failed');
+ if(job.state!=='complete'||!job.asset) throw new MediaFailure(job.error_code??'media_download_unknown',job.error);
  const asset=await catalog.resolve(job.asset.id);
- if(asset.sourceUrl!==sourceUrl) throw Error('Imported media source did not match the requested URL');
+ if(asset.sourceUrl!==sourceUrl) throw new MediaFailure('media_identity_mismatch','Imported media source did not match the requested URL');
  if(requireReceipt&&(asset.downloadReceipt?.source_url!==sourceUrl||asset.downloadReceipt.video_id!==videoId)) {
-  throw Error('Downloaded video identity could not be verified; no package was exported');
+  throw new MediaFailure('media_identity_mismatch','Downloaded video identity could not be verified; no package was exported');
  }
  return asset;
 }
@@ -91,13 +97,13 @@ async function prepareSource(
   manifest=await prepare(catalog,asset,new MediaPreparationStore(catalog.home),{onProgress:(phase,completed,total)=>{
    errorOut(`prepare: ${phase}${completed!==undefined?` ${completed}${total!==undefined?`/${total}`:''}`:''}`);
   }});
- } catch { throw Error('Media preparation failed; the registered source and verified partial results are preserved. Retry with the same URL.'); }
- if(manifest.status!=='ready') throw Error('Media preparation did not reach ready status');
+ } catch { throw new MediaFailure('media_prepare_failed'); }
+ if(manifest.status!=='ready') throw new MediaFailure('media_prepare_failed','Media preparation did not reach ready status');
  const audio=manifest.artifacts.find(item=>item.kind==='audio_scan');
  let segmentCount=0;
  if(audio) {
   try { segmentCount=Number(JSON.parse(new MediaPreparationStore(catalog.home).readArtifact(asset.id,manifest.generation_id,audio.id).toString()).total_segments)||0; }
-  catch { throw Error('Prepared audio result could not be verified'); }
+  catch { throw new MediaFailure('media_prepare_failed','Prepared audio result could not be verified'); }
  }
  return {asset,manifest,segmentCount,sheetCount:manifest.artifacts.filter(item=>item.kind==='contact_sheet').length};
 }
@@ -111,7 +117,7 @@ async function guidedPrepare(
 ):Promise<void> {
  const rawUrl=await (dependencies.promptUrl??promptUrl)();
  if(!rawUrl?.trim()) { errorOut('prepare: canceled before URL entry'); return; }
- const sourceUrl=youtubeSource(rawUrl.trim());
+ const sourceUrl=requireSourceUrl(rawUrl.trim());
  const outputDirectory=await (dependencies.chooseDirectory??chooseOutputDirectory)();
  if(!outputDirectory) { errorOut('prepare: folder selection canceled'); return; }
  const preview=await (dependencies.inspect??inspectYouTube)(sourceUrl);
@@ -138,7 +144,7 @@ async function guidedPrepare(
    parent=replacement;
   }
  }
- if(!exported) throw Error('Could not find an unused output folder after five attempts');
+ if(!exported) throw new MediaFailure('media_workspace_error','Could not find an unused output folder after five attempts');
  out(JSON.stringify({asset_id:asset.id,status:prepared.manifest.status,duration_seconds:prepared.manifest.duration_seconds??null,
   sheet_count:prepared.sheetCount,segment_count:prepared.segmentCount,package_directory:exported.directory,
   source_sha256:asset.sha256,manifest_sha256:exported.manifest_sha256}));
@@ -154,10 +160,10 @@ export async function mediaCommand(command:string|undefined,args:string[],depend
  else if(command==='revoke' && args.length===1) {catalog.revoke(args[0]); out('Asset revoked; original preserved.');}
  else if(command==='prepare' && args.length===0) await guidedPrepare(catalog,importer,dependencies,out,errorOut);
  else if(command==='prepare' && args.length===1) {
-  const sourceUrl=youtubeSource(args[0]);
+  const sourceUrl=requireSourceUrl(args[0]);
   const asset=await resolveOrImport(catalog,importer,sourceUrl,errorOut,false);
   const prepared=await prepareSource(catalog,asset,dependencies,errorOut);
   out(JSON.stringify({asset_id:asset.id,status:prepared.manifest.status,duration_seconds:prepared.manifest.duration_seconds??null,
    sheet_count:prepared.sheetCount,segment_count:prepared.segmentCount}));
- } else throw Error('Usage: isymcp media add <file> | list | revoke <asset_id> | prepare [youtube-url]');
+ } else throw new MediaFailure('media_invalid_request','Usage: isymcp media add <file> | list | revoke <asset_id> | prepare [youtube-url]');
 }

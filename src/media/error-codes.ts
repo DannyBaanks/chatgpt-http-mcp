@@ -29,6 +29,12 @@ export const MEDIA_ERROR_CODES = {
   media_prepare_failed:
     'Media preparation failed; the registered source and verified partial results are preserved. Retry with the same URL.',
   media_catalog_unavailable: 'Media catalog unavailable or invalid offset',
+  media_invalid_url: 'Use a public HTTPS YouTube video URL',
+  media_lookup_failed:
+    'Media lookup failed; the source may be unavailable or its integrity could not be verified.',
+  media_asset_changed: 'Asset changed: register again',
+  media_invalid_request: 'Invalid media request',
+  media_busy: 'Media worker busy; retry after current query finishes',
   media_download_unknown:
     'Download or media validation failed; source may be unavailable, require login, or be blocked',
   media_unknown: 'Media operation failed',
@@ -52,6 +58,7 @@ const INTERNAL_SIGNATURES: ReadonlyArray<readonly [RegExp, MediaErrorCode]> = [
   [/at most 30 minutes|duration <= 1800|longer than 30 minutes/i, 'media_too_long'],
   [/exceeds file limit|exceeds disk limit|insufficient free disk space|max.?filesize|exceeds? (?:the )?local size limit/i, 'media_too_large'],
   [/unauthorized path|workspace|no space left|read.?only file system/i, 'media_workspace_error'],
+  [/public https youtube|invalid youtube url|only individual youtube/i, 'media_invalid_url'],
 ];
 
 const SIGNATURES: ReadonlyArray<readonly [RegExp, MediaErrorCode]> = [
@@ -93,4 +100,16 @@ export function classifyMediaError(
 
 function withDetail(code: MediaErrorCode, detail: string): MediaError {
   return detail ? { code, message: MEDIA_ERROR_CODES[code], detail_sanitized: detail } : { code, message: MEDIA_ERROR_CODES[code] };
+}
+
+/** Error de media con codigo estable; quien lo captura puede imprimir `code`. */
+export class MediaFailure extends Error {
+  readonly code: MediaErrorCode;
+  readonly detail_sanitized?: string;
+  constructor(code: MediaErrorCode, message?: string, detail_sanitized?: string) {
+    super(message ?? MEDIA_ERROR_CODES[code]);
+    this.name = 'MediaFailure';
+    this.code = code;
+    this.detail_sanitized = detail_sanitized;
+  }
 }

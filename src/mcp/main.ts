@@ -155,6 +155,7 @@ function traceResult(session: CodexSession | null, tool: string, callId: string,
       path: clipStr(r.path),
       bytes: typeof r.bytes === "number" ? r.bytes : undefined,
       error: clipStr(r.error),
+      error_code: clipStr(r.error_code),
     });
   } catch {
     /* la traza nunca rompe la tool */

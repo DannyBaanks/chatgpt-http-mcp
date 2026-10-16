@@ -6,33 +6,42 @@ import { probe, analyzeAudio, audioSegments, audioScan, windowRange } from './au
 import { videoFrame } from './video-vision';
 import { youtubeSource } from './importer';
 import { MediaPreparationStore } from './preparation-store';
+import { MEDIA_ERROR_CODES, classifyMediaError, type MediaErrorCode } from './error-codes';
+
+/** Respuesta de error MCP con codigo estable y mensaje accionable. */
+function mediaFailure(code: MediaErrorCode, message?: string, detail?: string) {
+  return {
+    isError: true as const,
+    content: [{ type: 'text' as const, text: JSON.stringify({ error_code: code, message: message ?? MEDIA_ERROR_CODES[code], ...(detail ? { detail_sanitized: detail } : {}) }) }],
+  };
+}
 export class MediaService {
  private busy=false;
  private importer:MediaImporter;
  constructor(public catalog=new MediaCatalog()){this.importer=new MediaImporter(catalog);}
  async call(name:string,args:any) {
-  if(name==='media_import_status') {
-   try {const result=await this.importer.status(args.job_id,args.wait_seconds??0);return {isError:result.state==='failed',content:[{type:'text' as const,text:JSON.stringify(result)}]};}
-   catch(error){return {isError:true,content:[{type:'text' as const,text:String(error instanceof Error?error.message:error)}]};}
-  }
-  if(name==='media_import') {
-   try {if(this.busy)throw Error('Media worker busy; retry after current query finishes');return {content:[{type:'text' as const,text:JSON.stringify(this.importer.start(args.url))}]};}
-   catch(error){return {isError:true,content:[{type:'text' as const,text:String(error instanceof Error?error.message:error)}]};}
-  }
-  if(name==='media_list') {
+   if(name==='media_import_status') {
+    try {const result=await this.importer.status(args.job_id,args.wait_seconds??0);return {isError:result.state==='failed',content:[{type:'text' as const,text:JSON.stringify(result)}]};}
+    catch(error){return mediaFailure('media_unknown', String(error instanceof Error?error.message:error));}
+   }
+   if(name==='media_import') {
+    try {if(this.busy)return mediaFailure('media_busy');return {content:[{type:'text' as const,text:JSON.stringify(this.importer.start(args.url))}]};}
+    catch(error){if(error instanceof Error&&/busy/i.test(error.message))return mediaFailure('media_busy');const classified=classifyMediaError(error);return mediaFailure(classified.code,classified.message,classified.detail_sanitized);}
+   }
+   if(name==='media_list') {
+    try {
+     const offset=args.offset??0;
+     if(!Number.isInteger(offset)||offset<0) throw Error('Invalid list offset');
+     const all=this.catalog.list().sort((a,b)=>a.id.localeCompare(b.id));
+     const assets=all.slice(offset,offset+20);
+     return {content:[{type:'text' as const,text:JSON.stringify({assets,next_offset:offset+assets.length<all.length?offset+assets.length:null})}]};
+    } catch(error) {return mediaFailure('media_catalog_unavailable', 'Media catalog unavailable or invalid offset');}
+   }
+   if(name==='media_lookup') return this.lookup(args);
+   if(this.busy||this.importer.active) return mediaFailure('media_busy');
+   this.busy=true;
    try {
-    const offset=args.offset??0;
-    if(!Number.isInteger(offset)||offset<0) throw Error('Invalid list offset');
-    const all=this.catalog.list().sort((a,b)=>a.id.localeCompare(b.id));
-    const assets=all.slice(offset,offset+20);
-    return {content:[{type:'text' as const,text:JSON.stringify({assets,next_offset:offset+assets.length<all.length?offset+assets.length:null})}]};
-   } catch(error) {return {isError:true,content:[{type:'text' as const,text:'Media catalog unavailable or invalid offset'}]};}
-  }
-  if(name==='media_lookup') return this.lookup(args);
-  if(this.busy||this.importer.active) return {isError:true,content:[{type:'text' as const,text:'Media worker busy; retry after current query finishes'}]};
-  this.busy=true;
-  try {
-   if(!['media_info','audio_analyze','audio_segments','audio_scan','video_frame','video_contact_sheet'].includes(name)) {this.busy=false;throw Error('Unknown media tool');}
+    if(!['media_info','audio_analyze','audio_segments','audio_scan','video_frame','video_contact_sheet'].includes(name)) {this.busy=false;throw Error('Unknown media tool');}
    return await withinDeadline(()=>this.catalog.snapshot(args.asset_id,async(asset,path)=>{
     let result:any,images:any[]=[],window:any;
     window=['audio_analyze','audio_segments','video_contact_sheet'].includes(name)?{start_seconds:args.start_seconds,end_seconds:args.end_seconds}:name==='video_frame'?{timestamp_seconds:args.timestamp_seconds}:undefined;
@@ -49,7 +58,11 @@ export class MediaService {
     const method=name==='media_info'?'ffprobe source container and stream metadata':name==='video_frame'?'Video Vision extract_frame_at':name==='video_contact_sheet'?'FFmpeg contact sheet; labelled sample times; aspect ratio preserved':name==='audio_segments'?'FFmpeg RMS activity segmentation; mono 16 kHz':name==='audio_scan'?'FFmpeg full-window audio activity scan in chunks of at most 120 seconds':`FFmpeg/ffprobe; audio ${args.channel&&args.channel!=='mix'?`channel ${args.channel}`:'mono mix'} at 16 kHz`;
     return {content:[{type:'text' as const,text:JSON.stringify({asset_id:asset.id,sha256:asset.sha256,source_url:asset.sourceUrl,window,method,version:'isymcp-media/1',result,limitations:name==='audio_analyze'?'Waveform and spectrum are acoustic measurements, not native listening or sound identification.':undefined})},...images]};
    }),name==='audio_scan'?300000:60000,()=>{this.busy=false;});
-  } catch(error) { return {isError:true,content:[{type:'text' as const,text:String(error instanceof Error?error.message:error).replaceAll(this.catalog.home,'[media-state]')}]}; }
+  } catch(error) {
+   const raw=String(error instanceof Error?error.message:error).replaceAll(this.catalog.home,'[media-state]');
+   const classified=classifyMediaError(error);
+   return mediaFailure(classified.code, raw, classified.detail_sanitized);
+  }
  }
 
  private async lookup(args:any) {
@@ -89,8 +102,10 @@ export class MediaService {
   } catch(error) {
    const raw=String(error instanceof Error?error.message:'Media lookup failed');
    const safeErrors=new Set(['Invalid YouTube URL','Use a public HTTPS YouTube video URL','Only individual YouTube videos and Shorts are supported','Invalid sheet_index','sheet_index is out of range','Asset revoked','Asset changed: register again']);
-   const message=safeErrors.has(raw)?raw:'Media lookup failed; the source may be unavailable or its integrity could not be verified.';
-   return {isError:true,content:[{type:'text' as const,text:message}]};
+   const code:MediaErrorCode=raw==='Invalid YouTube URL'||raw==='Use a public HTTPS YouTube video URL'||raw==='Only individual YouTube videos and Shorts are supported'?'media_invalid_url'
+    :raw==='Invalid sheet_index'||raw==='sheet_index is out of range'?'media_invalid_request'
+    :raw==='Asset revoked'||raw==='Asset changed: register again'||/mismatch/i.test(raw)?'media_asset_changed':'media_lookup_failed';
+   return mediaFailure(code, safeErrors.has(raw)?raw:undefined);
   }
  }
 }

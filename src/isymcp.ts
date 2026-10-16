@@ -775,7 +775,13 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
 } else if (!cmd || cmd === "status") {
   await status();
 } else if (cmd === "media") {
-  await (await import("./media/cli")).mediaCommand(sub, rest);
+  try { await (await import("./media/cli")).mediaCommand(sub, rest); }
+  catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "";
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(code ? `✗ ${code}: ${message}` : `✗ ${message}`);
+    process.exitCode = 1;
+  }
 } else if (cmd === "tree") {
   console.log(brandHeader());
   for (const label of visibleLabels()) console.log(`  ${label}`);
