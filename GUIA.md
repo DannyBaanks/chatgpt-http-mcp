@@ -19,6 +19,40 @@ Salida real del menú instalado, recortada, verificada en una terminal PTY:
 
 **ISyMCP** convierte tu suscripción de ChatGPT en una interfaz de chat local en localhost, un API compatible con OpenAI / Responses, y una herramienta MCP para tus agentes de código (Codex, Claude Code, Cursor, OpenCode, Copilot CLI, Hermes, OpenClaw, Pi, Gemini).
 
+## Panel de chat, Evidencia y Actividad
+
+En el panel, **Conversación** es la vista inicial. Usa **Nuevo chat** para crear
+una conversación; escribir en el compositor antes de tener un chat conserva el
+borrador en esta pestaña y no crea chats por sí solo. Cada conversación tiene
+su propio borrador: se guarda automáticamente, vuelve al cambiar de chat y se
+restaura tras recargar. Un envío correcto limpia el texto enviado; un error o
+texto escrito durante el envío se conserva.
+
+Las pestañas muestran información distinta del mismo chat:
+
+- **Conversación:** historial y respuesta en vivo de ChatGPT.
+- **Evidencia:** comprobantes MCP guardados, con filtros de todas, fallidas y
+  completadas; “Ir al mensaje propietario” abre el mensaje asociado. Los
+  comprobantes se proyectan desde el historial local del chat (hasta 200
+  mensajes). No guardan stdout ni stderr; la vista no los reconstruye.
+- **Actividad:** disponibilidad actual del bridge, fase y herramientas del chat
+  seleccionado. Si el único turno activo pertenece a otro chat, se indica sin
+  atribuirle esa fase al chat abierto.
+
+El lateral abre el historial, sesiones de trabajo, Actividad y Ajustes; el
+control inferior permite abrir Estado. En pantallas angostas, Chat, Sesiones y
+Ajustes usan cajones que se cierran con **Escape** y devuelven el foco al
+control que los abrió. Elegir una sesión la asocia al chat actual aunque las
+tools sigan apagadas. Para permitir ejecuciones, enciende **Codex ISyMCP** de
+forma explícita y revisa el alcance de la carpeta seleccionada.
+
+La respuesta muestra el Blossom monocromático local junto a la etiqueta
+ChatGPT; ISyMCP sigue siendo la marca del panel. La procedencia y el uso del
+archivo están en [`assets/README.md`](assets/README.md). El E2E reproducible del panel
+usa un bridge sintético y marca claramente sus comprobantes de prueba. No
+equivale a un turno autenticado contra ChatGPT: ese canario real queda
+**NOT_DEMONSTRATED** en el [registro de verificación](docs/verification/2026-10-15-panel-chat-views.md).
+
 ---
 
 ## 1. Requisitos Previos

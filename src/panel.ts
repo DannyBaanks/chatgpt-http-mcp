@@ -12,7 +12,7 @@ import { processMatches } from "./platform/process";
 import { bridgeAuthHeaders, guardLocalRequest } from "./local-guard";
 import { readLatestCanary, type CanaryResult } from "./canary";
 import { canaryScheduled, listCodexTasks, type CodexTaskView } from "./codex-tasks";
-import { chatPath, createChat, listChats, loadChat, publicChat, saveChat } from "./chats";
+import { chatPath, createChat, listChats, loadChat, publicChat, saveChat, MAX_DRAFT_LENGTH } from "./chats";
 import { CHAT_SCRIPT, CHAT_STYLE, renderChatView } from "./panel-chat";
 import { apply as harnessApply, detect as harnessDetect, plan as harnessPlan, type HarnessAction } from "./harness";
 import type { SystemMetrics } from "./metrics";
@@ -66,6 +66,7 @@ export interface PanelState {
 }
 
 const ROOT = join(import.meta.dir, "..");
+const BLOSSOM_ASSET = join(ROOT, "assets", "openai-white-monoblossom.png");
 
 export function readLastSoak(dir = join(ROOT, "docs", "evidence")): PanelSoak | null {
   try {
@@ -545,11 +546,9 @@ export function renderPanel(state: PanelState): string {
 <title>ISyMCP</title><style>${STYLE}${SHELL_STYLE}${CHAT_STYLE}</style></head>
 <body class="tab-chat">
 <header class="top">
-  <button class="drawer-btn" id="btn-side" title="Chats">☰</button>
   <span class="logo">ISyMCP</span>
   <nav class="tabs"><a href="#chat" data-tab="chat" class="on">Chat</a><a href="#estado" data-tab="estado">Estado</a></nav>
   <span class="live"><i></i><span class="lbl"> en vivo</span></span>
-  <button class="drawer-btn" id="btn-config" title="Configuración">⚙</button>
 </header>
 <div id="view-chat">${renderChatView()}</div>
 <div id="view-estado"><div class="wrap">
@@ -569,8 +568,6 @@ ${renderMain(state)}
 function showTab(){const t=location.hash.startsWith('#estado')?'estado':'chat';document.body.classList.toggle('tab-chat',t==='chat');
 document.querySelectorAll('.tabs a').forEach(a=>a.classList.toggle('on',a.dataset.tab===t));if(t==='estado')refresh();}
 window.addEventListener('hashchange',showTab);showTab();
-document.getElementById('btn-side').onclick=()=>{document.body.classList.toggle('show-side');document.body.classList.remove('show-config');};
-document.getElementById('btn-config').onclick=()=>{document.body.classList.toggle('show-config');document.body.classList.remove('show-side');};
 ${CHAT_SCRIPT}
 ${HARNESS_SCRIPT}</script></body></html>`;
 }
@@ -609,6 +606,14 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       const denied = guardLocalRequest(req, { requireJsonBody: true, loopbackOnly: true });
       if (denied) return denied;
       const url = new URL(req.url);
+      if (url.pathname === "/assets/openai-white-monoblossom.png" && req.method === "GET") {
+        try {
+          return new Response(readFileSync(BLOSSOM_ASSET), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+        } catch {
+          return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+        }
+      }
+      if (url.pathname.startsWith("/assets/")) return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
       if (url.pathname.startsWith("/api/chat")) return handleChatApi(req, url, bridgePort);
       if (url.pathname.startsWith("/api/settings")) return handleSettingsApi(req, url, bridgePort);
       if (url.pathname === "/api/sessions" && req.method === "GET") return Response.json(publicSessions());
@@ -659,7 +664,7 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
     if (req.method === "POST") return Response.json(publicChat(createChat(), false), { status: 201 });
     return apiError(405, "method_not_allowed", "GET o POST");
   }
-  const m = /^\/api\/chats\/([^/]+)(\/messages|\/config)?$/.exec(url.pathname);
+  const m = /^\/api\/chats\/([^/]+)(\/messages|\/config|\/draft)?$/.exec(url.pathname);
   if (!m) return apiError(404, "not_found", "ruta desconocida");
   const id = decodeURIComponent(m[1]!);
   if (!chatPath(id)) return apiError(400, "chat_bad_id", "chat_id invalido");
@@ -669,19 +674,39 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
     if (req.method !== "GET") return apiError(405, "method_not_allowed", "GET");
     return Response.json(publicChat(chat, true));
   }
+  if (m[2] === "/draft") {
+    if (req.method !== "POST") return apiError(405, "method_not_allowed", "POST");
+    const body = (await req.json().catch(() => null)) as { draft?: unknown; revision?: unknown } | null;
+    if (!body || typeof body.draft !== "string") return apiError(400, "chat_bad_draft", "se espera {draft: string}");
+    if (body.draft.length > MAX_DRAFT_LENGTH) return apiError(400, "chat_draft_too_long", `el borrador supera ${MAX_DRAFT_LENGTH} caracteres`);
+    if (Object.hasOwn(body, "revision") && (!Number.isSafeInteger(body.revision) || (body.revision as number) < 1))
+      return apiError(400, "chat_bad_draft_revision", "revision debe ser un entero positivo");
+    // Re-read after awaiting the body: pagehide may overtake a queued write.
+    const latest = loadChat(id);
+    if (!latest) return apiError(404, "chat_not_found", "chat desconocido");
+    const currentRevision = latest.draft_revision ?? 0;
+    const incomingRevision = body.revision as number | undefined;
+    if ((incomingRevision === undefined && currentRevision > 0) ||
+        (incomingRevision !== undefined && incomingRevision <= currentRevision))
+      return Response.json({ draft: latest.draft ?? "", revision: currentRevision, stale: true }, { status: 409 });
+    latest.draft = body.draft;
+    latest.draft_revision = incomingRevision ?? currentRevision + 1;
+    saveChat(latest);
+    return Response.json({ draft: latest.draft, revision: latest.draft_revision });
+  }
   if (m[2] === "/config") {
     if (req.method !== "POST") return apiError(405, "method_not_allowed", "POST");
     const body = (await req.json().catch(() => null)) as { tools_enabled?: unknown; session_fp?: unknown } | null;
     if (!body || typeof body.tools_enabled !== "boolean") return apiError(400, "chat_bad_request", "se espera {tools_enabled, session_fp}");
-    const fp = typeof body.session_fp === "string" ? body.session_fp : null;
-    if (body.tools_enabled) {
-      // Solo sesiones reales del usuario, vigentes; el navegador nunca ve el token.
-      const session = fp ? listUserSessions().find((x) => x.fp === fp) : undefined;
-      if (!session) return apiError(400, "tools_session_unknown", "elige una sesion existente");
-      if (isExpired(session)) return apiError(400, "tools_session_expired", "esa sesion caduco; crea otra con isymcp session mint");
-    }
+    if (Object.hasOwn(body, "session_fp") && body.session_fp !== null && typeof body.session_fp !== "string")
+      return apiError(400, "tools_session_unknown", "elige una sesion existente");
+    const fp = Object.hasOwn(body, "session_fp") ? (typeof body.session_fp === "string" ? body.session_fp : null) : chat.session_fp;
+    const session = fp ? listUserSessions().find((x) => x.fp === fp) : undefined;
+    if (fp && !session) return apiError(400, "tools_session_unknown", "elige una sesion existente");
+    if (body.tools_enabled && session && isExpired(session)) return apiError(400, "tools_session_expired", "esa sesion caduco; crea otra con isymcp session mint");
+    if (body.tools_enabled && !session) return apiError(400, "tools_session_unknown", "elige una sesion existente");
     chat.tools_enabled = body.tools_enabled;
-    chat.session_fp = body.tools_enabled ? fp : chat.session_fp && listUserSessions().some((x) => x.fp === chat.session_fp) ? chat.session_fp : null;
+    chat.session_fp = fp;
     chat.updated_at = new Date().toISOString();
     saveChat(chat);
     return Response.json(publicChat(chat, false));

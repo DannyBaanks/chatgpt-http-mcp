@@ -55,6 +55,8 @@ Download `isymcp-v1.0.0-rc.2.tar.gz` or `.zip`, plus `SHA256SUMS`, from the rele
 ### 💬 A real chat, on localhost with Live Thinking Stream
 `isymcp panel` opens a chat at **http://127.0.0.1:8798**. Each chat in the sidebar is its **own real ChatGPT conversation**, and you watch the answer **while ChatGPT is still writing it**: lists, code blocks, links, and animated, collapsible thought/reasoning boxes in real time.
 
+The chat panel has three working views over the same conversation: **Conversación** for messages, **Evidencia** for saved tool receipts with filters and links to the owning message, and **Actividad** for the current bridge/chat status. The narrow left rail opens recent chats, session selection, activity, settings and host status; the drawers support Escape and return keyboard focus. Drafts save per chat and return after switching or reloading. The assistant avatar is a small local OpenAI Blossom asset; ISyMCP remains the product identity. Evidence cards show only fields retained in the receipt, so they do not invent or reconstruct stdout/stderr. See the [operator guide](GUIA.md#panel-de-chat-evidencia-y-actividad) and [browser verification record](docs/verification/2026-10-15-panel-chat-views.md).
+
 <img src="docs/images/chat-live.png" alt="Live answer streaming with a blinking cursor and a running tool card" width="900">
 
 ### 🛠️ Tools you can actually verify

@@ -1,0 +1,74 @@
+bun test v1.4.2 (744846f84)
+
+tests\chat-phase2-tools.test.ts:
+(pass) tokens de turno > heredan cwd/modo, caducan en minutos y no aparecen en los listados [3178.92ms]
+(pass) tokens de turno > mueren con su sesion padre (revoke en cascada / padre caducado) [382.02ms]
+(pass) tokens de turno > un token de turno no puede acuñar otro ni hacerse pasar por sesion [377.16ms]
+(pass) traza -> tarjetas > sanitiza recibos guardados antes de publicarlos sin perder campos seguros [1.49ms]
+(pass) traza -> tarjetas > empareja por ID aunque la misma tool termine fuera de orden y proyecta solo campos seguros [0.51ms]
+(pass) traza -> tarjetas > conserva recibos historicos guardados y filtra sus campos al proyectar al navegador [78.79ms]
+(pass) traza -> tarjetas > solo el fp del turno, solo desde su offset; running -> ok/failed; sin contabilidad [31.44ms]
+(pass) turno de chat con tools > token efimero en el prompt, conector seleccionado, tarjetas de la traza, token revocado al final [1401.51ms]
+(pass) turno de chat con tools > sesion borrada -> error tools_session sin enviar nada a ChatGPT [344.72ms]
+(pass) turno de chat con tools > tools apagadas -> mensaje plano y sin conector [118.58ms]
+(pass) API del panel > encender exige sesion vigente; el chat nuevo nace apagado; nada de tokens [5223.71ms]
+(pass) API del panel > oculta session_fp en metadatos de lista y conserva el selector opaco en el detalle [190.57ms]
+(pass) MCP real: tool.result por turno > codex_tool_inventory conserva el ID de llamada hasta tool.result sin exponerlo en la tarjeta [2348.37ms]
+(pass) MCP real: tool.result por turno > redacta el token completo si aparece dentro del error de una tool [1497.64ms]
+
+tests\chat.test.ts:
+(pass) registro de chats > T8 chat_id arbitrario no escapa del registro [11.89ms]
+(pass) registro de chats > T12 recarga: el listado se reconstruye del disco, privado y sin secretos [2031.50ms]
+(pass) registro de chats > registros isymcp.chat/1 antiguos cargan con borrador vacio [64.41ms]
+(pass) registro de chats > un borrador guardado queda acotado al detalle y fuera del listado [102.39ms]
+(pass) registro de chats > draft API descarta una escritura atrasada aunque llegue después del flush [96.42ms]
+(pass) registro de chats > borrador rechaza JSON invalido, forma invalida y texto sobre el limite [133.29ms]
+(pass) turnos de chat (FakeChatGPT) > T1/T2 cada chat nuevo crea su propia conversacion remota y se persiste [228.88ms]
+(pass) turnos de chat (FakeChatGPT) > T3 A -> B -> A conserva el contexto remoto de cada uno [659.34ms]
+(pass) turnos de chat (FakeChatGPT) > T4 solo se envia el mensaje nuevo (sin transcript) [177.14ms]
+(pass) turnos de chat (FakeChatGPT) > T9 cambiar de chat no puede tocar la pestana durante un turno activo [622.90ms]
+(pass) turnos de chat (FakeChatGPT) > T10 bloqueo de OpenAI se clasifica como provider y el siguiente turno funciona [266.47ms]
+(pass) turnos de chat (FakeChatGPT) > fallo del bridge se clasifica distinto al bloqueo del provider [287.10ms]
+(pass) turnos de chat (FakeChatGPT) > captura canonica: sin /c/ o /c/ ajena no se persiste [432.21ms]
+(pass) texto en vivo > el estado expone la respuesta parcial del chat activo y la limpia al terminar [143.83ms]
+(pass) autoridad y compatibilidad > T7 el navegador no puede imponer una /c/: el panel solo reenvia chat_id + message [49.32ms]
+(pass) autoridad y compatibilidad > guardar un borrador no lo entrega al bridge [80.18ms]
+(pass) autoridad y compatibilidad > bridge apagado -> 503 bridge_unavailable (no un 500 generico) [96.88ms]
+(pass) autoridad y compatibilidad > T5 /v1/chat/completions conserva su contrato (transcript completo) [1.27ms]
+(pass) autoridad y compatibilidad > la ruta OpenAI vuelve a SU conversacion casada aunque el panel movio la pestana [0.34ms]
+(pass) autoridad y compatibilidad > new conversation preserves an already loaded homepage but leaves an existing or temporary chat [0.10ms]
+(pass) autoridad y compatibilidad > compactChat poda mensajes largos preservando el mensaje inicial y el resumen [99.34ms]
+
+tests\panel-chat-modes.test.ts:
+(pass) panel chat modes > serializes draft saves for one chat and lets later chats save independently [40.25ms]
+(pass) panel chat modes > send clears an unchanged successful draft and preserves edits or failed text [37.53ms]
+(pass) panel chat modes > switching back restores tab selection and reload restores persisted text [37.37ms]
+(pass) panel chat modes > pagehide includes drafts left pending after switching chats [38.27ms]
+(pass) panel chat modes > typing before a chat id stays tab-local and a draft save targets the private API [41.73ms]
+(pass) panel chat modes > renders three modes over one transcript and leaves Conversation selected by default [43.33ms]
+(pass) panel chat modes > evidence exposes persisted receipt filters, legacy state, and owning-message links [42.18ms]
+(pass) panel chat modes > empty and legacy evidence are represented honestly from saved messages [55.82ms]
+(pass) panel chat modes > saved evidence filters failed and completed receipts without inventing fields [48.43ms]
+(pass) panel chat modes > activity labels unavailable bridge and avoids assigning another chat phase [49.06ms]
+(pass) panel chat modes > pending assistant updates accept status content only from the selected chat [50.77ms]
+(pass) panel chat modes > one status poller switches between fast pending and slow visible-idle cadence [37.72ms]
+(pass) panel chat modes > choosing a valid session while tools are off persists it without enabling tools [133.73ms]
+(pass) panel chat modes > rejects an unknown selected session while tools are off [43.25ms]
+
+tests\panel-integrations.test.ts:
+(pass) tareas de Codex en el panel > estados: lista, bloqueada (pending), en curso (lease), ilegible [7.89ms]
+(pass) tareas de Codex en el panel > el panel muestra metadatos y la nota de bloqueo, NUNCA el transcript [8323.02ms]
+(pass) tareas de Codex en el panel > canario: boton de correr y estado de programacion [7955.85ms]
+(pass) asset local del panel > sirve solo el Blossom fijo como PNG y mantiene el guard local [32.06ms]
+
+tests\panel.test.ts:
+(pass) M13a panel read-only > estado con server caido (puerto cerrado) es honesto [7632.48ms]
+(pass) M13a panel read-only > accion desconocida falla cerrado; session-list ejecuta el CLI [622.51ms]
+(pass) M13a panel read-only > render incluye cards y el estado [8306.73ms]
+(pass) panel visual > chat composition exposes functional navigation and an accessible Blossom avatar [0.62ms]
+(pass) panel visual > lee la ultima prueba de soak y la pinta turno por turno [8112.31ms]
+
+ 58 pass
+ 0 fail
+ 407 expect() calls
+Ran 58 tests across 5 files. [63.56s]

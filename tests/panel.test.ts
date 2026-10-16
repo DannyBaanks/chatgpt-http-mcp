@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildPanelState, renderPanel, runPanelAction } from "../src/panel";
+import { renderChatView, CHAT_SCRIPT, CHAT_STYLE } from "../src/panel-chat";
 
 beforeAll(() => {
   process.env.CODEX_WEB_HTTP_HOME = mkdtempSync(join(tmpdir(), "isyco-panel-home-"));
@@ -36,6 +37,33 @@ describe("M13a panel read-only", () => {
 });
 
 describe("panel visual", () => {
+  test("chat composition exposes functional navigation and an accessible Blossom avatar", () => {
+    const html = renderChatView();
+    expect(html).toContain('aria-label="Navegación del chat"');
+    expect(html).toContain('data-nav="chat"');
+    expect(html).toContain('aria-controls="history-panel"');
+    expect(html).toContain('data-nav="sessions"');
+    expect(html).toContain('data-nav="activity"');
+    expect(html).toContain('data-nav="settings"');
+    expect(html).toContain('id="chatlist"');
+    expect(html).toContain('id="tools-session"');
+    expect(html).not.toContain('>IA<');
+    expect(CHAT_SCRIPT).toContain('/assets/openai-white-monoblossom.png');
+    expect(CHAT_SCRIPT).toContain('OpenAI Blossom');
+    expect(CHAT_SCRIPT).toContain("event.key==='Escape'");
+    expect(CHAT_SCRIPT).toContain("location.hash='#estado'");
+    expect(CHAT_SCRIPT).toContain("document.querySelector('[data-nav=\"sessions\"]').onclick");
+    expect(CHAT_SCRIPT).toContain("document.querySelector('[data-nav=\"settings\"]').onclick");
+    expect(CHAT_SCRIPT).toContain('/api/chats');
+    expect(CHAT_SCRIPT).toContain('/api/settings');
+    expect(CHAT_SCRIPT).toContain('aria-expanded');
+    expect(CHAT_SCRIPT).toContain('focus()');
+    expect(() => new Function(CHAT_SCRIPT)).not.toThrow();
+    expect(CHAT_STYLE).toContain('prefers-reduced-motion');
+    const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   test("lee la ultima prueba de soak y la pinta turno por turno", async () => {
     const { mkdtempSync, writeFileSync } = await import("node:fs");
     const { readLastSoak, renderMain } = await import("../src/panel");

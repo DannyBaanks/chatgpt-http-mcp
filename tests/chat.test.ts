@@ -5,16 +5,17 @@
 // recuerda los prompts por conversacion, asi que puede responder "que te dije
 // primero" y demostrar continuidad/aislamiento sin red.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config";
-import { chatPath, chatsDir, createChat, listChats, loadChat, publicChat } from "../src/chats";
+import { chatPath, chatsDir, createChat, listChats, loadChat, publicChat, MAX_DRAFT_LENGTH } from "../src/chats";
 import { chatStatus, isProviderBlock, runChatTurn } from "../src/chat-turn";
 import { canonicalConversationUrl, navigationTarget, type WebTurnOptions, type WebTurnResult } from "../src/web-turn";
 import { defaultNavigation } from "../src/sessions";
 import { chatBodyToWebRequest } from "../src/chat-completions";
 import { handleChatApi } from "../src/panel";
+import { ensurePrivatePath } from "../src/platform/private-path";
 
 let home: string;
 beforeAll(() => {
@@ -27,6 +28,46 @@ afterAll(() => {
 });
 
 const config = loadConfig({});
+
+function assertWindowsPrivateAcl(directoryPath: string, filePath: string): void {
+  const script = String.raw`$current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Translate([System.Security.Principal.NTAccount]).Value; $system = ([System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')).Translate([System.Security.Principal.NTAccount]).Value; $admins = ([System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')).Translate([System.Security.Principal.NTAccount]).Value; $current; $system; $admins`;
+  const names = Bun.spawnSync(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
+    stdout: "pipe", stderr: "pipe", timeout: 10_000,
+  });
+  const expected = names.stdout.toString().split(/\r?\n/).map((line) => line.trim().toLowerCase()).filter(Boolean);
+  expect(names.exitCode, names.stderr.toString()).toBe(0);
+  expect(expected).toHaveLength(3);
+
+  const icacls = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "icacls.exe");
+  for (const [path, directory] of [[directoryPath, true], [filePath, false]] as const) {
+    const result = Bun.spawnSync([icacls, path], { stdout: "pipe", stderr: "pipe", timeout: 10_000 });
+    const output = `${result.stdout.toString()}${result.stderr.toString()}`;
+    expect(result.exitCode, output).toBe(0);
+    const entries = output.split(/\r?\n/).filter((line) => line.includes(":("));
+    expect(entries, output).toHaveLength(3);
+    const parsed = entries.map((line) => {
+      const lowered = line.toLowerCase();
+      const principal = expected.find((name) => lowered.includes(`${name}:(`));
+      expect(principal, line).toBeDefined();
+      const start = lowered.lastIndexOf(`${principal}:`) + principal!.length + 1;
+      return { principal: principal!, permissions: line.slice(start) };
+    });
+    const actual = parsed.map((entry) => entry.principal).sort();
+    expect(actual).toEqual([...expected].sort());
+    for (const { permissions } of parsed) {
+      const flags = [...permissions.matchAll(/\(([^)]+)\)/g)].map((match) => match[1]);
+      expect(flags).toContain("F");
+      expect(flags).not.toContain("I"); // inherited ACEs are removed
+      if (directory) {
+        expect(flags).toContain("OI");
+        expect(flags).toContain("CI");
+      } else {
+        expect(flags).not.toContain("OI");
+        expect(flags).not.toContain("CI");
+      }
+    }
+  }
+}
 
 class FakeChatGPT {
   url = "https://chatgpt.com/";
@@ -85,13 +126,81 @@ describe("registro de chats", () => {
 
   test("T12 recarga: el listado se reconstruye del disco, privado y sin secretos", () => {
     const chat = createChat();
-    expect(statSync(chatsDir()).mode & 0o777).toBe(0o700);
-    expect(statSync(chatPath(chat.id)!).mode & 0o777).toBe(0o600);
+    if (process.platform === "win32") {
+      expect(() => ensurePrivatePath(chatsDir(), true)).not.toThrow();
+      expect(() => ensurePrivatePath(chatPath(chat.id)!, false)).not.toThrow();
+      assertWindowsPrivateAcl(chatsDir(), chatPath(chat.id)!);
+    } else {
+      expect(statSync(chatsDir()).mode & 0o777).toBe(0o700);
+      expect(statSync(chatPath(chat.id)!).mode & 0o777).toBe(0o600);
+    }
     const listed = listChats().map((c) => publicChat(c, true));
     expect(listed.some((c) => c.id === chat.id)).toBe(true);
     const wire = JSON.stringify(listed);
     for (const secret of ["token", "cookie", "storage", "turn_token", "Bearer"]) expect(wire).not.toContain(secret);
     expect(publicChat(chat, false).tools_enabled).toBe(false);
+  });
+
+  test("registros isymcp.chat/1 antiguos cargan con borrador vacio", () => {
+    const chat = createChat();
+    const path = chatPath(chat.id)!;
+    const record = JSON.parse(readFileSync(path, "utf8"));
+    delete record.draft;
+    writeFileSync(path, JSON.stringify(record));
+
+    expect(loadChat(chat.id)?.draft).toBe("");
+    expect(loadChat(chat.id)?.draft_revision).toBe(0);
+  });
+
+  test("un borrador guardado queda acotado al detalle y fuera del listado", async () => {
+    const chat = createChat();
+    const url = new URL(`http://127.0.0.1/api/chats/${chat.id}/draft`);
+    const response = await handleChatApi(new Request(url, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ draft: "texto privado" }),
+    }), url, "59999");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ draft: "texto privado" });
+    expect(loadChat(chat.id)?.draft).toBe("texto privado");
+    const listed = (await handleChatApi(new Request("http://127.0.0.1/api/chats"), new URL("http://127.0.0.1/api/chats"), "59999")).clone();
+    expect(JSON.stringify(await listed.json())).not.toContain("texto privado");
+    const detail = await handleChatApi(new Request(`http://127.0.0.1/api/chats/${chat.id}`), new URL(`http://127.0.0.1/api/chats/${chat.id}`), "59999");
+    expect(await detail.json()).toMatchObject({ draft: "texto privado", draft_revision: 1 });
+    expect(MAX_DRAFT_LENGTH).toBeGreaterThan(0);
+  });
+
+  test("draft API descarta una escritura atrasada aunque llegue después del flush", async () => {
+    const chat = createChat();
+    const url = new URL(`http://127.0.0.1/api/chats/${chat.id}/draft`);
+    const post = (draft: string, revision?: number) => handleChatApi(new Request(url, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ draft, ...(revision === undefined ? {} : { revision }) }),
+    }), url, "59999");
+
+    const pagehide = await post("draft más nuevo", 20);
+    expect(pagehide.status).toBe(200);
+    const lateQueuedWrite = await post("draft viejo", 19);
+    expect(lateQueuedWrite.status).toBe(409);
+    expect(await lateQueuedWrite.json()).toMatchObject({ stale: true, revision: 20 });
+    expect(loadChat(chat.id)?.draft).toBe("draft más nuevo");
+    expect(loadChat(chat.id)?.draft_revision).toBe(20);
+    expect((await post("cliente heredado sin revisión")).status).toBe(409);
+  });
+
+  test("borrador rechaza JSON invalido, forma invalida y texto sobre el limite", async () => {
+    const chat = createChat();
+    const url = new URL(`http://127.0.0.1/api/chats/${chat.id}/draft`);
+    const post = (body: string) => handleChatApi(new Request(url, {
+      method: "POST", headers: { "content-type": "application/json" }, body,
+    }), url, "59999");
+
+    expect((await post("{" )).status).toBe(400);
+    expect((await post(JSON.stringify({ draft: 42 }))).status).toBe(400);
+    expect((await post(JSON.stringify({ draft: "x".repeat(MAX_DRAFT_LENGTH + 1) }))).status).toBe(400);
+    expect(loadChat(chat.id)?.draft).toBe("");
+    expect((await post(JSON.stringify({ draft: "x".repeat(MAX_DRAFT_LENGTH) }))).status).toBe(200);
+    expect(loadChat(chat.id)?.draft).toHaveLength(MAX_DRAFT_LENGTH);
   });
 });
 
@@ -247,7 +356,7 @@ describe("autoridad y compatibilidad", () => {
       const url = new URL(`http://127.0.0.1/api/chats/${chat.id}/messages`);
       const res = await handleChatApi(new Request(url, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: "hola", conversation_url: "https://chatgpt.com/c/evil-0000-0000", navigate: { to: "conversation", url: "https://evil" } }),
+        body: JSON.stringify({ message: "hola", draft: "texto que no se debe reenviar", conversation_url: "https://chatgpt.com/c/evil-0000-0000", navigate: { to: "conversation", url: "https://evil" } }),
       }), url, String(fakeBridge.port));
       expect(res.status).toBe(200);
       expect(forwarded).toEqual({ chat_id: chat.id, message: "hola" });
@@ -257,6 +366,22 @@ describe("autoridad y compatibilidad", () => {
     expect(() => navigationTarget("https://chatgpt.com/", { to: "conversation", url: "https://evil.example/c/abc12345" })).toThrow(/web_bad_conversation_url/);
     expect(canonicalConversationUrl("https://chatgpt.com.evil.com/c/abc12345")).toBeNull();
     expect(canonicalConversationUrl("http://chatgpt.com/c/abc12345")).toBeNull();
+  });
+
+  test("guardar un borrador no lo entrega al bridge", async () => {
+    const chat = createChat();
+    let calls = 0;
+    const bridge = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return Response.json({ ok: true }); } });
+    try {
+      const url = new URL(`http://127.0.0.1/api/chats/${chat.id}/draft`);
+      const response = await handleChatApi(new Request(url, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ draft: "no enviar" }),
+      }), url, String(bridge.port));
+      expect(response.status).toBe(200);
+      expect(calls).toBe(0);
+    } finally {
+      bridge.stop(true);
+    }
   });
 
   test("bridge apagado -> 503 bridge_unavailable (no un 500 generico)", async () => {
