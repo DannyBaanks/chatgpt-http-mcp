@@ -9,6 +9,7 @@ import { isAbsolute, join } from "node:path";
 import { youtubeDownloaderBinary } from "./media/youtube";
 import { sandboxAvailable, sandboxLabel, sandboxUnavailableReason } from "./codex-sessions";
 import { defaultBrowserExecutable } from "./platform/browser";
+import { ruleFor, type DoctorRule } from "./doctor-rules";
 
 export type DoctorStatus = "ok" | "warn" | "fail";
 
@@ -24,6 +25,8 @@ export interface DoctorReport {
   ok: boolean;
   checks: DoctorCheck[];
   errors: DoctorCheck[];
+  /** Remedio del ultimo fallo de media, si lo hay. */
+  remedy?: { code: string } & DoctorRule;
 }
 
 export interface DoctorDeps {
@@ -121,11 +124,16 @@ export function runDoctor(deps: DoctorDeps = {}): DoctorReport {
   add("catalog", "catalogo de media", exists(mediaHome) ? "ok" : "warn", exists(mediaHome) ? mediaHome : `aun no existe: ${mediaHome}`);
 
   const failed = latestFailedImport(mediaHome);
-  if (failed) add("media-error", "ultimo fallo de media", "warn", `${failed.error_code ?? "media_unknown"}: ${failed.error ?? failed.phase ?? ""}`.trim());
-  else add("media-error", "ultimo fallo de media", "ok", "sin fallos registrados");
+  let remedy: ({ code: string } & DoctorRule) | undefined;
+  if (failed) {
+    const code = failed.error_code ?? "media_unknown";
+    const rule = ruleFor(code) ?? ruleFor("media_unknown")!;
+    remedy = { code, ...rule };
+    add("media-error", "ultimo fallo de media", "warn", `${code}: ${failed.error ?? failed.phase ?? ""}`.trim());
+  } else add("media-error", "ultimo fallo de media", "ok", "sin fallos registrados");
 
   const errors = checks.filter((check) => check.status === "fail");
-  return { version: "isymcp-doctor/1", ok: errors.length === 0, checks, errors };
+  return { version: "isymcp-doctor/1", ok: errors.length === 0, checks, errors, ...(remedy ? { remedy } : {}) };
 }
 
 export function formatDoctor(report: DoctorReport): string {
@@ -135,5 +143,10 @@ export function formatDoctor(report: DoctorReport): string {
   const ok = report.checks.filter((c) => c.status === "ok").length;
   const warn = report.checks.filter((c) => c.status === "warn").length;
   lines.push("", `${ok} ok, ${warn} aviso, ${report.errors.length} falla`);
+  if (report.remedy) {
+    lines.push("", `remedio ${report.remedy.code}`, `  causa  ${report.remedy.cause}`, `  hacer  ${report.remedy.remedy}`);
+    if (report.remedy.command_hint) lines.push(`  cmd    ${report.remedy.command_hint}`);
+    if (report.remedy.guide_anchor) lines.push(`  guia   ${report.remedy.guide_anchor}`);
+  }
   return lines.join("\n");
 }
