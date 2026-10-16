@@ -19,15 +19,25 @@ export async function downloadYouTube(url:string,dir:string,maxBytes:number,runn
  const command=youtubeDownloaderBinary();
  const node=process.env.ISYMCP_VIDEO_VISION_NODE||'node';
  const idPath=join(dir,'downloaded-video-id.txt');
- const output=await runner(command,[
+ const args=[
   '--ignore-config','--no-plugin-dirs','--no-cache-dir','--no-playlist','--no-progress','--no-warnings',
   '--socket-timeout','10','--retries','1','--fragment-retries','1','--concurrent-fragments','1',
   '--match-filters','!is_live & duration <= 1800','--max-filesize',String(maxBytes),
   '--js-runtimes',`node:${node}`,
   '-f','best[height<=720]/bestvideo[height<=720]+bestaudio','--merge-output-format','mp4',
   '-o',join(dir,'media.%(ext)s'),'--print-to-file','after_move:%(id)s',idPath,
-  '--print','after_move:%(filepath)j',url,
- ],8192,180000,{env:{PATH:process.env.PATH||'/usr/bin:/bin',HOME:dir,TMPDIR:dir,LANG:'C.UTF-8'},guard:()=>downloadBudget(dir,maxBytes),processGroup:true});
+  '--print','after_move:%(filepath)j',
+ ];
+ const options={env:{PATH:process.env.PATH||'/usr/bin:/bin',HOME:dir,TMPDIR:dir,LANG:'C.UTF-8'},guard:()=>downloadBudget(dir,maxBytes),processGroup:true};
+ let output:Buffer;
+ try {output=await runner(command,[...args,url],8192,180000,options);}
+ catch(error) {
+  // Some videos are gated behind YouTube's "confirm you're not a bot" check for the default clients;
+  // the embedded web player client still serves them without cookies, config or plugins.
+  if(!/sign in to confirm|not a bot/i.test(error instanceof Error?error.message:''))throw error;
+  try {output=await runner(command,[...args,'--extractor-args','youtube:player_client=web_embedded',url],8192,180000,options);}
+  catch{throw error;}
+ }
  const lines=output.toString().trim().split('\n');
  if(lines.length!==1)throw Error('Downloader did not return one media file');
  const path=JSON.parse(lines[0]);if(typeof path!=='string'||!isAbsolute(path))throw Error('Invalid download output');
