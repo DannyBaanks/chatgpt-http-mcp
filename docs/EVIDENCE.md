@@ -446,3 +446,26 @@ Chrome, `timeoutMs: 1000`). Isolated, that file passed 3/3 in a row
 (5 pass each). The failure is Chrome-contention timing in a browser fixture
 untouched by this work, not a media/doctor regression; the clean run above
 supersedes it. Raw failing output: `/tmp/isymcp-suite-m5.txt`.
+
+### M6 addendum — `doctor --explain` (2026-10-16)
+
+`src/doctor-explain.ts` builds a sanitized, length-capped prompt from the
+report (routes, URLs and tokens replaced via `sanitizeMediaDetail`) and runs it
+with an injected runner. The default runner is opt-in through
+`ISYMCP_EXPLAIN_CMD` (prompt on stdin, 20 s timeout). It never executes what
+the model suggests and degrades quietly: with no engine, the deterministic
+remedies stand. Real runs:
+
+- `isymcp doctor --explain` (no engine): prints `sin motor configurado
+  (exporta ISYMCP_EXPLAIN_CMD)`.
+- `ISYMCP_EXPLAIN_CMD=cat isymcp doctor --explain`: prints the sanitized prompt
+  as the explanation; the `cat` runner proves stdin-only feeding (a
+  `rm -rf ...` line is echoed back, never run).
+
+`bun test` after M6: **637 pass, 3 skip, 0 fail** (640 tests, 93 files),
+exit 0; raw output SHA-256
+`9af99d1bece3106c063d177d155c18405f222ef22be3de9d16a71ebdbee5948e`.
+
+Claim status: prompt sanitization and no-execution are DEMONSTRATED by tests;
+prose quality of a real local model is NOT_DEMONSTRATED (no model configured in
+this window).

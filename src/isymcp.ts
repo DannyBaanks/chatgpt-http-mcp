@@ -597,6 +597,8 @@ function help(): void {
   isymcp health              diagnóstico de salud en vivo del bridge y servicios
   isymcp doctor              diagnóstico local: binarios, sandbox, disco, último fallo de media
   isymcp doctor --json       el mismo reporte en JSON (códigos de error incluidos)
+  isymcp doctor --explain    añade una explicación con un modelo local (opt-in; no ejecuta nada)
+  isymcp doctor --fix <id> [--apply]  plan (dry-run) o aplica un remedio whitelisted
   isymcp metrics             telemetría en vivo (turnos, tokens, latencias, memoria)
   isymcp metrics --prom      métricas en formato Prometheus / OpenMetrics
   isymcp smoke               batería de pruebas E2E automatizada (health, métricas, harnesses, launcher)
@@ -666,6 +668,12 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
     const { runDoctor, formatDoctor } = await import("./doctor");
     const report = runDoctor();
     console.log(formatDoctor(report));
+    const { explainReport, defaultExplainRunner } = await import("./doctor-explain");
+    const runner = defaultExplainRunner();
+    if (runner) {
+      const text = await explainReport(report, runner);
+      if (text) console.log(`\nexplicacion (modelo local; no se ejecuta nada de lo que proponga)\n  ${text.replace(/\n/g, "\n  ")}`);
+    }
     if (!report.ok) process.exitCode = 1;
   },
   "panel-open": () => openPanel(),
@@ -791,10 +799,47 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
     process.exitCode = 1;
   }
 } else if (cmd === "doctor") {
-  const { runDoctor, formatDoctor } = await import("./doctor");
+  const { runDoctor, formatDoctor, mediaStateHome } = await import("./doctor");
   const json = sub === "--json" || rest.includes("--json");
+  const explain = sub === "--explain" || rest.includes("--explain");
   const report = runDoctor();
   console.log(json ? JSON.stringify(report, null, 2) : formatDoctor(report));
+  if (explain) {
+    const { explainReport, defaultExplainRunner } = await import("./doctor-explain");
+    const runner = defaultExplainRunner();
+    if (!runner) {
+      console.log("\nexplicacion: sin motor configurado (exporta ISYMCP_EXPLAIN_CMD); los remedios de arriba son deterministas.");
+    } else {
+      const text = await explainReport(report, runner);
+      console.log("\nexplicacion (modelo local; no se ejecuta nada de lo que proponga)");
+      console.log(text ? `  ${text.replace(/\n/g, "\n  ")}` : "  sin respuesta del motor; usa los remedios deterministas de arriba.");
+    }
+  }
+  const argv = [sub, ...rest].filter((value): value is string => typeof value === "string");
+  const fixAt = argv.indexOf("--fix");
+  if (fixAt !== -1) {
+    const { applyFix, listFixActions, planFix } = await import("./doctor-fix");
+    const action = argv[fixAt + 1] && !argv[fixAt + 1].startsWith("--") ? argv[fixAt + 1] : "";
+    if (!action) {
+      console.error(`✗ --fix requiere una accion; permitidas: ${listFixActions().join(", ")}`);
+      process.exitCode = 1;
+    } else if (!argv.includes("--apply")) {
+      try {
+        console.log(`\nplan --fix ${action}: ${planFix(action)}\n  (dry-run; añade --apply para ejecutarla)`);
+      } catch (error) {
+        console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+    } else {
+      try {
+        const result = applyFix(action, { mediaHome: mediaStateHome() });
+        console.log(`\n--fix ${action}: ${result.detail}`);
+      } catch (error) {
+        console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+    }
+  }
   if (!report.ok) process.exitCode = 1;
 } else if (cmd === "tree") {
   console.log(brandHeader());

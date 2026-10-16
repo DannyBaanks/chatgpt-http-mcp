@@ -665,9 +665,18 @@ Desde 2026-10-16 cada fallo de importación trae un **código estable** (`error_
 ```bash
 isymcp doctor          # binarios y versiones, navegador, sandbox, disco, catálogo y último fallo de media
 isymcp doctor --json   # el mismo reporte en JSON (incluye error_code y su remedio)
+isymcp doctor --explain  # opt-in: añade una explicación con un modelo local
 ```
 
 `doctor` es **determinista y offline**: no usa red ni modelo. Complementa a `isymcp health` (que mira servicios vivos): `doctor` mira el entorno local y el último fallo de media, y propone un remedio con un comando sugerido. Sale con código 1 si algún chequeo falla.
+
+`--explain` es opcional y **no ejecuta nada** de lo que proponga el modelo: solo imprime texto. El prompt sale **saneado** (sin rutas, URLs ni tokens) y recortado. Para habilitarlo, exporta el comando del motor local que recibe el prompt por `stdin`:
+
+```bash
+ISYMCP_EXPLAIN_CMD="ollama run llama3.2" isymcp doctor --explain
+```
+
+Sin `ISYMCP_EXPLAIN_CMD` el doctor informa que no hay motor y siguen mandando los remedios deterministas.
 
 Reutiliza yt-dlp instalado por Video Vision en `~/.oamaestro/bin/yt-dlp`, o el ejecutable de PATH. `ISYMCP_YTDLP_BIN` permite seleccionar otro ejecutable instalado. No instala ni actualiza automáticamente software; mantiene desactivadas la configuración, los plugins y la caché del descargador. Video Vision sigue proporcionando los fotogramas.
 
