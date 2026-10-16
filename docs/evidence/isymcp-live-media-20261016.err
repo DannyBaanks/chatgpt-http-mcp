@@ -1,0 +1,5 @@
+source: reusing registered media
+prepare: metadata
+prepare: audio_scan
+prepare: contact_sheet 1/1
+prepare: complete

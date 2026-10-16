@@ -509,3 +509,26 @@ files), exit 0; raw output SHA-256
 
 Claim status: media tool calls now write sanitized trace lines — DEMONSTRATED.
 Rendering them as session cards is intentionally out of scope (no token).
+
+### Correction: live media path DEMONSTRATED (2026-10-16)
+
+The earlier M0–M5 table marked "a live YouTube import exercises the new codes"
+as NOT_DEMONSTRATED. It is now demonstrated end to end against a real public
+Short, with the M0–M7 code in `main`:
+
+- `isymcp media prepare https://www.youtube.com/shorts/lHkDE3BahB0` → exit 0,
+  one JSON line: `{"asset_id":"media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+  "status":"ready","duration_seconds":18.521,"sheet_count":1,"segment_count":11}`.
+  Phases on stderr (`source: reusing registered media`, metadata, audio_scan,
+  contact_sheet 1/1, complete). Raw: `docs/evidence/isymcp-live-media-20261016.out`
+  (SHA-256 `96515bcaf3cc7e6300e0f087e744c5843a282d253f35e0904be171744703aa33`)
+  and `.err` (`408e78b26997df75bb62f4d4720f08295fc70d8d8469c4c6d5a0fab56569d951`).
+- Negative control `isymcp media prepare http://127.0.0.1/private` → exit 1,
+  stderr `✗ media_invalid_url: Use a public HTTPS YouTube video URL`. Raw:
+  `docs/evidence/isymcp-live-media-invalid-20261016.err` (SHA-256
+  `d1d3e49c4b901aaf2ec4aaa3c09aa87763668c84ad2fb5fa86ac518bcdfb56e5`); stdout
+  empty (SHA-256 `e3b0c442...`, the empty-file digest).
+
+Note: `isymcp doctor` still reported `media_unknown` afterwards because it reads
+the newest failed *import job* in the catalog; the CLI's invalid-URL failure
+creates no job. That is by design, not a defect.
