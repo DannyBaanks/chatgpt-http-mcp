@@ -5,9 +5,10 @@ import { MediaCatalog, MediaDownloadReceipt } from './catalog';
 import { withinDeadline, remaining } from './deadline';
 import { probe } from './audio';
 import { downloadYouTube, YouTubeDownloadResult, verifyDownloadedYouTubeId } from './youtube';
+import { classifyMediaError, type MediaErrorCode } from './error-codes';
 import { youtubeSource } from './youtube-url';
 export { youtubeSource } from './youtube-url';
-export type ImportJob={job_id:string,state:'running'|'complete'|'failed',source_url:string,phase:string,asset?:{id:string,name:string,bytes:number,sha256:string},error?:string};
+export type ImportJob={job_id:string,state:'running'|'complete'|'failed',source_url:string,phase:string,asset?:{id:string,name:string,bytes:number,sha256:string},error?:string,error_code?:MediaErrorCode};
 export type Downloader=(url:string,dir:string,maxBytes:number)=>Promise<string|YouTubeDownloadResult>;
 export class MediaImporter {
  private jobs=new Map<string,{view:ImportJob,done:Promise<void>}>();
@@ -40,8 +41,9 @@ export class MediaImporter {
   },this.limits.timeoutMs??180000).catch(error=>{
    view.state='failed';view.phase='failed';
    // Do not forward provider stderr: it can include signed URLs and local paths.
-   const message=error instanceof Error?error.message:'';
-   view.error=message.includes('identity')?'Downloaded video identity did not match the requested URL':message.includes('timed out')?'Import timed out; try a shorter video':message.includes('limit')?'Import exceeded the local size limit':'Download or media validation failed; source may be unavailable, require login, or be blocked';
+   // classifyMediaError reduces the raw failure to a stable code plus a sanitized message.
+   const classified=classifyMediaError(error);
+   view.error_code=classified.code;view.error=classified.message;
    try{save();}catch{/* state remains available in memory if disk is full */}
   });
   this.jobs.set(job_id,{view,done});return {...view};
