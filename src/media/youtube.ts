@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { run } from './process';
 import { verifyDownloadedYouTubeId } from './youtube-url';
+import { isBotWallFailure } from './ytdlp-signatures';
 export { verifyDownloadedYouTubeId } from './youtube-url';
 export type YouTubeDownloadResult = { path:string; video_id:string; source_url:string };
 export function youtubeDownloaderBinary(env:NodeJS.ProcessEnv=process.env):string {
@@ -35,7 +36,7 @@ export async function downloadYouTube(url:string,dir:string,maxBytes:number,runn
  catch(error) {
   // Some videos are gated behind YouTube's "confirm you're not a bot" check for the default clients;
   // the embedded web player client still serves them without cookies, config or plugins.
-  if(!/sign in to confirm|not a bot/i.test(error instanceof Error?error.message:''))throw error;
+  if(!isBotWallFailure(error))throw error;
   try {output=await runner(command,[...args,'--extractor-args','youtube:player_client=web_embedded',url],8192,180000,options);}
   catch{throw error;}
  }

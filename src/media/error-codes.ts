@@ -8,6 +8,8 @@
 // Los mensajes conservan byte a byte el texto publico previo de importer.ts
 // para las cuatro causas que ya existian (identity/timeout/limit/fallback).
 
+import { YTDLP_SIGNATURES } from './ytdlp-signatures';
+
 export const MEDIA_ERROR_CODES = {
   media_identity_mismatch: 'Downloaded video identity did not match the requested URL',
   media_timeout: 'Import timed out; try a shorter video',
@@ -40,23 +42,21 @@ export interface MediaError {
   detail_sanitized?: string;
 }
 
-// Firmas observadas (yt-dlp stderr y throws internos). Se evaluan en orden:
-// de lo especifico a lo generico. Las primeras cuatro corresponden al texto
-// publico historico de importer.ts.
-const SIGNATURES: ReadonlyArray<readonly [RegExp, MediaErrorCode]> = [
-  [/sign in to confirm|not a bot/i, 'media_youtube_bot_wall'],
-  [/please sign in|requires? (?:a )?(?:signed.?in|login|authentication)|this video is private/i, 'media_youtube_login_required'],
-  [/too many requests|http error 429|rate.?limit/i, 'media_rate_limited'],
+// Primero las firmas del proveedor (yt-dlp, compartidas con youtube.ts), luego
+// los throws internos de media. Orden: de lo especifico a lo generico. Los
+// mensajes publicos historicos de importer.ts (identity/timeout/limit/fallback)
+// se conservan en el catalogo.
+const INTERNAL_SIGNATURES: ReadonlyArray<readonly [RegExp, MediaErrorCode]> = [
   [/identity/i, 'media_identity_mismatch'],
   [/timed out|timeout/i, 'media_timeout'],
-  [/requested format is not available|no video formats found|unsupported url|no downloadable format/i, 'media_format_unavailable'],
   [/at most 30 minutes|duration <= 1800|longer than 30 minutes/i, 'media_too_long'],
-  [/exceeds file limit|exceeds disk limit|insufficient free disk space|max.?filesize/i, 'media_too_large'],
-  [/unable to download webpage|getaddrinfo|name resolution|network is unreachable|connection refused|temporary failure/i, 'media_network_offline'],
-  [/not available in your country|geo.?block|geo.?restrict/i, 'media_geo_blocked'],
-  [/video unavailable|removed by the uploader|has been removed|no longer available/i, 'media_source_unavailable'],
+  [/exceeds file limit|exceeds disk limit|insufficient free disk space|max.?filesize|exceeds? (?:the )?local size limit/i, 'media_too_large'],
   [/unauthorized path|workspace|no space left|read.?only file system/i, 'media_workspace_error'],
-  [/exceeds? (?:the )?local size limit|exceeded the local size limit/i, 'media_too_large'],
+];
+
+const SIGNATURES: ReadonlyArray<readonly [RegExp, MediaErrorCode]> = [
+  ...YTDLP_SIGNATURES,
+  ...INTERNAL_SIGNATURES,
 ];
 
 const MAX_DETAIL = 200;
