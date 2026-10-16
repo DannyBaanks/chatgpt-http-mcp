@@ -645,11 +645,14 @@ function logs(args: string[]): void {
   console.log(`lineas: ${saved.count}`);
 }
 
-async function ask(question: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await rl.question(question);
-  rl.close();
-  return answer.trim();
+function ask(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
 }
 
 // Una entrada por hoja visible del menu (tests/menu.test.ts lo exige).

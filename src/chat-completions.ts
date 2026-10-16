@@ -356,7 +356,7 @@ async function runContextFileFlow(web: ChatWebRequest, config: AppConfig): Promi
     }
     const calls = web.tools.length ? parseToolCalls(reply.text, allowed) : [];
     if (calls.length) return { text: "", toolCalls: calls };
-    const trimmed = reply.trim();
+    const trimmed = reply.text.trim();
     if (/^ack[.!]?$/i.test(trimmed) && ackRetries < 2) {
       ackRetries++;
       prompt =

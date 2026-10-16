@@ -12,6 +12,7 @@
   "scripts": {
     "start": "bun run src/cli.ts",
     "test": "bun test",
+    "typecheck": "tsc --noEmit",
     "sandbox:build": "bun run scripts/build-sandbox.ts",
     "install:codex": "bun run scripts/install-codex.ts",
     "e2e:native": "bun run scripts/e2e-native.ts",
@@ -31,5 +32,10 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
     "playwright-core": "1.62.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "bun-types": "^1.4.3",
+    "typescript": "^7.0.2"
   }
 }

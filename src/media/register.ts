@@ -15,13 +15,14 @@ function traced(service: MediaService, tool: string) {
   const callId = randomUUID();
   appendTrace('call', { tool, call_id: callId });
   const result = await service.call(tool, input);
+  const failed = (result as { isError?: boolean }).isError === true;
   try {
    const text = result.content.find((c) => c.type === 'text')?.text ?? '{}';
    const r = JSON.parse(text) as Record<string, unknown>;
    appendTrace('tool.result', {
     tool,
     call_id: callId,
-    ok: !result.isError && r.error === undefined,
+    ok: !failed && r.error === undefined,
     error_code: typeof r.error_code === 'string' ? r.error_code : undefined,
     error: typeof r.error === 'string' ? r.error : undefined,
     state: typeof r.state === 'string' ? r.state : undefined,
