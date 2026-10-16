@@ -1,6 +1,7 @@
 # codex-web-http — Arquitectura
 
-Estado: CURRENT medido y verificado operativamente.
+Estado: ruta Linux CURRENT y verificada operativamente; paridad Windows
+NOT_DEMONSTRATED hasta la ejecución de CI y las comprobaciones locales.
 
 ## 1. Ruta CURRENT (Production)
 
@@ -8,12 +9,12 @@ Estado: CURRENT medido y verificado operativamente.
 caller (TUI / HTTP / MCP Client)
   → POST /v1/chat/completions            src/server.ts + src/chat-completions.ts
   → session affinity                     src/sessions.ts  (~/.codex-web-http/sessions/default.json → conversationUrl)
-  → web adapter                          src/web-turn.ts   (playwright-core + /usr/bin/google-chrome headless,
+  → web adapter                          src/web-turn.ts   (playwright-core + Chrome/Edge del host,
                                                             storage-state.json, connector CODEX_WEB_HTTP_CONNECTOR)
   → submit + observación DOM             src/web-turn.ts   (busy-wait "Detener", readLastAssistant, extractResponse)
   → live thinking stream                 src/thinking-stream.ts (extracción en tiempo real de razonamiento UI)
   → tool calls nativos (opcional)        túnel (~/.codex-web-http/bin/tunnel-client)
-      → MCP stdio                        src/mcp/main.ts   (session token → bwrap exec/apply_patch/view_image)
+      → MCP stdio                        src/mcp/main.ts   (session token → sandbox exec/apply_patch/view_image)
   → HTTP body / SSE Stream               src/chat-completions.ts + src/responses/stream.ts
   → telemetría y métricas                src/metrics.ts (/api/metrics, /metrics, /api/health)
 ```
@@ -61,8 +62,9 @@ Otras superficies: `/v1/responses` passthrough nativo (`src/passthrough.ts`) y w
 ## 5. Session Tokens y Sandbox Confinado
 
 - Registro `~/.codex-web-http/codex-sessions.json` (0600), CLI `isymcp session mint|list|revoke`.
-- Sandbox: `bwrap` read-only por defecto; `--write` bindea el workspace; sin bwrap, RO falla cerrado.
-- Aislamiento de Red: Deshabilitada por defecto en el espacio de nombres de red del sandbox.
+- Sandbox: `bwrap` en Linux; Docker Desktop Linux es el backend Windows predeterminado; Codex CLI ofrece el backend nativo Windows opcional. RO falla cerrado si el backend seleccionado no está disponible.
+- Escritura y red: la escritura se limita al workspace de la sesión; la red está deshabilitada por defecto en todos los backends.
+- Evidencia Windows: ejecución Docker y nativa **NOT_DEMONSTRATED** en esta rama hasta que pasen CI y las comprobaciones en un host Windows.
 - Evidencia: `~/.codex-web-http/mcp-trace.log` (0600; tool + fingerprint + sesión resuelta).
 
 ---

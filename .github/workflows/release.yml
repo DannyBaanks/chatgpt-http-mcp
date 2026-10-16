@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Publish verified source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_URL: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).version')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          tag="v$version"
+          notes="docs/releases/$tag.md"
+          test -s "$notes"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "Tag $tag already exists; leaving it unchanged."
+            exit 0
+          fi
+          test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="isymcp-$tag/" HEAD > "dist/isymcp-$tag.tar.gz"
+          git archive --format=zip --prefix="isymcp-$tag/" HEAD > "dist/isymcp-$tag.zip"
+          (cd dist && sha256sum "isymcp-$tag.tar.gz" "isymcp-$tag.zip" > SHA256SUMS && sha256sum -c SHA256SUMS)
+          cp "$notes" dist/NOTES.md
+          printf '\nVerified commit: `%s` · [CI run](%s).\n' "$VERIFIED_SHA" "$CI_URL" >> dist/NOTES.md
+          flags=()
+          if [[ "$version" == *-* ]]; then
+            flags+=(--prerelease --latest=false)
+          fi
+          gh release create "$tag" --target "$VERIFIED_SHA" --title "ISyMCP $version" --notes-file dist/NOTES.md "${flags[@]}" "dist/isymcp-$tag.tar.gz" "dist/isymcp-$tag.zip" dist/SHA256SUMS

@@ -9,10 +9,13 @@
 //
 // Regla de secretos: el token completo solo se muestra al crearlo. En
 // receipts, listados y logs se usa siempre el fingerprint sha256[:12].
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { delimiter as pathDelimiter, isAbsolute, join, relative, resolve } from "node:path";
+import { buildCodexWindowsSandboxPlan, cleanupCodexWindowsSandboxPath, findCodexWindowsCli } from "./platform/codex-windows-sandbox";
+import { buildWindowsDockerSandboxPlan } from "./platform/docker-sandbox";
+import { ensurePrivatePath, securePrivatePath } from "./platform/private-path";
 
 export interface CodexSession {
   /** Explicit native owner; never inferred from a model, port or token prefix. */
@@ -72,6 +75,7 @@ function readRegistry(): Registry {
   if (!existsSync(path)) return { schema: SCHEMA, sessions: [] };
   let data: Partial<Registry>;
   try {
+    ensurePrivatePath(path, false);
     data = JSON.parse(readFileSync(path, "utf8")) as Partial<Registry>;
   } catch (err) {
     // Fail closed: un registro ilegible no se pisa ni se ignora en silencio.
@@ -88,11 +92,12 @@ function readRegistry(): Registry {
 
 function writeRegistry(reg: Registry): void {
   mkdirSync(bridgeHome(), { recursive: true });
+  securePrivatePath(bridgeHome(), true);
   const path = registryPath();
   const tmp = `${path}.tmp-${process.pid}`;
   writeFileSync(tmp, `${JSON.stringify(reg, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, path);
-  chmodSync(path, 0o600);
+  securePrivatePath(path, false);
 }
 
 export function mintSession(
@@ -138,12 +143,18 @@ function readLocalRequest(session: CodexSession, filename: string): { filename: 
   if (!resolveWithin(root, filename)) throw new Error("session_request_outside_workspace");
   let fd: number | undefined;
   try {
-    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const flags = constants.O_RDONLY | (process.platform === "win32" ? 0 : constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    fd = openSync(path, flags);
     // Bind the safety check to the opened file, including symlink parents.
-    const opened = realpathSync(`/proc/self/fd/${fd}`);
+    const opened = process.platform === "win32" ? realpathSync(path) : realpathSync(`/proc/self/fd/${fd}`);
     const inside = relative(root, opened);
     if (!inside || isAbsolute(inside) || inside.split(/[\\/]/).includes("..")) throw new Error("session_request_outside_workspace");
-    if (!fstatSync(fd).isFile()) throw new Error("session_request_invalid: request must be a regular text file");
+    const openedStat = fstatSync(fd);
+    if (!openedStat.isFile()) throw new Error("session_request_invalid: request must be a regular text file");
+    if (process.platform === "win32") {
+      const pathStat = statSync(path);
+      if (openedStat.dev !== pathStat.dev || openedStat.ino !== pathStat.ino) throw new Error("session_request_outside_workspace");
+    }
     const bytes = Buffer.alloc(65537);
     let size = 0, count = 0;
     while (size < bytes.length && (count = readSync(fd, bytes, size, bytes.length - size, null)) > 0) size += count;
@@ -299,10 +310,111 @@ export function resolveWithinReal(root: string, candidate: string): string | nul
 }
 
 export const BWRAP = "/usr/bin/bwrap";
+export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.0-rc.2";
+
+export interface SandboxPlan {
+  argv: string[];
+  backend: "bwrap" | "docker" | "codex-windows" | "none";
+  containerName?: string;
+  env?: Record<string, string>;
+  cleanupRoot?: string;
+  watched?: boolean;
+}
+
+const liveDockerContainers = new Map<string, string>();
+let dockerProbeCache: { image: string; until: number; available: boolean } | null = null;
+
+function dockerPath(): string | null {
+  const extensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";");
+  for (const directory of (process.env.PATH ?? "").split(pathDelimiter).filter(Boolean)) {
+    for (const extension of extensions) {
+      const candidate = join(directory, `docker${extension.toLowerCase()}`);
+      if (existsSync(candidate)) return candidate;
+    }
+    const extensionless = join(directory, "docker");
+    if (existsSync(extensionless)) return extensionless;
+  }
+  return null;
+}
+
+function dockerImageAvailable(): boolean {
+  const image = process.env.CODEX_WEB_HTTP_SANDBOX_IMAGE?.trim() || DEFAULT_WINDOWS_SANDBOX_IMAGE;
+  if (dockerProbeCache?.image === image && dockerProbeCache.until > Date.now()) return dockerProbeCache.available;
+  const executable = dockerPath();
+  let available = false;
+  if (executable) {
+    try {
+      const result = Bun.spawnSync([executable, "image", "inspect", image, "--format={{.Id}}"], {
+        stdout: "pipe", stderr: "ignore", timeout: 2500,
+      });
+      available = result.exitCode === 0 && result.stdout.toString().trim().length > 0;
+    } catch { /* daemon or image unavailable: remain fail-closed */ }
+  }
+  dockerProbeCache = { image, until: Date.now() + 5000, available };
+  return available;
+}
+
+function dockerContainerName(argv: string[]): string | null {
+  const index = argv.indexOf("--name");
+  return index >= 0 ? argv[index + 1] ?? null : null;
+}
+
+function stopDockerContainer(executable: string, name: string): void {
+  try {
+    Bun.spawnSync([executable, "kill", name], { stdout: "ignore", stderr: "ignore", timeout: 5000 });
+  } catch { /* daemon may already have removed it */ }
+}
+
+function reapDockerContainer(name: string, executable: string): void {
+  try {
+    const status = Bun.spawnSync([executable, "inspect", "--format={{.State.Running}}", name], {
+      stdout: "pipe", stderr: "ignore", timeout: 2500,
+    });
+    if (status.exitCode === 0 && status.stdout.toString().trim() === "true") stopDockerContainer(executable, name);
+  } catch { /* preserve the original command result */ }
+  liveDockerContainers.delete(name);
+}
+
+process.once("exit", () => {
+  for (const [name, executable] of liveDockerContainers) stopDockerContainer(executable, name);
+});
 
 export function sandboxAvailable(): boolean {
-  if (sandboxDisabledByOperator()) return false;
-  return existsSync(BWRAP);
+  return sandboxBackend() !== "none";
+}
+
+export function sandboxBackend(): SandboxPlan["backend"] {
+  if (sandboxDisabledByOperator()) return "none";
+  if (process.platform === "win32") {
+    const selected = process.env.CODEX_WEB_HTTP_WINDOWS_SANDBOX_BACKEND?.trim().toLowerCase() || "docker";
+    if (selected === "native") return findCodexWindowsCli() ? "codex-windows" : "none";
+    if (selected === "docker") return dockerImageAvailable() ? "docker" : "none";
+    return "none";
+  }
+  return existsSync(BWRAP) ? "bwrap" : "none";
+}
+
+export function sandboxLabel(session: Pick<CodexSession, "writable">): string {
+  const backend = sandboxBackend();
+  if (backend === "codex-windows") return session.writable ? "codex-windows-workspace-write" : "codex-windows-read-only";
+  if (backend === "docker") return session.writable ? "docker-linux-workspace-write" : "docker-linux-read-only";
+  if (backend === "bwrap") return session.writable ? "bwrap-workspace-write" : "bwrap-read-only";
+  return "none";
+}
+
+export function sandboxUnavailableReason(): string {
+  if (sandboxDisabledByOperator()) return "sandbox apagado explícitamente por CODEX_WEB_HTTP_SANDBOX=off";
+  if (process.platform === "win32") {
+    const selected = process.env.CODEX_WEB_HTTP_WINDOWS_SANDBOX_BACKEND?.trim().toLowerCase() || "docker";
+    if (selected === "native") {
+      if (!findCodexWindowsCli()) return "falta Codex CLI nativo; instala @openai/codex o define ISYMCP_CODEX_CLI_BIN";
+      return "el sandbox nativo de Codex Windows no está provisionado; ejecútalo desde PowerShell y acepta su configuración inicial de seguridad";
+    }
+    if (selected !== "docker") return "CODEX_WEB_HTTP_WINDOWS_SANDBOX_BACKEND debe ser native o docker";
+    const image = process.env.CODEX_WEB_HTTP_SANDBOX_IMAGE?.trim() || DEFAULT_WINDOWS_SANDBOX_IMAGE;
+    return `Docker Desktop o la imagen ${image} no están disponibles; ejecuta bun run sandbox:build`;
+  }
+  return "bubblewrap no está disponible";
 }
 
 /** CODEX_WEB_HTTP_SANDBOX=off: el operador apaga bwrap A PROPOSITO. */
@@ -361,14 +473,56 @@ function sandboxEnv(home: string): string[] {
  * (CODEX_WEB_HTTP_SANDBOX=off), en cuyo caso writable corre sin burbuja.
  * Red opt-in: CODEX_WEB_HTTP_SANDBOX_NET=1.
  */
-export function sandboxArgv(
+export function sandboxPlan(
   session: Pick<CodexSession, "cwd" | "writable">,
   workdir: string,
   command: string[],
-): string[] | null {
-  if (!sandboxAvailable()) {
-    if (session.writable && sandboxDisabledByOperator()) return [...command];
+  options: { readPaths?: string[] } = {},
+): SandboxPlan | null {
+  const backend = sandboxBackend();
+  if (backend === "none") {
+    if (session.writable && sandboxDisabledByOperator()) return { argv: [...command], backend: "none" };
     return null;
+  }
+  if (backend === "codex-windows") {
+    try {
+      const native = buildCodexWindowsSandboxPlan({
+        workspace: session.cwd,
+        workdir,
+        bridgeHome: bridgeHome(),
+        command,
+        writable: session.writable,
+        network: process.env.CODEX_WEB_HTTP_SANDBOX_NET?.trim() === "1",
+        readPaths: options.readPaths,
+      });
+      return { ...native, backend };
+    } catch {
+      return null;
+    }
+  }
+  if (backend === "docker") {
+    const executable = dockerPath();
+    if (!executable) return null;
+    const containerName = `isymcp-${process.pid}-${randomUUID().replaceAll("-", "")}`;
+    const image = process.env.CODEX_WEB_HTTP_SANDBOX_IMAGE?.trim() || DEFAULT_WINDOWS_SANDBOX_IMAGE;
+    try {
+      const plan = buildWindowsDockerSandboxPlan({
+        dockerPath: executable,
+        image,
+        workspace: session.cwd,
+        workdir,
+        bridgeHome: bridgeHome(),
+        sourceRoot: import.meta.dir,
+        command,
+        writable: session.writable,
+        env: process.env,
+        containerName,
+      });
+      liveDockerContainers.set(containerName, executable);
+      return { argv: plan.argv, backend, containerName };
+    } catch {
+      return null;
+    }
   }
   const home = homedir();
   const args = [
@@ -397,7 +551,41 @@ export function sandboxArgv(
     args.push("--tmpfs", secrets);
   }
   args.push("--chdir", workdir, "--", ...command);
-  return args;
+  return { argv: args, backend };
+}
+
+export function sandboxArgv(
+  session: Pick<CodexSession, "cwd" | "writable">,
+  workdir: string,
+  command: string[],
+): string[] | null {
+  return sandboxPlan(session, workdir, command)?.argv ?? null;
+}
+
+export function stopSandboxPlan(plan: SandboxPlan | null): void {
+  if (plan?.backend === "codex-windows") {
+    if (!plan.watched && plan.cleanupRoot) cleanupCodexWindowsSandboxPath(plan.cleanupRoot);
+    return;
+  }
+  if (plan?.backend !== "docker" || !plan.containerName) return;
+  const executable = dockerPath();
+  if (executable) stopDockerContainer(executable, plan.containerName);
+  liveDockerContainers.delete(plan.containerName);
+}
+
+export function watchSandboxProcess(plan: SandboxPlan | null, exited: Promise<number>): void {
+  if (plan?.backend === "codex-windows" && plan.cleanupRoot) {
+    plan.watched = true;
+    void exited.then(
+      () => cleanupCodexWindowsSandboxPath(plan.cleanupRoot!),
+      () => cleanupCodexWindowsSandboxPath(plan.cleanupRoot!),
+    );
+    return;
+  }
+  if (plan?.backend !== "docker" || !plan.containerName) return;
+  const executable = dockerPath();
+  if (!executable) return;
+  void exited.then(() => reapDockerContainer(plan.containerName!, executable), () => reapDockerContainer(plan.containerName!, executable));
 }
 
 /**

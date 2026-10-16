@@ -5,7 +5,7 @@
 //
 // Con un turn_token que coincide con una sesion del registro
 // (~/.codex-web-http/codex-sessions.json) TODAS las tools ejecutan de verdad
-// con la politica de esa sesion (read-only | writable) y sandbox bwrap:
+// con la politica de esa sesion (read-only | writable) y un sandbox disponible:
 //   - codex_exec: comando foreground, o background=true → exec_id persistente
 //   - codex_write_stdin: stdin de un proceso vivo + delta de salida
 //   - codex_apply_patch: formato nativo Codex (*** Begin Patch) o git diff
@@ -22,13 +22,13 @@
 //
 // Session tokens (v0.3): si el turn_token coincide con una sesion del registro
 // (~/.codex-web-http/codex-sessions.json), las tools ejecutan de verdad con la
-// politica de esa sesion (read-only | writable) y sandbox bwrap. Un token
+// politica de esa sesion (read-only | writable) y un sandbox disponible. Un token
 // desconocido conserva el comportamiento stub (compat OpenISy).
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { extname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import {
   bridgeHome,
@@ -38,18 +38,23 @@ import {
   patchPaths,
   resolveWithin,
   resolveWithinReal,
-  sandboxArgv,
   sandboxAvailable,
+  sandboxBackend,
+  sandboxLabel,
+  sandboxPlan,
+  sandboxUnavailableReason,
+  stopSandboxPlan,
+  watchSandboxProcess,
   type CodexSession,
 } from "../codex-sessions";
 import { readMcpBootstrap } from "./bootstrap";
 import { routeNativeTool } from "./active-native";
-import { applyCodexPatch, CodexPatchError } from "./codex-patch";
 import { capabilities, shapesFor, TOOL_DESCRIPTIONS, WIRE_ALIASES, type ToolName } from "./catalog";
 import { drain, findLive, killSessionExecs, registerLiveExec, writeStdin as stdinWrite, type BgProc } from "./exec-registry";
 import { CODEX_TOOLS, buildInstructions } from "./identity";
 import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
+import { sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
 
 const args = process.argv.slice(2);
 function option(name: string, fallback: string): string {
@@ -64,7 +69,7 @@ const contract = option("--contract", "native");
 if (contract !== "native" && contract !== "safe") {
   throw new Error(`--contract debe ser native o safe, recibido: ${contract}`);
 }
-const brokerSocketPath = option("--broker-socket", "/tmp/codex-web-http-broker.sock");
+const brokerSocketPath = option("--broker-socket", process.platform === "win32" ? "\\\\.\\pipe\\isymcp-broker" : "/tmp/codex-web-http-broker.sock");
 
 const turnKey = contract === "safe" ? "request_id" : "turn_token";
 
@@ -96,7 +101,7 @@ function fail(reason: string, extra: Record<string, unknown> = {}) {
 function trace(event: string, detail: Record<string, unknown>): void {
   try {
     mkdirSync(bridgeHome(), { recursive: true });
-    appendFileSync(join(bridgeHome(), "mcp-trace.log"), `${new Date().toISOString()} ${event} ${JSON.stringify(detail)}\n`, { mode: 0o600 });
+    appendFileSync(join(bridgeHome(), "mcp-trace.log"), `${new Date().toISOString()} ${event} ${JSON.stringify(sanitizeToolTraceValue(detail))}\n`, { mode: 0o600 });
   } catch {
     /* la traza nunca debe romper el server */
   }
@@ -109,11 +114,12 @@ process.on("unhandledRejection", (err) => {
   trace("unhandledRejection", { message: String((err as Error)?.message ?? err) });
 });
 
-function sessionFrom(input: Record<string, unknown>, tool = "-"): CodexSession | null {
+function sessionFrom(input: Record<string, unknown>, tool: string, callId: string): CodexSession | null {
   const token = String(input[turnKey] ?? "");
   const session = token ? findSessionByToken(token) : null;
   trace("call", {
     tool,
+    call_id: callId,
     token_fp: token ? fingerprint(token) : null,
     session: session ? `${session.label}[${session.fp}]` : null,
     turn_id: session?.turnId ?? null,
@@ -126,29 +132,52 @@ function sessionFrom(input: Record<string, unknown>, tool = "-"): CodexSession |
  * "tarjeta de tool". Va con token_fp (y turn_id si es un token de turno) para
  * correlacionar con el turno exacto. Nunca guarda stdout/stderr ni el token.
  */
-function traceResult(session: CodexSession, tool: string, out: { content: Array<{ type: string; text?: string }>; isError?: boolean }): void {
+function traceResult(session: CodexSession | null, tool: string, callId: string, token: string, out: { content: Array<{ type: string; text?: string }>; isError?: boolean }): void {
   try {
     const text = out.content.find((c) => c.type === "text")?.text ?? "{}";
     const r = JSON.parse(text) as Record<string, unknown>;
-    const clipStr = (v: unknown) => (typeof v === "string" ? v.slice(0, 300) : undefined);
+    const clipStr = (v: unknown) => typeof v === "string"
+      ? sanitizeToolTraceText(v.replaceAll(token, token ? "[token redacted]" : "")).slice(0, 300)
+      : undefined;
     trace("tool.result", {
       tool,
-      token_fp: session.fp,
-      turn_id: session.nativeOwner?.owner.turnId ?? session.turnId ?? null,
+      call_id: callId,
+      token_fp: session?.fp ?? (token ? fingerprint(token) : null),
+      turn_id: session?.nativeOwner?.owner.turnId ?? session?.turnId ?? null,
       backend: r.backend,
-      native_thread_id: session.nativeOwner?.owner.threadId,
+      native_thread_id: session?.nativeOwner?.owner.threadId,
       ok: !out.isError && r.error === undefined && (r.executed !== false || tool === "codex_tool_inventory"),
-      command: Array.isArray(r.command) ? (r.command as unknown[]).map(String).join(" ").slice(0, 300) : undefined,
+      command: Array.isArray(r.command) ? clipStr((r.command as unknown[]).map(String).join(" ")) : undefined,
       exit_code: typeof r.exit_code === "number" ? r.exit_code : undefined,
       timed_out: r.timed_out === true ? true : undefined,
       duration_ms: typeof r.duration_ms === "number" ? r.duration_ms : undefined,
-      files: Array.isArray(r.files) ? (r.files as unknown[]).map(String).slice(0, 20) : undefined,
+      files: Array.isArray(r.files) ? (r.files as unknown[]).map((value) => clipStr(String(value))).slice(0, 20) : undefined,
       path: clipStr(r.path),
       bytes: typeof r.bytes === "number" ? r.bytes : undefined,
       error: clipStr(r.error),
     });
   } catch {
     /* la traza nunca rompe la tool */
+  }
+}
+
+/** Owns the call identity for one MCP dispatch and its matching receipt. */
+async function tracedCall(
+  tool: string,
+  input: Record<string, unknown>,
+  dispatch: (session: CodexSession | null, callId: string) => Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean }> | { content: Array<{ type: string; text?: string }>; isError?: boolean },
+) {
+  const callId = randomUUID();
+  const session = sessionFrom(input, tool, callId);
+  const token = String(input[turnKey] ?? "");
+  try {
+    const result = await dispatch(session, callId);
+    traceResult(session, tool, callId, token, result);
+    return result;
+  } catch (error) {
+    const result = fail(`tool dispatch failed: ${String(error)}`);
+    traceResult(session, tool, callId, token, result);
+    return result;
   }
 }
 
@@ -174,22 +203,34 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
   if (!workdir || !existsSync(workdir) || !statSync(workdir).isDirectory()) {
     return fail(`cwd fuera del workspace o inexistente: ${String(cwdArg ?? ".")}`, { session: sessionMeta(session) });
   }
-  const argv = sandboxArgv(session, workdir, command as string[]);
-  if (!argv) {
-    return fail("fail-closed: bwrap no disponible (sin sandbox no se ejecuta; CODEX_WEB_HTTP_SANDBOX=off solo habilita sesiones writable)", { session: sessionMeta(session) });
+  const launch = sandboxPlan(session, workdir, command as string[]);
+  if (!launch) {
+    return fail(`fail-closed: ${sandboxUnavailableReason()} (sin sandbox no se ejecuta; CODEX_WEB_HTTP_SANDBOX=off solo habilita sesiones writable)`, { session: sessionMeta(session) });
   }
+  const { argv } = launch;
+  const sandbox = launch.backend === "none" ? "none" : sandboxLabel(session);
   const started = Date.now();
   if (background === true) {
     // Proceso persistente: stdin abierto, exec_id para codex_write_stdin.
     // NO sufre el timeout de foreground; lo limita el TTL del registro.
+    let raw: ReturnType<typeof Bun.spawn> | undefined;
     try {
-      const proc = Bun.spawn(argv, {
+      raw = Bun.spawn(argv, {
         cwd: workdir,
         stdout: "pipe",
         stderr: "pipe",
         stdin: "pipe",
-        env: process.env,
-      }) as unknown as BgProc;
+        env: launch.env ?? process.env,
+      });
+      watchSandboxProcess(launch, raw.exited);
+      const proc: BgProc = {
+        stdin: raw.stdin as unknown as BgProc["stdin"],
+        stdout: raw.stdout,
+        stderr: raw.stderr,
+        kill: (signal) => { stopSandboxPlan(launch); raw.kill(signal); },
+        exited: raw.exited,
+        idleOutputMs: launch.backend === "docker" || launch.backend === "codex-windows" ? 1000 : 250,
+      };
       const rec = registerLiveExec({ sessionFp: session.fp, command: command as string[], cwd: workdir, proc });
       trace("exec.bg.spawn", { exec_id: rec.id, writable: session.writable, workdir });
       const initial = await drain(rec, clampInt(captureMs, 0, 5000, 1500));
@@ -197,7 +238,7 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
         executed: true,
         background: true,
         exec_id: rec.id,
-        sandbox: sandboxAvailable() ? (session.writable ? "bwrap-workspace-write" : "bwrap-read-only") : "none",
+        sandbox,
         session: sessionMeta(session),
         command,
         cwd: workdir,
@@ -209,6 +250,18 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
         duration_ms: Date.now() - started,
       });
     } catch (err) {
+      // registerLiveExec puede fallar después de que el watcher marque el
+      // sandbox como observado; en ese estado stopSandboxPlan ya no mata el
+      // proceso nativo. Cierra también el hijo directo para no dejarlo huérfano.
+      if (raw) {
+        try {
+          raw.kill();
+          await raw.exited;
+        } catch {
+          /* se conserva el error original de registro/spawn */
+        }
+      }
+      stopSandboxPlan(launch);
       return fail(`background spawn fallo: ${String(err)}`, { session: sessionMeta(session) });
     }
   }
@@ -221,12 +274,14 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
       cwd: workdir,
       stdout: "pipe",
       stderr: "pipe",
-      env: process.env,
+      env: launch.env ?? process.env,
     });
+    watchSandboxProcess(launch, proc.exited);
     trace("exec.spawn", { writable: session.writable, workdir });
     const timer = setTimeout(() => {
       timedOut = true;
       trace("exec.kill", {});
+      stopSandboxPlan(launch);
       proc.kill();
     }, execTimeoutMs);
     const stdout = await new Response(proc.stdout).text();
@@ -238,7 +293,7 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
     clearTimeout(timer);
     return jsonText({
       executed: true,
-      sandbox: sandboxAvailable() ? (session.writable ? "bwrap-workspace-write" : "bwrap-read-only") : "none",
+      sandbox,
       session: sessionMeta(session),
       command,
       cwd: workdir,
@@ -249,6 +304,7 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
       duration_ms: Date.now() - started,
     });
   } catch (err) {
+    stopSandboxPlan(launch);
     return fail(`spawn fallo: ${String(err)}`, { session: sessionMeta(session) });
   }
 }
@@ -257,63 +313,85 @@ async function runApplyPatch(session: CodexSession, patch: unknown) {
   if (typeof patch !== "string" || !patch.trim()) return fail("patch requerido");
   if (!session.writable) return fail("sesion read-only: apply_patch denegado", { session: sessionMeta(session) });
   const { paths, codexFormat } = patchPaths(patch);
-  if (codexFormat) {
-    // Formato nativo Codex (*** Begin Patch): validacion completa en memoria
-    // antes de escribir; un patch invalido no toca disco.
-    try {
-      const files = applyCodexPatch(session.cwd, patch);
-      return jsonText({
-        executed: true,
-        format: "codex-native",
-        session: sessionMeta(session),
-        files,
-        exit_code: 0,
-        stdout: "",
-        stderr: "",
-      });
-    } catch (err) {
-      if (err instanceof CodexPatchError) return fail(err.message, { format: "codex-native", session: sessionMeta(session) });
-      throw err;
-    }
-  }
-  if (paths.length === 0) return fail("no se detectaron paths en el patch", { session: sessionMeta(session) });
+  if (!codexFormat && paths.length === 0) return fail("no se detectaron paths en el patch", { session: sessionMeta(session) });
   for (const p of paths) {
     if (!resolveWithin(session.cwd, p)) {
       return fail(`path fuera del workspace: ${p}`, { session: sessionMeta(session) });
     }
   }
-  const tmpFile = join(tmpdir(), `isyco-patch-${process.pid}-${Date.now()}.diff`);
+  const backend = sandboxBackend();
+  const windowsDocker = process.platform === "win32" && backend === "docker";
+  const patchModule = windowsDocker ? "/opt/isymcp/src/mcp/codex-patch.ts" : join(import.meta.dir, "codex-patch.ts");
+  let patchHelper: string | undefined;
+  let patchModuleSpecifier = patchModule;
+  if (codexFormat && !windowsDocker) {
+    // The sandbox deliberately hides the bridge's home/application tree. Put
+    // this one trusted helper in the authorized workspace so Bun can resolve
+    // it after that isolation is applied, then remove it on every exit path.
+    patchHelper = join(session.cwd, `.isymcp-codex-patch-${randomUUID()}.ts`);
+    try {
+      writeFileSync(patchHelper, readFileSync(patchModule), { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      return fail(`no se pudo preparar apply_patch aislado: ${String(error)}`, { session: sessionMeta(session) });
+    }
+    patchModuleSpecifier = `./${basename(patchHelper)}`;
+  }
+  const patchRoot = windowsDocker ? "/workspace" : session.cwd;
+  const command = codexFormat
+    ? ["bun", "-e", `import { applyCodexPatch } from ${JSON.stringify(patchModuleSpecifier)}; const patch = await Bun.stdin.text(); try { console.log(JSON.stringify({files: applyCodexPatch(${JSON.stringify(patchRoot)}, patch)})); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }`]
+    : ["git", "apply", "--whitespace=nowarn", "-"];
+  const launch = sandboxPlan(session, session.cwd, command);
+  if (!launch) {
+    if (patchHelper) { try { unlinkSync(patchHelper); } catch { /* preserve fail-closed result */ } }
+    return fail(`fail-closed: ${sandboxUnavailableReason()} (no se aplica el patch fuera del sandbox)`, { session: sessionMeta(session) });
+  }
   try {
     // git apply exige newline final; los modelos suelen omitirlo.
     const normalizedPatch = patch.endsWith("\n") ? patch : `${patch}\n`;
-    writeFileSync(tmpFile, normalizedPatch, { mode: 0o600 });
-    const proc = Bun.spawn(["git", "apply", "--whitespace=nowarn", tmpFile], {
+    const proc = Bun.spawn(launch.argv, {
       cwd: session.cwd,
       stdout: "pipe",
       stderr: "pipe",
-      env: process.env,
+      stdin: "pipe",
+      env: launch.env ?? process.env,
     });
-    const timer = setTimeout(() => proc.kill(), 60_000);
+    watchSandboxProcess(launch, proc.exited);
+    proc.stdin.write(normalizedPatch);
+    proc.stdin.end();
+    const timer = setTimeout(() => { stopSandboxPlan(launch); proc.kill(); }, 60_000);
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
     clearTimeout(timer);
+    if (exitCode !== 0) {
+      const reason = stderr.trim() || stdout.trim() || `patch termino con exit ${exitCode}`;
+      return fail(reason, {
+        executed: false,
+        ...(codexFormat ? { format: "codex-native" } : {}),
+        session: sessionMeta(session),
+        files: [...new Set(paths)],
+        exit_code: exitCode,
+        stdout: clip(stdout),
+        stderr: clip(stderr),
+      });
+    }
+    const result = codexFormat && exitCode === 0 ? JSON.parse(stdout) as { files?: string[] } : undefined;
     return jsonText({
       executed: exitCode === 0,
+      ...(codexFormat ? { format: "codex-native" } : {}),
       session: sessionMeta(session),
-      files: [...new Set(paths)],
+      files: codexFormat ? result?.files ?? paths : [...new Set(paths)],
       exit_code: exitCode,
       stdout: clip(stdout),
       stderr: clip(stderr),
     });
+  } catch (err) {
+    stopSandboxPlan(launch);
+    return fail(`patch sandbox fallo: ${String(err)}`, { session: sessionMeta(session) });
   } finally {
-    try {
-      unlinkSync(tmpFile);
-    } catch {
-      /* tmp */
-    }
+    if (patchHelper) { try { unlinkSync(patchHelper); } catch { /* helper may already be absent */ } }
   }
 }
 
@@ -386,7 +464,7 @@ function sessionInventory(session: CodexSession) {
     tools: [...CODEX_TOOLS],
     capabilities: capabilities(contract),
     source: "codex-web-http sessions",
-    sandbox: sandboxAvailable() ? "bwrap" : "none",
+    sandbox: sandboxLabel(session),
   });
 }
 
@@ -509,11 +587,10 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_turn_start,
     inputSchema: S.codex_turn_start,
   },
-  async (input: Record<string, unknown>) => {
+  async (input: Record<string, unknown>) => tracedCall("codex_turn_start", input, async (session) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
-    const session = sessionFrom(input, "codex_turn_start");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_turn_start", input, contract as "native" | "safe"); traceResult(session, "codex_turn_start", out); return out; }
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_turn_start", input, contract as "native" | "safe");
     if (session) {
       try {
         const bootstrap = readMcpBootstrap();
@@ -524,7 +601,7 @@ server.registerTool(
       }
     }
     return jsonText({ started: true, turn_token: token });
-  },
+  }),
 );
 
 server.registerTool(
@@ -533,12 +610,11 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_exec,
     inputSchema: S.codex_exec,
   },
-  async (input: Record<string, unknown>) => {
+  async (input: Record<string, unknown>) => tracedCall("codex_exec", input, async (session) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
-    const session = sessionFrom(input, "codex_exec");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_exec", input, contract as "native" | "safe"); traceResult(session, "codex_exec", out); return out; }
-    if (session) { const out = await runExec(session, input.command, input.cwd, input.background, input.capture_ms); traceResult(session, "codex_exec", out); return out; }
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_exec", input, contract as "native" | "safe");
+    if (session) return runExec(session, input.command, input.cwd, input.background, input.capture_ms);
     const command = input.command as string[];
     return jsonText({
       turn_token: token,
@@ -549,7 +625,7 @@ server.registerTool(
       stderr: "broker not connected (V1 stub)",
       exit_code: null,
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -558,21 +634,20 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_turn_complete,
     inputSchema: S.codex_turn_complete,
   },
-  async (input: Record<string, unknown>) => {
+  async (input: Record<string, unknown>) => tracedCall("codex_turn_complete", input, async (session) => {
     const token = String(input[turnKey] ?? "");
     const response = String(input.response ?? "");
     if (!token || !response) {
       return fail(`${turnKey} y response requeridos`);
     }
-    const session = sessionFrom(input, "codex_turn_complete");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_turn_complete", input, contract as "native" | "safe"); traceResult(session, "codex_turn_complete", out); return out; }
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_turn_complete", input, contract as "native" | "safe");
     if (session) {
       // Cerrar el turno no deja procesos huérfanos de esa sesion.
       const killed = killSessionExecs(session.fp);
       return jsonText({ completed: true, session: sessionMeta(session), live_execs_killed: killed });
     }
     return jsonText({ completed: true, turn_token: token });
-  },
+  }),
 );
 
 server.registerTool(
@@ -581,13 +656,10 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_tool_inventory,
     inputSchema: S.codex_tool_inventory,
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_tool_inventory");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_tool_inventory", input, contract as "native" | "safe"); traceResult(session, "codex_tool_inventory", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_tool_inventory", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_tool_inventory", input, contract as "native" | "safe");
     if (session) {
-      const out = sessionInventory(session);
-      traceResult(session, "codex_tool_inventory", out);
-      return out;
+      return sessionInventory(session);
     }
     // Modo stub (token sin sesion): NADA es ejecutable. No se anuncian
     // tools que no corren; se dice como conseguir una sesion real.
@@ -596,7 +668,7 @@ server.registerTool(
       source: "codex-web-http V1 stub",
       reason: `${turnKey} no corresponde a una sesion registrada: en modo stub nada es ejecutable (isymcp session mint --cwd <dir> --write)`,
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -605,15 +677,14 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_write_stdin,
     inputSchema: S.codex_write_stdin,
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_write_stdin");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_write_stdin", input, contract as "native" | "safe"); traceResult(session, "codex_write_stdin", out); return out; }
-    if (session) { const out = await runWriteStdin(session, input); traceResult(session, "codex_write_stdin", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_write_stdin", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_write_stdin", input, contract as "native" | "safe");
+    if (session) return runWriteStdin(session, input);
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -622,15 +693,14 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_apply_patch,
     inputSchema: S.codex_apply_patch,
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_apply_patch");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_apply_patch", input, contract as "native" | "safe"); traceResult(session, "codex_apply_patch", out); return out; }
-    if (session) { const out = await runApplyPatch(session, input.patch); traceResult(session, "codex_apply_patch", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_apply_patch", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_apply_patch", input, contract as "native" | "safe");
+    if (session) return runApplyPatch(session, input.patch);
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -639,15 +709,14 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_view_image,
     inputSchema: S.codex_view_image,
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_view_image");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_view_image", input, contract as "native" | "safe"); traceResult(session, "codex_view_image", out); return out; }
-    if (session) { const out = runViewImage(session, input.path); traceResult(session, "codex_view_image", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_view_image", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_view_image", input, contract as "native" | "safe");
+    if (session) return runViewImage(session, input.path);
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
     });
-  },
+  }),
 );
 
 server.registerTool(
@@ -658,22 +727,21 @@ server.registerTool(
     inputSchema: S.codex_tool_call,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
-  async (input: Record<string, unknown>) => {
-    const session = sessionFrom(input, "codex_tool_call");
-    if (session?.nativeOwner) { const out = await routeNativeTool(session, "codex_tool_call", input, contract as "native" | "safe"); traceResult(session, "codex_tool_call", out); return out; }
-    if (session) { const out = await runToolCall(session, input); traceResult(session, "codex_tool_call", out); return out; }
+  async (input: Record<string, unknown>) => tracedCall("codex_tool_call", input, async (session) => {
+    if (session?.nativeOwner) return routeNativeTool(session, "codex_tool_call", input, contract as "native" | "safe");
+    if (session) return runToolCall(session, input);
     return jsonText({
       turn_token: input[turnKey],
       wire_name: input.wire_name,
       executed: false,
       receipt: "V1: broker no implementado — la tool llega pero no ejecuta todavia",
     });
-  },
+  }),
 );
 
 registerMediaTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`[codex-web-http MCP] contract=${contract} broker=${brokerSocketPath} sessions=${sandboxAvailable() ? "bwrap" : "no-bwrap"}`);
-trace("startup", { pid: process.pid, contract, sandbox: sandboxAvailable() });
+console.error(`[codex-web-http MCP] contract=${contract} broker=${brokerSocketPath} sandbox=${sandboxAvailable() ? sandboxLabel({ writable: false }) : "unavailable"}`);
+trace("startup", { pid: process.pid, contract, sandbox: sandboxAvailable() ? sandboxLabel({ writable: false }) : "unavailable" });

@@ -19,13 +19,47 @@ Salida real del menú instalado, recortada, verificada en una terminal PTY:
 
 **ISyMCP** convierte tu suscripción de ChatGPT en una interfaz de chat local en localhost, un API compatible con OpenAI / Responses, y una herramienta MCP para tus agentes de código (Codex, Claude Code, Cursor, OpenCode, Copilot CLI, Hermes, OpenClaw, Pi, Gemini).
 
+## Panel de chat, Evidencia y Actividad
+
+En el panel, **Conversación** es la vista inicial. Usa **Nuevo chat** para crear
+una conversación; escribir en el compositor antes de tener un chat conserva el
+borrador en esta pestaña y no crea chats por sí solo. Cada conversación tiene
+su propio borrador: se guarda automáticamente, vuelve al cambiar de chat y se
+restaura tras recargar. Un envío correcto limpia el texto enviado; un error o
+texto escrito durante el envío se conserva.
+
+Las pestañas muestran información distinta del mismo chat:
+
+- **Conversación:** historial y respuesta en vivo de ChatGPT.
+- **Evidencia:** comprobantes MCP guardados, con filtros de todas, fallidas y
+  completadas; “Ir al mensaje propietario” abre el mensaje asociado. Los
+  comprobantes se proyectan desde el historial local del chat (hasta 200
+  mensajes). No guardan stdout ni stderr; la vista no los reconstruye.
+- **Actividad:** disponibilidad actual del bridge, fase y herramientas del chat
+  seleccionado. Si el único turno activo pertenece a otro chat, se indica sin
+  atribuirle esa fase al chat abierto.
+
+El lateral abre el historial, sesiones de trabajo, Actividad y Ajustes; el
+control inferior permite abrir Estado. En pantallas angostas, Chat, Sesiones y
+Ajustes usan cajones que se cierran con **Escape** y devuelven el foco al
+control que los abrió. Elegir una sesión la asocia al chat actual aunque las
+tools sigan apagadas. Para permitir ejecuciones, enciende **Codex ISyMCP** de
+forma explícita y revisa el alcance de la carpeta seleccionada.
+
+La respuesta muestra el Blossom monocromático local junto a la etiqueta
+ChatGPT; ISyMCP sigue siendo la marca del panel. La procedencia y el uso del
+archivo están en [`assets/README.md`](assets/README.md). El E2E reproducible del panel
+usa un bridge sintético y marca claramente sus comprobantes de prueba. No
+equivale a un turno autenticado contra ChatGPT: ese canario real queda
+**NOT_DEMONSTRATED** en el [registro de verificación](docs/verification/2026-10-15-panel-chat-views.md).
+
 ---
 
 ## 1. Requisitos Previos
 
-- **Runtime:** [Bun](https://bun.sh) (v1.4+)
-- **Navegador:** Google Chrome o Chromium instalado en el sistema (`/usr/bin/google-chrome` o similar).
-- **Aislamiento Sandbox (Opcional pero recomendado):** `bubblewrap` (`bwrap`) para ejecución enjaulada segura de herramientas.
+- **Runtime:** [Bun](https://bun.sh) 1.4.2 o superior.
+- **Navegador:** Google Chrome o Microsoft Edge. Para Windows, sigue la [guía de instalación](docs/WINDOWS.md).
+- **Aislamiento:** `bubblewrap` en Linux; Docker Desktop o el sandbox nativo de Codex CLI en Windows.
 - **Autenticación:** Sesión activa en [chatgpt.com](https://chatgpt.com).
 
 ---
@@ -138,47 +172,24 @@ App es un flujo distinto del conector MCP. El informe anterior
 separa esos caminos y conserva los intentos fallidos:
 [pruebas App, CLI y transporte Web](docs/verification/2026-10-10-native-mcp-live.md).
 
-### Conversación Web en CLI o App (actualización de 2026-10-10)
+### Conversación Web con Codex CLI (estado actual)
 
 ```bash
 isymcp conversation new --client cli --cwd "$PWD" --model chatgpt-web/gpt-6
-isymcp conversation new --client app --cwd "$PWD" --model chatgpt-web/gpt-6
 isymcp conversation list
 isymcp conversation resume <launch-id-o-thread-id>
 ```
 
-**NO PROBADO de extremo a extremo con estos comandos de producción.** Los
-canarios probaron los módulos de lanzamiento con clientes reales y servidores
-propios. GPT Web llegó a pedir comandos que el CLI y la App ejecutaron, pero
-el retorno completo a GPT y la respuesta final siguen sin demostrarse. No
-confundas estas pruebas con la invocación del conector MCP, ya comprobada.
+Los recibos aparecen en `list` cuando el primer turno queda comprometido; ese
+turno todavía puede contener una llamada a herramienta. La conversación Web
+completa sigue sin demostrarse de extremo a extremo; consulta la evidencia
+fechada antes de atribuir un resultado al proveedor.
 
-La opción App abre una ventana separada en Linux. Necesita la App instalada
-(`/usr/lib/chatgpt/ChatGPT`, o `ISYMCP_CODEX_APP_BIN`) y una sesión nativa de
-Codex. Guarda su perfil en `~/.isymcp-app/<launch-id>/`, copia las credenciales
-con permisos privados y conserva un único hilo vinculado. No copia tus chats
-ni cambia la configuración global. Escribe la primera tarea en esa ventana.
-No empieces otros chats dentro de ese mismo perfil; usa `conversation new`
-para otra conversación.
-
-`list` muestra únicamente recibos comprometidos. El primer recibo puede ser
-una llamada a una herramienta: **tener URL no demuestra que acabó el turno**.
-`resume` conserva el cliente original; para App abre el hilo exacto en su
-perfil. Reanudar una conversación Web real sigue **NO PROBADO**.
-
-| Señal | Significado y acción |
-|---|---|
-| `web_app_auth_missing` | Inicia sesión en Codex nativo antes de abrir el perfil Web. |
-| `web_app_profile_changed` / `web_app_profile_unowned` | El lanzador preserva el perfil y rechaza reemplazarlo. Revisa su contenido. |
-| `web_app_home_too_long` | El socket de la App necesita una ruta corta; usa el directorio privado predeterminado. |
-| `web_turn_not_submitted` | Falló antes del envío. Revisa el diagnóstico guardado: puede ser red o selector. |
-| `web_turn_ambiguous` | Hubo intento de envío sin respuesta comprometida. Inspecciona el hilo; no repitas a ciegas. |
-| `web_tool_result_mismatch` | El resultado no coincide con la llamada, turno o esquema pendiente. No se acepta como éxito. |
-
-Los títulos auxiliares de la App reciben la etiqueta local `ISyMCP Web`.
-El proveedor Web desactiva reintentos automáticos: el canario CLI real pasó de
-30 peticiones iguales a una ante un error controlado. Esto no cambia los
-reintentos del proveedor nativo.
+El launcher de Codex Desktop App está deshabilitado en todas las plataformas
+por la política P0: el diseño anterior copiaba `auth.json` a un perfil
+secundario sin contrato oficial de autenticación multi-perfil. Usa
+`--client cli`. El detalle y la evidencia histórica están en la
+[revisión de cumplimiento](docs/compliance/CODEX_CLI_APP_COMPLIANCE_REVIEW.md).
 
 Las últimas pruebas registraron `ERR_NETWORK_CHANGED`,
 `ERR_ADDRESS_UNREACHABLE` y un control High no disponible. No se atribuyen
@@ -522,7 +533,7 @@ Codex ISyMCP es un servidor de herramientas; la respuesta en lenguaje natural la
 
 ## Las ocho herramientas codex_* (completas)
 
-Desde 2026-10-10 las ocho herramientas `codex_*` ejecutan con un token de sesión válido, dentro del sandbox bwrap del workspace. Una sesión propia probó las ocho mediante el complemento remoto desde Codex App, incluida la imagen, el parche y el intercambio stdin/EOF. El CLI nativo real probó cuatro llamadas principales. ChatGPT.com también pasó su prueba independiente: leyó la guía y tarea locales, consultó el inventario, ejecutó, aplicó un parche, comprobó el archivo y cerró el turno. [Evidencia y límites](docs/verification/2026-10-10-native-mcp-live.md).
+**Evidencia histórica de 2026-10-10:** las ocho herramientas `codex_*` se probaron con un token válido dentro de bwrap en Linux. Esta rama añade Docker y Codex CLI sandbox para Windows; ambos recorridos en Windows son **NOT_DEMONSTRATED** hasta que CI y una ejecución local confirmen el comportamiento. [Evidencia y límites](docs/verification/2026-10-10-native-mcp-live.md).
 
 | Herramienta | Qué hace |
 |---|---|

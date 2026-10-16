@@ -1,5 +1,5 @@
-// codex-conversation.ts — entrada guiada de una conversación Codex nueva.
-// El CLI lleva un proveedor por proceso. La App usa un perfil propio.
+// codex-conversation.ts — entrada guiada de una conversación Codex CLI nueva.
+// Los perfiles sintéticos de Desktop App quedan bloqueados por la política P0.
 // El recibo solo se confirma con un turno ya
 // comprometido; un replay reconstruye ese mismo recibo y no otra conversación.
 import { randomUUID, createHash } from "node:crypto";
@@ -35,9 +35,9 @@ export function conversationsDir(dir?: string): string {
   return dir ?? join(bridgeHome(), "codex-responses");
 }
 
-export function validateConversationClient(client: string): "cli" | "app" {
-  if (client !== "cli" && client !== "app") throw new Error("web_conversation_client_invalid: expected cli or app");
-  return client;
+export function validateConversationClient(client: string): "cli" {
+  if (client !== "cli") throw new Error("web_conversation_client_unsupported: isolated Desktop App profiles are UNKNOWN / NO EXECUTE; use --client cli");
+  return "cli";
 }
 
 function assertModel(model: string): string {
@@ -117,7 +117,7 @@ function readJson(path: string): unknown {
 
 export function writeLaunchIntent(dir: string, intent: LaunchIntent): void {
   assertLaunchId(intent.launchId);
-  if (intent.version !== "isymcp-launch-intent/1" || !["cli", "app"].includes(intent.client) || intent.effort !== "high") {
+  if (intent.version !== "isymcp-launch-intent/1" || intent.client !== "cli" || intent.effort !== "high") {
     throw new Error("web_conversation_launch_invalid: intent is not an isolated high launch");
   }
   assertModel(intent.model);
@@ -138,7 +138,7 @@ export function commitConversationReceipt(dir: string, facts: {
   const intent = readJson(intentPathname) as LaunchIntent;
   const url = canonicalConversationUrl(facts.url);
   if (!url) throw new Error("web_conversation_url_invalid: committed turn has no canonical conversation");
-  if (intent.launchId !== launchId || intent.model !== facts.model || intent.effort !== facts.effort || !["cli", "app"].includes(intent.client)) {
+  if (intent.launchId !== launchId || intent.model !== facts.model || intent.effort !== facts.effort || intent.client !== "cli") {
     throw new Error("web_conversation_receipt_conflict: launch intent does not match the committed turn");
   }
   if (!facts.threadId.trim() || facts.threadId.length > 256 || !/^[0-9a-f]{64}$/.test(facts.taskKey)) {

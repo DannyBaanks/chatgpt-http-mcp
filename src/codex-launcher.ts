@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { bridgeAuthHeaders } from "./local-guard";
 import { buildIsolatedCodexArgs } from "../scripts/install-web-models";
+import { securePrivatePath } from "./platform/private-path";
 
 const DEFAULT_PORT = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
 
@@ -85,6 +86,27 @@ export function installDesktopLauncher(options: { binDir?: string; appDir?: stri
   const port = options.port ?? DEFAULT_PORT;
   if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) throw new Error("puerto del bridge invalido");
 
+  if (process.platform === "win32") {
+    const winBinDir = options.binDir ?? join(process.env.LOCALAPPDATA ?? home, "Programs", "ISyMCP");
+    const winAppDir = options.appDir ?? join(process.env.APPDATA ?? home, "Microsoft", "Windows", "Start Menu", "Programs", "ISyMCP");
+    mkdirSync(winBinDir, { recursive: true });
+    mkdirSync(winAppDir, { recursive: true });
+    securePrivatePath(winBinDir, true);
+    securePrivatePath(winAppDir, true);
+    const binPath = join(winBinDir, "codex-isymcp.cmd");
+    const desktopPath = join(winAppDir, "Codex (ISyMCP Web).lnk");
+    const entryPoint = join(import.meta.dir, "isymcp.ts");
+    writeFileSync(binPath, `@echo off\r\nsetlocal\r\nif not defined CODEX_WEB_HTTP_PORT set "CODEX_WEB_HTTP_PORT=${port}"\r\n"${process.execPath}" run "${entryPoint}" codex %*\r\n`);
+    securePrivatePath(binPath, false);
+    const b64 = (value: string) => Buffer.from(value, "utf16le").toString("base64");
+    const ps = `$ErrorActionPreference='Stop'; $shell=New-Object -ComObject WScript.Shell; $shortcut=$shell.CreateShortcut([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(desktopPath)}'))); $shortcut.TargetPath=[Environment]::GetEnvironmentVariable('ComSpec'); $bin=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(binPath)}')); $shortcut.Arguments='/d /s /c ""'+$bin+'""'; $shortcut.WorkingDirectory=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(join(import.meta.dir, ".."))}')); $shortcut.Description='Codex con el perfil Web aislado de ISyMCP'; $shortcut.Save()`;
+    const powershell = process.env.SystemRoot ? join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
+    const result = Bun.spawnSync([powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", ps], { stdout: "ignore", stderr: "pipe", timeout: 10000 });
+    if (result.exitCode !== 0) throw new Error(`no se pudo crear el acceso directo de Windows: ${result.stderr.toString().slice(0, 250)}`);
+    securePrivatePath(desktopPath, false);
+    return { binPath, desktopPath };
+  }
+
   mkdirSync(binDir, { recursive: true });
   mkdirSync(appDir, { recursive: true });
 
@@ -125,11 +147,11 @@ export function removeDesktopLauncher(options: { binDir?: string; appDir?: strin
   removedDesktop: boolean;
 } {
   const home = homedir();
-  const binDir = options.binDir ?? join(home, ".local", "bin");
-  const appDir = options.appDir ?? join(home, ".local", "share", "applications");
+  const binDir = options.binDir ?? (process.platform === "win32" ? join(process.env.LOCALAPPDATA ?? home, "Programs", "ISyMCP") : join(home, ".local", "bin"));
+  const appDir = options.appDir ?? (process.platform === "win32" ? join(process.env.APPDATA ?? home, "Microsoft", "Windows", "Start Menu", "Programs", "ISyMCP") : join(home, ".local", "share", "applications"));
 
-  const binPath = join(binDir, "codex-isymcp");
-  const desktopPath = join(appDir, "codex-isymcp.desktop");
+  const binPath = join(binDir, process.platform === "win32" ? "codex-isymcp.cmd" : "codex-isymcp");
+  const desktopPath = join(appDir, process.platform === "win32" ? "Codex (ISyMCP Web).lnk" : "codex-isymcp.desktop");
 
   let removedBin = false;
   let removedDesktop = false;

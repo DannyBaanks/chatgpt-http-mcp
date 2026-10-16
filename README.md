@@ -2,22 +2,51 @@
 
 # ISyMCP
 
-**Your ChatGPT subscription as a local chat, an HTTP API, and a verified tool for your other coding agents.**
+**A local HTTP + MCP bridge for ChatGPT and coding-agent workflows.**  
+**Un puente local HTTP + MCP para ChatGPT y agentes de programación.**
 
-No API key. The Bun bridge has no Electron dependency; the optional desktop launcher uses your installed Codex App. Everything listens on `127.0.0.1`; the only thing that leaves your machine is the conversation with chatgpt.com.
+Scoped tools · Native Codex CLI integration · Verifiable execution receipts · Bun on Linux & Windows
 
 [![CI](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml)
-![Release: 1.0.0-rc.1](https://img.shields.io/badge/release-v1.0.0--rc.1-7cff9b)
-![Tests: 545 passed](https://img.shields.io/badge/tests-545%20passed-7cff9b)
-![License: MIT](https://img.shields.io/badge/license-MIT-7cff9b)
-![Runtime: Bun](https://img.shields.io/badge/runtime-bun%201.4-111)
-![Local only](https://img.shields.io/badge/listens%20on-127.0.0.1-111)
+[![Release candidate](https://img.shields.io/github/v/release/DannyBaanks/chatgpt-http-mcp?include_prereleases&label=prerelease)](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2)
+[![Recorded tests](https://img.shields.io/badge/recorded%20suite-545%20pass%20%7C%201%20skip-informational)](docs/verification/2026-10-14-visible-two-way-pass.md)
+[![License MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![Bun 1.4.2](https://img.shields.io/badge/runtime-Bun%201.4.2-222)
+![Experimental](https://img.shields.io/badge/status-experimental-orange)
 
-<img src="docs/images/chat-tools.png" alt="ISyMCP chat: a ChatGPT answer with two tool cards (codex_exec, exit 0 and exit 1) taken from the execution trace" width="900">
+**[Download rc.2](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2)** · **[Guía en español](GUIA.md)** · **[Quickstart](#quickstart)** · **[Security & limitations](#limitations--risks--read-before-using)**
 
-<sub>Screenshots use demo data, regenerated with <code>bun run scripts/readme-screenshots.ts</code>.</sub>
+<img src="docs/images/chat-tools.png" alt="ISyMCP demo panel with tool execution receipts and success/failure cards" width="900">
+
+<sub>Illustrative screenshots use demo data; regenerate with <code>bun run scripts/readme-screenshots.ts</code>.</sub>
 
 </div>
+
+> [!IMPORTANT]
+> **Experimental and not affiliated with, endorsed by, or approved by OpenAI.** ISyMCP includes a browser adapter that automates parts of the consumer ChatGPT website. This is **not** the official OpenAI API and may be incompatible with OpenAI's terms or account restrictions. A successful technical test does **not** mean a workflow is permitted. For unattended programmatic AI calls, prefer the [official OpenAI API](https://platform.openai.com/docs/overview). See [risks](#limitations--risks--read-before-using) and the [internal policy assessment](docs/compliance/FINAL_VERDICT.md) **before connecting an account**.
+
+---
+
+## Start here
+
+| I want to… | Go to |
+|---|---|
+| Download a versioned source package | [v1.0.0-rc.2 release](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2) |
+| Set up ISyMCP on Linux | [Quickstart](#quickstart) · [Spanish guide](GUIA.md) |
+| Set up ISyMCP on Windows | [Windows guide](docs/WINDOWS.md) |
+| See what was actually tested | [Verification records](docs/EVIDENCE.md) |
+| Understand scopes, tokens and sandboxing | [Architecture](docs/ARCHITECTURE.md) · [Protocol](docs/PROTOCOL.md) |
+| Check compatibility and account risks | [Limitations](#limitations--risks--read-before-using) · [Compliance review](docs/compliance/FINAL_VERDICT.md) |
+| Review changes and publish a version | [Changelog](CHANGELOG.md) · [Release process](docs/RELEASING.md) |
+
+### Releases & downloads
+
+**Current published candidate: `v1.0.0-rc.2` (October 14, 2026).** [Release notes & assets](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2) · [All releases](https://github.com/DannyBaanks/chatgpt-http-mcp/releases) · [Tags](https://github.com/DannyBaanks/chatgpt-http-mcp/tags).
+
+Download `isymcp-v1.0.0-rc.2.tar.gz` or `.zip`, plus `SHA256SUMS`, from the release. **They are source archives, not standalone binaries.** Bun is required. The release workflow publishes only after CI succeeds against the tagged commit; existing tags are not moved. See [release maintenance](docs/RELEASING.md).
+
+> [!NOTE]
+> Why no green **Latest** badge? GitHub excludes prereleases (`-rc.*`) from its stable `/releases/latest` endpoint. The version **is tagged and released**; it is simply not marked stable yet.
 
 ---
 
@@ -26,10 +55,12 @@ No API key. The Bun bridge has no Electron dependency; the optional desktop laun
 ### 💬 A real chat, on localhost with Live Thinking Stream
 `isymcp panel` opens a chat at **http://127.0.0.1:8798**. Each chat in the sidebar is its **own real ChatGPT conversation**, and you watch the answer **while ChatGPT is still writing it**: lists, code blocks, links, and animated, collapsible thought/reasoning boxes in real time.
 
+The chat panel has three working views over the same conversation: **Conversación** for messages, **Evidencia** for saved tool receipts with filters and links to the owning message, and **Actividad** for the current bridge/chat status. The narrow left rail opens recent chats, session selection, activity, settings and host status; the drawers support Escape and return keyboard focus. Drafts save per chat and return after switching or reloading. The assistant avatar is a small local OpenAI Blossom asset; ISyMCP remains the product identity. Evidence cards show only fields retained in the receipt, so they do not invent or reconstruct stdout/stderr. See the [operator guide](GUIA.md#panel-de-chat-evidencia-y-actividad) and [browser verification record](docs/verification/2026-10-15-panel-chat-views.md).
+
 <img src="docs/images/chat-live.png" alt="Live answer streaming with a blinking cursor and a running tool card" width="900">
 
 ### 🛠️ Tools you can actually verify
-Turn on **Codex ISyMCP** in a chat and ChatGPT can run commands in a folder you choose, inside a `bubblewrap` sandbox. Every card above an answer comes from the **execution trace**: what really ran, its exit code and how long it took. It is not the model's account of what it did.
+Turn on **Codex ISyMCP** in a chat and ChatGPT can run commands in a folder you choose, inside a sandbox. Linux hosts use `bubblewrap`; Windows defaults to the Docker Desktop Linux image and can opt into Codex CLI's native Windows sandbox. Every card above an answer comes from the **execution trace**: what really ran, its exit code and how long it took. It is not the model's account of what it did.
 
 When something fails, the card says **who** failed: OpenAI blocked it, your ChatGPT session expired, Chrome crashed, or the local bridge didn't finish.
 
@@ -52,38 +83,40 @@ The native tool adapter translates supplied function/custom declarations into
 Responses calls; **Codex executes them** and returns their real results. Calls
 are correlated to a task, turn and call ID, with durable replay and explicit
 handling of interrupted calls. WebSocket events use one JSON event per frame.
-The MCP connector has been exercised through Codex App, the native Codex CLI
-and ChatGPT.com. The separate Web-provider path now supports a private Linux
-Codex App window as well as the CLI:
+The MCP connector has been exercised through the native Codex CLI and
+ChatGPT.com. The separate Web-provider path currently supports Codex CLI:
 
 ```bash
 isymcp conversation new --client cli --cwd "$PWD" --model chatgpt-web/gpt-6
-isymcp conversation new --client app --cwd "$PWD" --model chatgpt-web/gpt-6
 isymcp conversation list
 isymcp conversation resume <launch-id-or-thread-id>
 ```
 
 The first committed Web response binds the Codex thread to its ChatGPT URL;
 that response may be a tool call, so a receipt alone does not prove the task
-finished. Each App launch has its own private profile and one linked thread.
-Native Codex settings and chats stay independent. App title requests receive a
-local label without creating another Web conversation. The Web provider does
-not automatically retry failed or ambiguous rounds.
+finished. Synthetic Desktop App profiles are disabled: they copied the
+account's private `auth.json` into an undocumented secondary profile, which
+the maintainer policy classifies as `UNKNOWN / NO EXECUTE`. Use the supported
+Codex CLI flow above. The Web provider does not automatically retry failed or
+ambiguous rounds.
 
-### 🔄 Verified Two-Way E2E Round Trip (`[CURRENT] PASS`)
-As of `v1.0.0-rc.1` (2026-10-14), the complete two-way round-trip between ChatGPT Web, the local native broker, isolated `bubblewrap` sandbox execution, and return to ChatGPT Web is **DEMONSTRATED and CERTIFIED**:
-- **Full Lifecycle**: `codex_turn_start` → `bootstrap.content` / `request.content` → `codex_tool_inventory` (8 tools) → `codex_exec` (live exit code `0`, `18 ms` duration) → `codex_turn_complete` (`completed: true`).
-- **Live Receipts**: Verified with unique canary nonce `ISYMCP_TWOWAY_4afa0c89`, real execution stdout `ISYMCP_E2E_VISIBLE_OK`, zero leaks, and zero child processes terminated.
-- **Evidence & Receipts**: See [2026-10-14 Two-Way Pass](docs/verification/2026-10-14-visible-two-way-pass.md) and [2026-10-14 Visible Chrome E2E Pass](docs/verification/2026-10-14-visible-chrome-e2e-pass.md).
+### 🔄 Two-way execution: recorded evidence
 
-### 🛡️ OpenAI Compliance & Account Safety Framework V1 (P0)
-ISyMCP operates under a strict fail-closed governance model. Owner account safety has absolute priority over functionality:
-- **Interactive Human Operation in Chrome Visible (`@Codex ISyMCP`):** `ALLOW` — The human owner interacts directly with ChatGPT in Chrome and authorizes local tool executions within their scoped sandbox.
-- **Unattended Consumer Web UI Automation / Scraping:** `DENY` — Prohibited per OpenAI Terms of Use §2(c)(iii). ISyMCP disables unattended automated typing or DOM scraping against consumer chat interfaces.
-- **Authoritative Platform Safety Signals:** `FAIL-CLOSED (HALT)` — When OpenAI's server-side safety classifier triggers, ISyMCP immediately halts and logs the block. No prompt evasion, no tool-hopping, and no automated retry loops.
-- **Codex CLI / Custom Provider (`isymcp_web`):** `ALLOW` — Official local provider configuration under `~/.codex/config.toml` without mutating global settings.
-- **Comprehensive Audit:** Complete 9-part governance register and threat model available in [`docs/compliance/`](docs/compliance/).
+The [October 14 verification report](docs/verification/2026-10-14-visible-two-way-pass.md) documents a native Codex round trip through the active owner with a real `printf` result (`ISYMCP_TWOWAY_4afa0c89`, exit `0`). A **separate** isolated sandbox canary returned `ISYMCP_E2E_VISIBLE_OK` (exit `0`, 18 ms). These are two distinct observations; do not combine their nonces or claim that every transport was covered by one run.
 
+The exercised lifecycle includes `codex_turn_start`, verified `bootstrap.content`, `codex_tool_inventory`, `codex_exec`, and `codex_turn_complete`. Later requests were sometimes **blocked by OpenAI before execution**; see the report for scope and failures. A recorded PASS proves that specific round trip worked, **not ongoing compatibility, contractual permission or third-party certification**.
+
+### 🛡️ Account safety, platform boundaries & disclosure
+
+ISyMCP's local controls include scoped session tokens, revocation, loopback checks, sandboxing and execution receipts. They **do not** expand the permissions granted by OpenAI or other services.
+
+- **MCP calls initiated within ChatGPT:** subject to that product's tools, confirmation requirements and safety enforcement; local owner consent is not a substitute for platform authorization.
+- **ChatGPT Web automation:** the repository contains headless/visible browser integration. Its unattended automation and page extraction must **not be described as officially permitted or endorsed**. The [internal audit](docs/compliance/FINAL_VERDICT.md) flags these paths for disabling or further clarification.
+- **Codex CLI/App profiles:** local custom-provider configuration and the particular browser transport are separate questions. Functioning locally does not establish permission to automate consumer web sessions or copy authentication.
+- **Blocked or uncertain operations:** halt and preserve a sanitized receipt; never route around a refusal, change backend to evade it or automatically repeat an uncertain side-effect operation.
+- **For unattended model-to-model requests:** choose an authorized, documented programmatic interface such as the official API.
+
+The compliance documents are **maintainer assessments, not legal advice or OpenAI approval**. [Read the risks](#limitations--risks--read-before-using) and [audit details](docs/compliance/).
 
 ### A four-line ChatGPT command with a local task
 
@@ -103,8 +136,8 @@ for a read-only task. Existing sessions without a task file remain supported.
 The ChatGPT.com canary used exactly four lines and performed real command
 execution, patching, file verification and turn completion.
 
-### 🤝 ChatGPT inside your other agents (9 Harnesses Ready)
-`chatgpt_ask` is an MCP tool. It lets **Claude Code, Codex, Cursor IDE, OpenCode TUI, GitHub Copilot CLI, Hermes Agent, OpenClaw, Pi, and Gemini CLI** ask *your* ChatGPT (GPT-5.6 Sol, your plan) for a second opinion halfway through a task.
+### 🤝 Agent harness integrations
+`chatgpt_ask` is an MCP interface for requesting a second opinion from another agent. Installation strategies are documented for Claude Code, Codex, Cursor, OpenCode, Copilot CLI, Hermes, OpenClaw, Pi and Gemini CLI. **A supported installation command is not evidence of an authorized unattended ChatGPT Web workflow**; evaluate the chosen backend and permissions first.
 - **CLI Strategy (`mcp add`):** Claude Code, Codex, Copilot, Hermes, OpenClaw, Pi, Gemini, Grok, Qwen.
 - **Declarative JSON Strategy:** Cursor IDE (`~/.cursor/mcp.json`) and OpenCode TUI (`~/.config/opencode/opencode.json`).
 
@@ -126,8 +159,15 @@ Server, tunnel, MCP and browser health, the latest soak test turn by turn, the d
 
 ## Quickstart
 
+For Windows PowerShell, follow the [Windows setup guide](docs/WINDOWS.md).
+Windows can run native PowerShell commands through Codex's Windows sandbox or
+Linux commands through the Docker Desktop fallback.
+
 ```bash
-bun install
+git clone https://github.com/DannyBaanks/chatgpt-http-mcp.git
+cd chatgpt-http-mcp
+# For a published version, check out its tag from the Releases page.
+bun install --frozen-lockfile
 bun link                      # puts `isymcp` on your PATH
 
 # 1. Import your ChatGPT session once (keep the cookie file chmod 600)
@@ -138,7 +178,7 @@ isymcp server start
 isymcp panel                  # starts it in the background and opens http://127.0.0.1:8798
 ```
 
-Then go to **Chat → Nuevo chat**, type, and the answer streams in. Or stay in the terminal: `isymcp ask "hola"`. Not sure what to type? Run `isymcp` alone: it opens a menu with every action.
+For the experimental browser-backed chat, continue only after reading the [account-risk warning](#limitations--risks--read-before-using) and confirming that your intended use is permitted. In the panel choose **Chat → Nuevo chat**; from the terminal the local command is `isymcp ask "hola"`. Run `isymcp` without arguments for the menu.
 
 ### Optional extras:
 
@@ -150,7 +190,7 @@ isymcp codex launcher                              # installs ~/.local/bin/codex
 isymcp smoke                                       # automated end-to-end sanity verification
 ```
 
-**Model and reasoning.** The web transport uses whatever your ChatGPT account has selected. In the chat's side panel, **Verificar** shows what ISyMCP sees (for example `GPT-5.6 Sol · High (3/3)`). **Sincronizar ajustes** opens a visible Chrome with your session: you set the model and reasoning by hand, close the window, and that becomes the bridge's default.
+**Model and reasoning (experimental Web transport).** The browser adapter attempts to use whichever model and reasoning settings are available in the signed-in UI; availability and labels can change. In the chat's side panel, **Verificar** shows what ISyMCP sees (for example `GPT-5.6 Sol · High (3/3)`). **Sincronizar ajustes** opens a visible Chrome with your session: you set the model and reasoning by hand, close the window, and that becomes the bridge's default.
 
 *Note on Reasoning Traces vs Internal CoT:* The captured thinking (`reasoning_content` in API / thought boxes in the panel) represents the **visible summary and UI-rendered thoughts** exposed by ChatGPT Web's DOM. Capturing this DOM presentation is NOT equivalent to obtaining the model's full, raw latent internal Chain-of-Thought tokens. We document and stream strictly what is visibly presented on screen.
 
@@ -161,20 +201,20 @@ isymcp smoke                                       # automated end-to-end sanity
 ## Limitations & risks — read before using
 
 > [!WARNING]
-> **RISK: HIGH — this is an unsupported use of ChatGPT Web.** ISyMCP drives the consumer chatgpt.com interface with a headless browser and reads answers from the page. OpenAI's [Terms of Use](https://openai.com/policies/row-terms-of-use/) forbid automatically or programmatically extracting data or output, and OpenAI can suspend accounts that break them. **Your account is what's at stake.** We don't claim a legal reading either way. If you need something supported and stable, use the official API.
+> **Account risk: experimental consumer Web automation.** ISyMCP drives or observes `chatgpt.com` through browser automation in some modes. OpenAI's [Terms of Use](https://openai.com/policies/terms-of-use/) restrict automated extraction and circumventing protective measures. This project is **not an officially supported ChatGPT-to-API conversion service**, and local technical success is not permission from OpenAI. Depending on behavior and enforcement, account restrictions are possible. If you need programmatic access, use an officially supported API or product integration.
 
-- **UI thoughts vs full internal reasoning.** Captured thoughts are DOM summaries presented by the web interface, not the raw latent CoT tokens of the underlying model.
-- **It breaks when chatgpt.com changes.** Answers are read from the page. A redesign can break capture. Failures produce a sanitized DOM dump in `~/.codex-web-http/run/capture-fail-*`.
-- **`chatgpt_ask` answers are untrusted content**, like a web page. ChatGPT may have read hostile pages, and its answer lands in another agent's context, and that agent may have its own shell or write tools. Every answer carries an untrusted-content marker. Don't let an agent take side-effect actions (write, shell, push, delete) based only on it without your approval.
-- **Tools inside ChatGPT.** A page ChatGPT reads could try to make it run commands. With bubblewrap enabled, the host filesystem is mounted read-only; the user's home and the bridge's secrets directory are hidden, then the session folder is re-exposed read-only or writable according to the session. System files outside that folder can still be read; this is not a filesystem restricted to that folder. Network access is disabled **by default**; `CODEX_WEB_HTTP_SANDBOX_NET=1` enables it. In a `--write` session, damage inside the session folder is possible. Prefer read-only sessions. Explicitly setting `CODEX_WEB_HTTP_SANDBOX=off` lets writable sessions run without bubblewrap.
-- **The untrusted-content marker is advisory.** It labels bridge responses, including provider errors and HTTP diagnostics. It does not enforce approval or prevent prompt injection; the receiving agent must respect the user's existing authorization and its own permission controls.
-- **Your ChatGPT cookies are the crown jewel.** They sit in `~/.codex-web-http/` with 0600 permissions, which stops other users but not malware or any process running as you.
-- **Slow and serial.** One account, one tab, one turn at a time, each taking about 20–60 s. This is not a throughput replacement for an API.
-- **Linux only** for tools (bubblewrap). Chat and the API need Chrome.
+- **Do not treat an internal compliance label as approval.** The [maintainer verdict](docs/compliance/FINAL_VERDICT.md) identifies browser automation and possible anti-bot behavior as serious compatibility risks. It also contains remediation recommendations, which must be verified in code before assuming they are implemented.
+- **Fragile Web adapter.** UI changes, browser challenges, session expiration and platform decisions may break output capture. Capture failures may leave sanitized diagnostic files under `~/.codex-web-http/run/`—inspect their contents before sharing.
+- **UI-rendered reasoning is not raw chain of thought.** The panel may display summaries visible in the interface, not the model's hidden reasoning.
+- **Cross-agent prompt injection.** `chatgpt_ask` output is untrusted input to receiving agents. Labels are advisory and cannot replace their approval or permission model.
+- **Local sandbox is not a perfect VM.** Bubblewrap hides the home/secret directories; Windows MXC denies the current user's profile and known credential paths. Other host paths can remain readable, but writes stay in the authorized workspace. Network is disabled by default. `CODEX_WEB_HTTP_SANDBOX=off` weakens confinement; `CODEX_WEB_HTTP_SANDBOX_NET=1` enables network.
+- **Protect credentials.** Stored session data/cookies are sensitive; file mode `0600` is not protection against malware running as the same user. Never commit or share them.
+- **Provider blocks are final for the attempted operation.** Do not evade, tool-hop or auto-retry pending/unknown requests. A block does not by itself establish a contractual violation.
+- **Capacity & platform.** Browser-backed turns can be slow/serialized. Linux hosts use bubblewrap; Windows defaults to Docker Desktop's Linux engine, with an opt-in native Windows MXC sandbox through Codex CLI. Native Windows MCP E2E is demonstrated on Windows 11 25H2; Docker-backed Windows execution remains **NOT_DEMONSTRATED** in this branch. Chrome or Edge is used by the experimental Web adapter.
 
 ---
 
-## How it works
+## How it works (including experimental Web paths)
 
 ```
 your browser ──► isymcp panel (:8798) ─┐
@@ -182,7 +222,7 @@ OpenAI-compatible clients ─────────────┼──► br
 other agents ──► MCP isymcp-chatgpt ───┘          │
                                                   ├─ live thinking ──► streaming SSE (reasoning_content)
                                                   ├─ compaction ──────► automatic context pruning (>40 msgs)
-                                                  └─ tools: chatgpt.com ─► tunnel ─► MCP stdio ─► bwrap sandbox
+                                                  └─ tools: chatgpt.com ─► tunnel ─► MCP stdio ─► bwrap / Docker sandbox
 ```
 
 - **Bridge** (Bun): drives one persistent ChatGPT tab. Turns are **serialized** (one at a time, in order), so chats never write into each other. It reads the answer from the page as ChatGPT writes it, and rebuilds the Markdown.
@@ -207,7 +247,7 @@ other agents ──► MCP isymcp-chatgpt ───┘          │
 
 ---
 
-## Use it as an HTTP API
+## Experimental HTTP compatibility endpoint (not the official OpenAI API)
 
 ```bash
 curl -s http://127.0.0.1:8791/v1/chat/completions \
@@ -312,11 +352,11 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 | `isymcp panel` | Opens the chat + status panel on :8798 (detached); `panel start` / `stop` / `status` / `run` |
 | `isymcp ask "text" [--new]` | Real ChatGPT turn from the terminal; keeps one terminal chat, stdin works too |
 | `isymcp codex [args...]` | Runs Codex with isolated ISyMCP web profile (without mutating `config.toml`) |
-| `isymcp codex launcher` | Installs desktop entry `Codex (ISyMCP Web)` and `~/.local/bin/codex-isymcp` |
-| `isymcp conversation new [--client cli\|app]` | Interactive Codex CLI or App launch with isolated `isymcp_web` provider |
+| `isymcp codex launcher` | Installs a desktop entry on Linux or Start Menu shortcut + `.cmd` launcher on Windows |
+| `isymcp conversation new [--client cli]` | Interactive Codex CLI launch with isolated `isymcp_web` provider |
 | `isymcp conversation list` | List confirmed conversations and linked thread IDs |
 | `isymcp conversation resume <id>` | Resume an active conversation thread |
-| `isymcp version` / `--version` | Display installed version (`v1.0.0-rc.1`) |
+| `isymcp version` / `--version` | Display installed package version |
 | `isymcp up` / `down` / `status` | Server + tunnel lifecycle and honest status |
 | `isymcp server start` / `stop` | Starts or stops the HTTP bridge |
 | `isymcp tunnel connect` / `stop` / `status` | MCP tunnel for ChatGPT tools |
@@ -325,7 +365,7 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 | `isymcp harness list` | Lists detected coding agents and their `chatgpt_ask` installation status |
 | `isymcp harness install` / `uninstall <ids\|--all> [--apply]` | Installs `chatgpt_ask` (dry-run plan by default, `--apply` writes) |
 | `isymcp canary` / `canary status` | Real turn verification: capture, turn identity, Markdown |
-| `isymcp canary schedule [--apply]` | Daily systemd user timer for automated regression alerts |
+| `isymcp canary schedule [--apply]` | Daily systemd user timer or Windows Task Scheduler task for regression alerts |
 | `isymcp health` | Live health and diagnostic status of the bridge |
 | `isymcp metrics [--prom]` | Real-time telemetry (turns, tokens, latencies, memory) or Prometheus format |
 | `isymcp smoke` | Unified E2E verification suite (health, metrics, harnesses, launcher) |
@@ -337,20 +377,20 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 
 - **Local only, for real.** The bridge and the panel bind `127.0.0.1` *and* reject foreign `Host`/`Origin` headers and non-JSON POSTs (protection against CSRF and DNS rebinding).
 - **Token Authentication (`CODEX_WEB_HTTP_TOKEN`):** Required for any non-loopback exposure. Clients must send `Authorization: Bearer <TOKEN>` or `x-isymcp-token`.
-- **Sandbox Isolation.** `bubblewrap` hides `$HOME` and the bridge's secret folder behind tmpfs, disables network access by default, and exposes only the selected session folder.
+- **Sandbox Isolation.** `bubblewrap` on Linux, Docker Desktop on Windows, and the optional Codex native Windows MXC sandbox hide bridge secrets, deny network by default, and scope writes to the selected workspace. The native Windows MCP E2E is demonstrated in [the Windows guide](docs/WINDOWS.md); Docker-backed Windows execution is not demonstrated here.
 - **Session Tokens.** Tokens expire (7 days by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
-- **OpenAI Compliance Fail-Closed:** Authoritative safety signal halts processing; no bot UI typing or credential evasion.
+- **Platform safety boundaries:** Reported OpenAI blocks must halt the affected operation without bypass. This safeguard is not a blanket claim that every browser path has passed a compliance audit; see [open risks](docs/compliance/FINAL_VERDICT.md).
 
 ---
 
 ## Verification & Testing
 
 - **Full Test Suite:** **545 tests passing, 1 skipped, 0 failed across 81 files** (`bun test`; verified on 2026-10-14).
-- **Two-Way E2E Round Trip:** Certified with live canary nonces, 18 ms local sandbox execution, and return receipts to ChatGPT Web ([Receipts](docs/verification/2026-10-14-visible-two-way-pass.md)).
+- **Two-Way E2E Round Trip:** Documented through separately recorded native-owner and sandbox canaries, including an 18 ms sandbox execution. [Receipts and limits](docs/verification/2026-10-14-visible-two-way-pass.md).
 - **Unified E2E Smoke:** Verified with `isymcp smoke` and `scripts/e2e-all.ts`.
 - **Soak Testing:** 99/100 successful real turns in soak baseline; 9/10 with tool execution inside sandbox.
 - **Canary:** Regular verification against live chatgpt.com DOM changes.
-- **Governance Audit:** 9 compliance registers and threat model in [`docs/compliance/`](docs/compliance/).
+- **Internal compliance assessment:** Supporting registers and threat model in [`docs/compliance/`](docs/compliance/); not an external certification or approval.
 
 See [`docs/EVIDENCE.md`](docs/EVIDENCE.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 

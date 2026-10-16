@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, appendFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConversationJournal } from '../src/visible/journal';
+import { ensurePrivatePath } from '../src/platform/private-path';
 const owner = {launchId:'01a12f10-6159-7791-b7fb-9744b683a7c8',threadId:'01a12f10-6159-7791-b7fb-9744b683a7c8',turnId:'01a136f2-f8b1-7e23-bd79-007654c0f91c',epoch:'01a136f2-f8b1-7e23-bd79-007654c0f91d'};
 const path = () => join(mkdtempSync(join(tmpdir(),'isymcp-journal-')),'events.jsonl');
 test('journal preserves exact Markdown and monotonic sequences after reopening', async()=>{
@@ -11,7 +12,8 @@ test('journal preserves exact Markdown and monotonic sequences after reopening',
  await j.append({kind:'assistant',messageId:'message-1',markdown:text,complete:false});
  const k=new ConversationJournal(file,owner); const next=await k.append({kind:'assistant',messageId:'message-1',markdown:text+'\nfin',complete:true});
  expect(next.sequence).toBe(2); expect(k.readAfter(0).map(r=>r.event.markdown)).toEqual([text,text+'\nfin']);
- expect(statSync(file).mode&0o777).toBe(0o600);
+ if(process.platform==='win32')expect(()=>ensurePrivatePath(file,false)).not.toThrow();
+ else expect(statSync(file).mode&0o777).toBe(0o600);
  expect(k.readAfter(1)).toHaveLength(1);
 });
 test('journal rejects a foreign owner or corrupt tail without rewriting evidence', async()=>{

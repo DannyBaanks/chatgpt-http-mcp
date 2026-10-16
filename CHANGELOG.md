@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0-rc.2] - 2026-10-14
+
+### Changed
+
+- Align the release snapshot with the merged Codex profile and visible-browser integration changes that followed the rc.1 tag.
+- Add linked release/tag navigation, source-download instructions and explicit release-candidate status to the README.
+- Read the CLI help version from package metadata rather than a hard-coded string.
+- Publish versioned source archives and SHA-256 checksums only after successful main-branch CI.
+- Keep historical rc.1 tags intact; release notes distinguish recorded evidence from fresh verification.
+
 ## [1.0.0-rc.1] - 2026-10-14
 
 ### Highlights

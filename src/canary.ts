@@ -19,6 +19,7 @@ import { desktopNotice, type Notice } from "./notice";
 import { bridgeHome } from "./codex-sessions";
 import { createChat, listChats } from "./chats";
 import { bridgeAuthHeaders } from "./local-guard";
+import { securePrivatePath } from "./platform/private-path";
 
 export const CANARY_TITLE = "[canary] ISyMCP";
 
@@ -54,15 +55,20 @@ export function readLatestCanary(): CanaryResult | null {
 
 function saveResult(result: CanaryResult): void {
   mkdirSync(canaryDir(), { recursive: true, mode: 0o700 });
+  if (process.platform === "win32") securePrivatePath(canaryDir(), true);
   // Every failure points to its own snapshot; later runs cannot replace it.
   if (!result.ok) {
     const evidence = join(canaryDir(), `failure-${result.ts.replace(/[:.]/g, "-")}-${randomUUID()}.json`);
     result.notice = failureNotice(result, evidence);
     writeFileSync(evidence, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
+    if (process.platform === "win32") securePrivatePath(evidence, false);
   }
   const body = `${JSON.stringify(result, null, 2)}\n`;
-  writeFileSync(join(canaryDir(), "latest.json"), body, { mode: 0o600 });
-  writeFileSync(join(canaryDir(), `canary-${result.ts.slice(0, 10)}.json`), body, { mode: 0o600 });
+  const latest = join(canaryDir(), "latest.json");
+  const dated = join(canaryDir(), `canary-${result.ts.slice(0, 10)}.json`);
+  writeFileSync(latest, body, { mode: 0o600 });
+  writeFileSync(dated, body, { mode: 0o600 });
+  if (process.platform === "win32") { securePrivatePath(latest, false); securePrivatePath(dated, false); }
 }
 
 /** Classify only what the recorded failure demonstrates. Raw detail stays in evidence. */

@@ -24,6 +24,8 @@ export interface BgProc {
   stderr: ReadableStream<Uint8Array>;
   kill(signal?: number): void;
   exited: Promise<number>;
+  /** Docker Desktop takes longer than a local process to close attached pipes. */
+  idleOutputMs?: number;
 }
 
 export interface LiveExec {
@@ -242,7 +244,7 @@ export async function drain(rec: LiveExec, waitMs: number): Promise<DrainOut> {
         if (rec.streamsDone) break;
         continue;
       }
-      if (sawNew && quietMs >= 250) break;
+      if (sawNew && quietMs >= (rec.proc.idleOutputMs ?? 250)) break;
     }
   }
   const stdout = rec.out.slice(rec.outMark);

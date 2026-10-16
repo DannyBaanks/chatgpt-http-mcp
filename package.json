@@ -1,9 +1,9 @@
 {
   "name": "chatgpt-http-mcp",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "private": true,
   "type": "module",
-  "description": "ChatGPT Web -> HTTP API local (OpenAI-compatible) + MCP nativo con sandbox bwrap",
+  "description": "ChatGPT Web -> HTTP API local (OpenAI-compatible) + MCP nativo con sandbox multiplataforma",
   "license": "MIT",
   "bin": {
     "isymcp": "src/isymcp.ts"
@@ -12,6 +12,7 @@
   "scripts": {
     "start": "bun run src/cli.ts",
     "test": "bun test",
+    "sandbox:build": "bun run scripts/build-sandbox.ts",
     "install:codex": "bun run scripts/install-codex.ts",
     "e2e:native": "bun run scripts/e2e-native.ts",
     "login": "bun run scripts/login.ts",

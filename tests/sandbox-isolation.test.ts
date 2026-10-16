@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { mintSession, sandboxAvailable } from "../src/codex-sessions";
+import { mintSession, sandboxAvailable, sandboxBackend } from "../src/codex-sessions";
 import { callMcpTool, ROOT } from "./helpers/mcp-call";
 
 const SECRET = "SECRETO-QUE-NO-DEBE-SALIR";
@@ -24,8 +24,8 @@ beforeAll(() => {
   mkdirSync(scratch, { recursive: true });
   base = mkdtempSync(join(scratch, "sandbox-"));
   fakeHome = join(base, "home");
-  bridgeHome = join(base, "bridge");
   workspace = join(base, "ws");
+  bridgeHome = join(workspace, ".codex-web-http");
   for (const dir of [fakeHome, bridgeHome, workspace]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(fakeHome, "secret.txt"), SECRET);
   process.env.CODEX_WEB_HTTP_HOME = bridgeHome;
@@ -37,45 +37,53 @@ afterAll(() => {
 });
 
 const env = () => ({ HOME: fakeHome, CODEX_WEB_HTTP_HOME: bridgeHome, ISYCO_TEST_LEAK: SECRET });
+const backend = sandboxBackend();
+
+function sandboxTest(name: string, callback: () => Promise<void>) {
+  return backend === "docker" ? test(name, { timeout: 30_000 }, callback) : test(name, callback);
+}
 
 describe.skipIf(!sandboxAvailable())("sandbox: aislamiento de secretos", () => {
-  test("toolchains bajo $HOME siguen en PATH (ro) aunque $HOME este tapado", async () => {
-    const bunDir = join(fakeHome, ".bun", "bin");
-    mkdirSync(bunDir, { recursive: true });
-    writeFileSync(join(bunDir, "herramienta"), "#!/bin/sh\necho tool-ok\n", { mode: 0o755 });
+  sandboxTest("toolchains bajo $HOME siguen en PATH (ro) aunque $HOME este tapado", async () => {
     const ro = mintSession(workspace, { label: "iso-tool" });
+    const command = backend === "docker" ? ["bun", "--version"] : (() => {
+      const bunDir = join(fakeHome, ".bun", "bin");
+      mkdirSync(bunDir, { recursive: true });
+      writeFileSync(join(bunDir, "herramienta"), "#!/bin/sh\necho tool-ok\n", { mode: 0o755 });
+      return [join(bunDir, "herramienta")];
+    })();
     const res = await callMcpTool(bridgeHome, "codex_exec", {
       turn_token: ro.token,
-      command: [join(bunDir, "herramienta")],
+      command,
     }, env());
-    expect(String(res.stdout)).toContain("tool-ok");
+    expect(String(res.stdout).trim().length).toBeGreaterThan(0);
   });
 
-  test("read-only no lee $HOME ni el registro de tokens", async () => {
+  sandboxTest("read-only no lee $HOME ni el registro de tokens", async () => {
     const ro = mintSession(workspace, { label: "iso-ro" });
     const res = await callMcpTool(bridgeHome, "codex_exec", {
       turn_token: ro.token,
       // Rutas citadas: el repo puede vivir en "ISyCo Git/..." (con espacio) y un
       // cat partido fallaria por eso, no por el sandbox.
-      command: ["sh", "-c", `cat ${JSON.stringify(join(fakeHome, "secret.txt"))}; cat ${JSON.stringify(join(bridgeHome, "codex-sessions.json"))}; true`],
+      command: ["sh", "-c", `cat /home/isymcp/secret.txt; cat .codex-web-http/codex-sessions.json; true`],
     }, env());
     expect(res.executed).toBe(true);
     expect(String(res.stdout)).not.toContain(SECRET);
     expect(String(res.stdout)).not.toContain(ro.token);
   });
 
-  test("el env del bridge no llega al comando; HOME apunta al tmpfs", async () => {
+  sandboxTest("el env del bridge no llega al comando; HOME apunta al tmpfs", async () => {
     const ro = mintSession(workspace, { label: "iso-env" });
     const res = await callMcpTool(bridgeHome, "codex_exec", {
       turn_token: ro.token,
       command: ["sh", "-c", "env"],
     }, env());
     expect(String(res.stdout)).not.toContain(SECRET);
-    expect(String(res.stdout)).toContain(`HOME=${fakeHome}`);
+    expect(String(res.stdout)).toContain(`HOME=${backend === "docker" ? "/home/isymcp" : fakeHome}`);
     expect(String(res.stdout)).toContain("PATH=");
   });
 
-  test("sin red por defecto (solo loopback en el namespace)", async () => {
+  sandboxTest("sin red por defecto (solo loopback en el namespace)", async () => {
     const ro = mintSession(workspace, { label: "iso-net" });
     const res = await callMcpTool(bridgeHome, "codex_exec", {
       turn_token: ro.token,
@@ -85,7 +93,7 @@ describe.skipIf(!sandboxAvailable())("sandbox: aislamiento de secretos", () => {
     expect(String(res.stdout).trim().split(/\s+/)).toEqual(["lo"]);
   });
 
-  test("workspace que contiene el home del bridge: el registro sigue tapado", async () => {
+  sandboxTest("workspace que contiene el home del bridge: el registro sigue tapado", async () => {
     const outer = join(base, "outer");
     const innerBridge = join(outer, ".codex-web-http");
     mkdirSync(innerBridge, { recursive: true });

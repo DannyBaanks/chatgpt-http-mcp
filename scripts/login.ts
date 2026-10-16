@@ -14,9 +14,11 @@
 //   bun run login -- --export  # solo fase 2 (perfil ya logueado)
 //   bun run login -- --check   # rutas, no abre nada
 import { chromium, type BrowserContext } from "playwright-core";
-import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { defaultBrowserExecutable } from "../src/platform/browser";
+import { securePrivatePath } from "../src/platform/private-path";
 
 function argValue(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -25,14 +27,14 @@ function argValue(name: string): string | undefined {
 
 const check = process.argv.includes("--check");
 const exportOnly = process.argv.includes("--export");
-const chrome = argValue("--chrome") ?? process.env.CHROME_PATH ?? "/usr/bin/google-chrome";
+const chrome = argValue("--chrome") ?? process.env.CHROME_PATH ?? defaultBrowserExecutable();
 const home = join(homedir(), ".codex-web-http");
 const profileDir = argValue("--profile") ?? join(home, "chrome-profile");
 const out = argValue("--out") ?? join(home, "storage-state.json");
 const url = argValue("--url") ?? "https://chatgpt.com/";
 
 if (!existsSync(chrome)) {
-  console.error(`Chrome no encontrado en ${chrome}. Usa --chrome <ruta>.`);
+  console.error(`Chrome no encontrado${chrome ? ` en ${chrome}` : ""}. Instala Google Chrome/Edge o usa --chrome <ruta>.`);
   process.exit(2);
 }
 
@@ -75,6 +77,7 @@ if (check) {
 }
 
 mkdirSync(profileDir, { recursive: true, mode: 0o700 });
+securePrivatePath(profileDir, true);
 
 if (!exportOnly) {
   console.log("");
@@ -133,7 +136,7 @@ try {
   for (const store of stores) {
     context = await launchWithStore(store);
     await context.storageState({ path: out });
-    chmodSync(out, 0o600);
+    securePrivatePath(out, false);
     state = JSON.parse(await Bun.file(out).text()) as { cookies: Array<{ name: string }> };
     if (state.cookies.length > 0) break;
     await context.close();
