@@ -367,6 +367,7 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 | `isymcp canary` / `canary status` | Real turn verification: capture, turn identity, Markdown |
 | `isymcp canary schedule [--apply]` | Daily systemd user timer or Windows Task Scheduler task for regression alerts |
 | `isymcp health` | Live health and diagnostic status of the bridge |
+| `isymcp doctor [--json]` | Offline local diagnostics (binaries, versions, sandbox, disk, last media failure + `error_code` and remedy) |
 | `isymcp metrics [--prom]` | Real-time telemetry (turns, tokens, latencies, memory) or Prometheus format |
 | `isymcp smoke` | Unified E2E verification suite (health, metrics, harnesses, launcher) |
 | `isymcp logs` | Live bridge log viewer and exporter |

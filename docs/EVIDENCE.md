@@ -389,3 +389,60 @@ the Web bridge as a Codex App model or complete the Web-provider CLI gate.
 The [dated verification report](verification/2026-10-10-native-mcp-live.md)
 records the successful receipts, preserved negative attempts, hashes and
 remaining limitations. Tokens and cookie state are not committed.
+
+## Actionable media errors and `isymcp doctor` (2026-10-16)
+
+Plan `isymcp-errores-accionables-y-doctor`, milestones M0–M5, on branch
+`codex/isymcp-doctor` (base `codex/web-provider-cli-app`, commit `c20aa78`).
+
+### What changed (code edges)
+
+| Milestone | Edge | Commit |
+|---|---|---|
+| M0 | `src/media/error-codes.ts` (catalog + `classifyMediaError` + `sanitizeMediaDetail`); `src/media/importer.ts` stops sniffing substrings and emits `error_code` | `42585f4` |
+| M1 | `src/media/ytdlp-signatures.ts` (`YTDLP_SIGNATURES`, `isBotWallFailure`); `src/media/youtube.ts` consumes it instead of an inline regex | `8755346` |
+| M2 | `service.ts`/`cli.ts` return `{error_code, message, detail_sanitized?}` via `MediaFailure`; `isymcp.ts` prints `✗ <code>: <message>` and exits 1; `mcp/main.ts` records `error_code` in the trace card | `27f1a91` |
+| M3 | `src/doctor.ts` + `isymcp doctor [--json]` + menu entry | `0f094c8` |
+| M4 | `src/doctor-rules.ts` code→remedy with 1:1 catalog coverage; doctor prints the remedy of the last media failure | `0640c17` |
+| M5 | Docs: `GUIA.md` (code table, `doctor`), `README.md` CLI table, `tests/cli-help.test.ts` | this commit |
+
+The raw `yt-dlp` stderr is never propagated (it can carry signed URLs, cookies
+or local paths); only a trimmed, sanitized detail travels. English catalog
+messages were preserved byte for byte so existing assertions keep passing.
+
+### Verification
+
+- `bun test` clean run: **630 pass, 3 skip, 0 fail** (633 tests, 92 files),
+  exit 0. Raw output SHA-256
+  `50f6dc29aa6133d7c0872a82b30b145c963686b27b6efda40ce817d138f0c313`.
+- `isymcp doctor` real run: 10 ok, 1 aviso, 0 falla (exit 0); detects node
+  `v26.3.0`, bun `1.4.2`, `yt-dlp 2026.08.19`, `ffmpeg/ffprobe 6.1.1-3ubuntu5`,
+  `/usr/bin/google-chrome`, sandbox `bwrap-read-only`, 65.5 GB free, media
+  catalog `/home/danny/.local/state/isymcp/media`, last media failure
+  `media_unknown`. Raw text
+  (`docs/evidence/isymcp-doctor-20261016.txt`, SHA-256
+  `577e88effa815486031c2f2f8c70caea8b44ffc869a3b2722c4568c99a55370c`) and JSON
+  (`docs/evidence/isymcp-doctor-20261016.json`, SHA-256
+  `1be87ad367b499f3d47b6d41c1268bf867f0c70145a45516e085bfc57473541c`).
+- M4 coverage test fails if any `MEDIA_ERROR_CODES` key lacks a rule (and vice
+  versa), so a new code cannot ship without a remedy.
+
+### Claims
+
+| Claim | Status |
+|---|---|
+| Media failures carry a stable `error_code` on the MCP, CLI and trace surfaces | DEMONSTRATED (tests + code edges) |
+| `isymcp doctor` is deterministic and offline | DEMONSTRATED (no network/model in `src/doctor.ts`; injected-deps tests) |
+| Every catalog code has exactly one remedy | DEMONSTRATED (1:1 test) |
+| A live YouTube import exercises the new codes end to end | NOT_DEMONSTRATED in this window (no live import run) |
+| Media MCP server (`src/mcp/media.ts`) writes `error_code` into `mcp-trace.log` | NOT_DEMONSTRATED — that server has no trace writer; the gap is open |
+| `ISYCO_GRAPH.json`/external ledgers refreshed | N/A (this repo has no such ledger) |
+
+### Flake attribution (preserved negative result)
+
+One full-suite run reported 629 pass / 1 fail: `tests/composer-selection.test.ts`
+("settings read waits for the usable composer control…", Playwright + local
+Chrome, `timeoutMs: 1000`). Isolated, that file passed 3/3 in a row
+(5 pass each). The failure is Chrome-contention timing in a browser fixture
+untouched by this work, not a media/doctor regression; the clean run above
+supersedes it. Raw failing output: `/tmp/isymcp-suite-m5.txt`.

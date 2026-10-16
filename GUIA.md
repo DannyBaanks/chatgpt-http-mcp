@@ -627,11 +627,47 @@ El archivo contiene video 720×720 y audio estéreo a 48 kHz, duración 18.521 s
 |---|---|
 | `running` | Consulta `media_import_status`; todavía no hay un resultado para analizar |
 | `complete` | Usa `asset.id`; el archivo ya está registrado con SHA-256 |
-| `failed` | Informa el error; no afirmes haber visto ni escuchado el video |
+| `failed` | Informa `error_code` y `message`; no afirmes haber visto ni escuchado el video |
 | Unknown import job | El servidor pudo reiniciarse o el estado salir del historial de 50 trabajos; busca el archivo en `media_list` |
 | Media worker busy | Espera; descarga y análisis comparten un trabajador |
 
 Primera versión: videos individuales públicos de YouTube y Shorts, HTTPS, hasta 30 minutos y 500 MiB. No importa playlists, transmisiones en vivo, sitios arbitrarios ni archivos de redes privadas. Plazo de descarga/validación: 180 segundos; consultas de estado pueden esperar hasta 10 segundos; las consultas normales de análisis tienen 60 segundos y audio_scan tiene 300 segundos. Las ventanas de análisis de audio admiten hasta 120 segundos; audio_scan recorre la pista completa en bloques de hasta 120 segundos. Resolución solicitada de video hasta 720p. Si YouTube exige iniciar sesión o bloquea el enlace, el trabajo falla explícitamente: no usa cookies del navegador.
+
+## Media y YouTube
+
+Desde 2026-10-16 cada fallo de importación trae un **código estable** (`error_code`) y un mensaje accionable. `media_import_status` (con `state: failed`) y `media_lookup` lo devuelven dentro de su JSON. El importador nunca propaga el `stderr` crudo de `yt-dlp`: puede traer URLs firmadas, cookies o rutas locales; solo viaja un detalle saneado y recortado.
+
+| `error_code` | Qué significa | Qué hacer |
+|---|---|---|
+| `media_youtube_bot_wall` | YouTube pide confirmar que no eres un bot | Reintenta en unos minutos; se usa el cliente web incrustado, sin cookies |
+| `media_youtube_login_required` | El vídeo exige sesión iniciada | Prueba otro enlace público; el import es sin cookies por política |
+| `media_rate_limited` | YouTube limitó las descargas (HTTP 429) | Espera unos minutos y evita ráfagas |
+| `media_source_unavailable` | Vídeo privado, borrado o restringido | Verifica que el enlace siga siendo público |
+| `media_geo_blocked` | No disponible en esta región | Sin solución local; usa otro enlace |
+| `media_format_unavailable` | Sin formato descargable compatible | Actualiza `yt-dlp` y reintenta |
+| `media_tool_missing` | Falta `yt-dlp` o `ffmpeg` | Instálalo; `isymcp doctor` lo reporta |
+| `media_network_offline` | Sin red o fallo de DNS | Revisa la conexión |
+| `media_too_large` / `media_too_long` | Excede 500 MiB / 30 minutos | Usa un vídeo más corto o ligero |
+| `media_identity_mismatch` | La identidad descargada no coincide con el enlace | Reintenta con `watch?v=...`; no se exportó nada |
+| `media_timeout` | Superó el tiempo límite | Vídeo más corto o mejor conexión |
+| `media_workspace_error` | Directorio o disco no disponible | Libera espacio y revisa permisos |
+| `media_prepare_failed` | Falló la preparación (audio/hojas) | El origen verificado se conserva: reintenta con la misma URL |
+| `media_catalog_unavailable` | Catálogo no disponible u offset inválido | Revisa el directorio de medios |
+| `media_invalid_url` | No es una URL pública HTTPS de vídeo/Short | Usa `watch?v=<id>` o un Short individual |
+| `media_lookup_failed` | No se pudo verificar fuente o integridad | Vuelve a registrar/preparar |
+| `media_asset_changed` | Los bytes cambiaron o el asset fue revocado | Vuelve a registrar el archivo |
+| `media_invalid_request` | Petición inválida (p. ej. `sheet_index`) | Revisa los parámetros |
+| `media_busy` | Otra consulta de medios en curso | Espera y reintenta |
+| `media_download_unknown` / `media_unknown` | Causa no clasificada | Reintenta; mira `isymcp doctor --json` |
+
+### Diagnóstico local: `isymcp doctor`
+
+```bash
+isymcp doctor          # binarios y versiones, navegador, sandbox, disco, catálogo y último fallo de media
+isymcp doctor --json   # el mismo reporte en JSON (incluye error_code y su remedio)
+```
+
+`doctor` es **determinista y offline**: no usa red ni modelo. Complementa a `isymcp health` (que mira servicios vivos): `doctor` mira el entorno local y el último fallo de media, y propone un remedio con un comando sugerido. Sale con código 1 si algún chequeo falla.
 
 Reutiliza yt-dlp instalado por Video Vision en `~/.oamaestro/bin/yt-dlp`, o el ejecutable de PATH. `ISYMCP_YTDLP_BIN` permite seleccionar otro ejecutable instalado. No instala ni actualiza automáticamente software; mantiene desactivadas la configuración, los plugins y la caché del descargador. Video Vision sigue proporcionando los fotogramas.
 
