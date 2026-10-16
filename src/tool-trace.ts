@@ -6,12 +6,25 @@
 // que empezo el turno. Nada de "lo que paso en los ultimos N segundos".
 //
 // Formato de linea (src/mcp/main.ts): "<iso> <evento> <json>".
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
 
 export function tracePath(): string {
   return join(bridgeHome(), "mcp-trace.log");
+}
+
+/**
+ * Escribe una linea de traza (JSONL, 0600) saneada. Nunca lanza: la traza no
+ * debe romper ningun server. Compartida por el MCP principal y el de medios.
+ */
+export function appendTrace(event: string, detail: Record<string, unknown>, path = tracePath()): void {
+  try {
+    mkdirSync(bridgeHome(), { recursive: true });
+    appendFileSync(path, `${new Date().toISOString()} ${event} ${JSON.stringify(sanitizeToolTraceValue(detail))}\n`, { mode: 0o600 });
+  } catch {
+    /* la traza nunca debe romper el server */
+  }
 }
 
 export function traceSize(path = tracePath()): number {

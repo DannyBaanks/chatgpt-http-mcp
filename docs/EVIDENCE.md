@@ -485,3 +485,27 @@ error, and plain `doctor` still exited 0.
 The signature flow (model explanation → signature in `src/media/ytdlp-signatures.ts`
 → rule in `src/doctor-rules.ts` → test) is documented in `GUIA.md`; the 1:1
 coverage test in `tests/doctor-rules.test.ts` still guards it.
+
+## Media tools now write mcp-trace.log (2026-10-16)
+
+Pending item closed: the standalone media MCP server (`src/mcp/media.ts`) and the
+main server both register media tools through `registerMediaTools`, which had no
+trace writer, so media failures never reached `mcp-trace.log` (the M2 trace
+claim was NOT_DEMONSTRATED for the media server).
+
+Change: `appendTrace()` moved to `src/tool-trace.ts` (mkdir + JSONL + 0600 +
+`never throws`, sanitized), `src/mcp/main.ts` delegates to it, and
+`src/media/register.ts` wraps every media handler to emit `call` and
+`tool.result` (`tool`, `call_id`, `ok`, `error_code`, `error`, `state`). No
+token is written; because media tools need no `turn_token`, these events do not
+appear in the per-session card view (which filters by `token_fp`) but are local
+evidence on disk. This is stated in `GUIA.md`.
+
+Verification: new `tests/media-trace.test.ts` (2 tests: failure carries
+`error_code: media_invalid_url`; success carries `ok: true` and no local path
+leaks). `bun test` full suite: **643 pass, 3 skip, 0 fail** (646 tests, 94
+files), exit 0; raw output SHA-256
+`4a12244957d34b739ed09fa0eceb93480bb42f49ca970185850fd31b20f4cf70`.
+
+Claim status: media tool calls now write sanitized trace lines — DEMONSTRATED.
+Rendering them as session cards is intentionally out of scope (no token).

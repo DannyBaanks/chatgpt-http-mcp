@@ -54,7 +54,7 @@ import { drain, findLive, killSessionExecs, registerLiveExec, writeStdin as stdi
 import { CODEX_TOOLS, buildInstructions } from "./identity";
 import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
-import { sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
+import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
 
 const args = process.argv.slice(2);
 function option(name: string, fallback: string): string {
@@ -99,12 +99,7 @@ function fail(reason: string, extra: Record<string, unknown> = {}) {
 // del token y sesion resuelta. Es la prueba independiente del modelo para
 // verificar revocaciones (nunca escribe el token completo).
 function trace(event: string, detail: Record<string, unknown>): void {
-  try {
-    mkdirSync(bridgeHome(), { recursive: true });
-    appendFileSync(join(bridgeHome(), "mcp-trace.log"), `${new Date().toISOString()} ${event} ${JSON.stringify(sanitizeToolTraceValue(detail))}\n`, { mode: 0o600 });
-  } catch {
-    /* la traza nunca debe romper el server */
-  }
+  appendTrace(event, detail);
 }
 
 process.on("uncaughtException", (err) => {

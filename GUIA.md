@@ -670,6 +670,8 @@ isymcp doctor --explain  # opt-in: añade una explicación con un modelo local
 
 `doctor` es **determinista y offline**: no usa red ni modelo. Complementa a `isymcp health` (que mira servicios vivos): `doctor` mira el entorno local y el último fallo de media, y propone un remedio con un comando sugerido. Sale con código 1 si algún chequeo falla.
 
+Cada llamada a las tools de medios queda registrada en `mcp-trace.log` (eventos `call` y `tool.result` con `tool`, `call_id`, `ok`, `error_code`). Como las tools de medios no piden `turn_token`, esos eventos no aparecen en la vista por sesión (que filtra por huella de token), pero sí son evidencia local en disco.
+
 `--explain` es opcional y **no ejecuta nada** de lo que proponga el modelo: solo imprime texto. El prompt sale **saneado** (sin rutas, URLs ni tokens) y recortado. Para habilitarlo, exporta el comando del motor local que recibe el prompt por `stdin`:
 
 ```bash
