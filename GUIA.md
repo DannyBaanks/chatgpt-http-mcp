@@ -678,6 +678,24 @@ ISYMCP_EXPLAIN_CMD="ollama run llama3.2" isymcp doctor --explain
 
 Sin `ISYMCP_EXPLAIN_CMD` el doctor informa que no hay motor y siguen mandando los remedios deterministas.
 
+`--fix` es todavía más acotado: solo existe una whitelist explícita (hoy `media-home`, que crea el directorio de estado si falta y **no borra nada**). Sin `--apply` solo muestra el plan:
+
+```bash
+isymcp doctor --fix media-home            # dry-run: muestra el plan, no toca nada
+isymcp doctor --fix media-home --apply    # ejecuta solo esa acción whitelisted
+```
+
+Cualquier otra acción se rechaza con un error claro (`accion no permitida` junto con la lista de permitidas) y el comando sale con código 1 sin tocar el sistema.
+
+### De una explicación nueva a una firma estable
+
+Cuando aparece un fallo nuevo de `yt-dlp`, el camino para convertirlo en algo permanente es corto y siempre pasa por una prueba:
+
+1. El modelo (`doctor --explain`) o el operador describe el `stderr` nuevo.
+2. Ese patrón se convierte en una firma en `src/media/ytdlp-signatures.ts` (un patrón con su código `media_*`).
+3. La firma se mapea a un remedio en `src/doctor-rules.ts`.
+4. `bun test tests/media-ytdlp-signatures.test.ts tests/doctor-rules.test.ts` exige la cobertura 1:1: un código sin regla rompe el test y no se puede mergear.
+
 Reutiliza yt-dlp instalado por Video Vision en `~/.oamaestro/bin/yt-dlp`, o el ejecutable de PATH. `ISYMCP_YTDLP_BIN` permite seleccionar otro ejecutable instalado. No instala ni actualiza automáticamente software; mantiene desactivadas la configuración, los plugins y la caché del descargador. Video Vision sigue proporcionando los fotogramas.
 
 Archivos en `~/.local/state/isymcp/media/downloads/import-*` (o el catálogo configurado). Los originales descargados y los archivos parciales se conservan; revocar un ID no libera espacio ni borra archivos. El trabajador comprueba tamaños durante la descarga, permite hasta 1 GiB temporal para mezclar pistas y exige al menos 64 MiB libres. Al detener el MCP termina también el grupo de procesos de descarga. No reanuda trabajos al reiniciar; los archivos ya registrados permanecen disponibles y puedes volver a importar un enlace fallido. Los estados recientes están en memoria y en un `job.json` local como registro; después de reiniciar usa `media_list` para descubrir medios terminados.

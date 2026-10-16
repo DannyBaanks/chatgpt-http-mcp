@@ -469,3 +469,19 @@ exit 0; raw output SHA-256
 Claim status: prompt sanitization and no-execution are DEMONSTRATED by tests;
 prose quality of a real local model is NOT_DEMONSTRATED (no model configured in
 this window).
+
+### M7 addendum — `doctor --fix` whitelist (2026-10-16)
+
+`src/doctor-fix.ts` holds an explicit whitelist with a single safe action,
+`media-home` (creates the media state directory; deletes nothing). `applyFix`
+throws `accion no permitida: <id>; permitidas: media-home` for anything else,
+and the CLI runs it only with `--apply`; without it the command prints the plan
+(dry-run). Real runs: `doctor --fix media-home` printed the dry-run plan;
+`doctor --fix media-home --apply` reported
+`directorio de medios listo: /home/danny/.local/state/isymcp/media`;
+`doctor --fix borrar-todo` and a bare `doctor --fix` both exited 1 with a clear
+error, and plain `doctor` still exited 0.
+
+The signature flow (model explanation → signature in `src/media/ytdlp-signatures.ts`
+→ rule in `src/doctor-rules.ts` → test) is documented in `GUIA.md`; the 1:1
+coverage test in `tests/doctor-rules.test.ts` still guards it.
