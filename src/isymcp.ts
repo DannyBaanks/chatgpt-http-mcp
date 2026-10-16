@@ -595,6 +595,8 @@ function help(): void {
                              instala el MCP isymcp-chatgpt (sin --apply: solo el plan)
   isymcp harness uninstall <ids|--all> [--apply]
   isymcp health              diagnóstico de salud en vivo del bridge y servicios
+  isymcp doctor              diagnóstico local: binarios, sandbox, disco, último fallo de media
+  isymcp doctor --json       el mismo reporte en JSON (códigos de error incluidos)
   isymcp metrics             telemetría en vivo (turnos, tokens, latencias, memoria)
   isymcp metrics --prom      métricas en formato Prometheus / OpenMetrics
   isymcp smoke               batería de pruebas E2E automatizada (health, métricas, harnesses, launcher)
@@ -660,6 +662,12 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
   "down": () => { tunnel("stop"); stopServer(); },
   "restart": () => { tunnel("stop"); stopServer(); startServer(); tunnel("connect"); },
   "status": () => status(),
+  "doctor": async () => {
+    const { runDoctor, formatDoctor } = await import("./doctor");
+    const report = runDoctor();
+    console.log(formatDoctor(report));
+    if (!report.ok) process.exitCode = 1;
+  },
   "panel-open": () => openPanel(),
   "panel-start": async () => { await startPanelDetached(); },
   "panel-stop": () => stopPanel(),
@@ -782,6 +790,12 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
     console.error(code ? `✗ ${code}: ${message}` : `✗ ${message}`);
     process.exitCode = 1;
   }
+} else if (cmd === "doctor") {
+  const { runDoctor, formatDoctor } = await import("./doctor");
+  const json = sub === "--json" || rest.includes("--json");
+  const report = runDoctor();
+  console.log(json ? JSON.stringify(report, null, 2) : formatDoctor(report));
+  if (!report.ok) process.exitCode = 1;
 } else if (cmd === "tree") {
   console.log(brandHeader());
   for (const label of visibleLabels()) console.log(`  ${label}`);
