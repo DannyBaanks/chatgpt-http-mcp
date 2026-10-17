@@ -76,6 +76,23 @@ export function buildCodexArgs(userArgs: string[], port = DEFAULT_PORT, catalogP
   return [...buildIsolatedCodexArgs(url, requestedCodexModel(userArgs), configString(userArgs, "model_reasoning_effort"), catalogPath), ...userArgs];
 }
 
+/**
+ * Crea el acceso directo de Windows via WScript.Shell. El COM de WScript.Shell
+ * puede colgar de forma transitoria en un runner/sesion frios, asi que se
+ * reintenta con un timeout creciente en vez de fallar al primer cuelgue.
+ */
+export function createWindowsShortcut(powershell: string, ps: string): void {
+  const timeouts = [20000, 30000, 45000];
+  let lastError = "";
+  for (let attempt = 0; attempt < timeouts.length; attempt++) {
+    const result = Bun.spawnSync([powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", ps], { stdout: "ignore", stderr: "pipe", timeout: timeouts[attempt] });
+    if (result.exitCode === 0) return;
+    lastError = result.stderr.toString().slice(0, 250);
+    if (attempt < timeouts.length - 1) Bun.sleepSync(500);
+  }
+  throw new Error(`no se pudo crear el acceso directo de Windows tras ${timeouts.length} intentos: ${lastError}`);
+}
+
 export function installDesktopLauncher(options: { binDir?: string; appDir?: string; port?: string } = {}): {
   binPath: string;
   desktopPath: string;
@@ -101,8 +118,7 @@ export function installDesktopLauncher(options: { binDir?: string; appDir?: stri
     const b64 = (value: string) => Buffer.from(value, "utf16le").toString("base64");
     const ps = `$ErrorActionPreference='Stop'; $shell=New-Object -ComObject WScript.Shell; $shortcut=$shell.CreateShortcut([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(desktopPath)}'))); $shortcut.TargetPath=[Environment]::GetEnvironmentVariable('ComSpec'); $bin=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(binPath)}')); $shortcut.Arguments='/d /s /c ""'+$bin+'""'; $shortcut.WorkingDirectory=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(join(import.meta.dir, ".."))}')); $shortcut.Description='Codex con el perfil Web aislado de ISyMCP'; $shortcut.Save()`;
     const powershell = process.env.SystemRoot ? join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
-    const result = Bun.spawnSync([powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", ps], { stdout: "ignore", stderr: "pipe", timeout: 10000 });
-    if (result.exitCode !== 0) throw new Error(`no se pudo crear el acceso directo de Windows: ${result.stderr.toString().slice(0, 250)}`);
+    createWindowsShortcut(powershell, ps);
     securePrivatePath(desktopPath, false);
     return { binPath, desktopPath };
   }

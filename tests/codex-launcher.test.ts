@@ -171,5 +171,5 @@ describe("codex-launcher (perfil aislado sin tocar config.toml)", () => {
     expect(removed.removedDesktop).toBe(true);
     expect(existsSync(installed.binPath)).toBe(false);
     expect(existsSync(installed.desktopPath)).toBe(false);
-  });
+  }, 120000);
 });
