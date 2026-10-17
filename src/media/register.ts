@@ -11,7 +11,7 @@ import { MediaService } from './service';
  * la vista por sesion (que filtra por token_fp) pero si son evidencia local.
  */
 function traced(service: MediaService, tool: string) {
- return async (input: Record<string, unknown>) => {
+ return async (input: Record<string, unknown>): Promise<any> => {
   const callId = randomUUID();
   appendTrace('call', { tool, call_id: callId });
   const result = await service.call(tool, input);

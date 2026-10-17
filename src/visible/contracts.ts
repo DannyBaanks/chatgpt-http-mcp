@@ -22,10 +22,10 @@ export interface HostContract {
   evidenceSha256: string;
   supported: boolean;
   blocker?: string;
-  openThread(grant: string, requestId: string, signal: AbortSignal): Promise<{ threadId: string; writerId: string }>;
-  startTurn(threadId: string, input: { text: string; browserMessageId: string }, signal: AbortSignal): Promise<OwnerRef>;
-  cancelTurn(owner: OwnerRef): Promise<void>;
-  resumeThread(threadId: string): Promise<{ threadId: string; writerId: string }>;
+  openThread?(grant: string, requestId: string, signal: AbortSignal): Promise<{ threadId: string; writerId: string }>;
+  startTurn?(threadId: string, input: { text: string; browserMessageId: string }, signal: AbortSignal): Promise<OwnerRef>;
+  cancelTurn?(owner: OwnerRef): Promise<void>;
+  resumeThread?(threadId: string): Promise<{ threadId: string; writerId: string }>;
 }
 
 export interface BoundBrowserSource {

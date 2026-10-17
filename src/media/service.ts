@@ -19,7 +19,7 @@ export class MediaService {
  private busy=false;
  private importer:MediaImporter;
  constructor(public catalog=new MediaCatalog()){this.importer=new MediaImporter(catalog);}
- async call(name:string,args:any) {
+ async call(name:string,args:any):Promise<{isError?:boolean;content:Array<{type:string;text?:string;mimeType?:string;data?:string}>}> {
    if(name==='media_import_status') {
     try {const result=await this.importer.status(args.job_id,args.wait_seconds??0);return {isError:result.state==='failed',content:[{type:'text' as const,text:JSON.stringify(result)}]};}
     catch(error){return mediaFailure('media_unknown', String(error instanceof Error?error.message:error));}

@@ -61,7 +61,7 @@ test('audio activity segmentation returns stable windows around short and long s
  for(let i=rate*0.2;i<rate*0.8;i++) pcm.writeFloatLE(0.4*Math.sin(2*Math.PI*440*i/rate),i*4);
  for(let i=rate*0.85;i<rate*1.2;i++) pcm.writeFloatLE(0.4*Math.sin(2*Math.PI*440*i/rate),i*4);
  for(let i=rate*1.6;i<rate*1.9;i++) pcm.writeFloatLE(0.3*Math.sin(2*Math.PI*220*i/rate),i*4);
- const segments=segmentActivity(pcm,rate,0,2,{thresholdDbfs:-35,minSilenceSeconds:0.2,minSegmentSeconds:0.1,mergeGapSeconds:0.1});
+ const segments=segmentActivity(pcm,rate,0,2,{thresholdDbfs:-35,minSegmentSeconds:0.1,mergeGapSeconds:0.1});
  expect(segments).toHaveLength(2);
  expect(segments[0].start_seconds).toBeCloseTo(0.2,1);
  expect(segments[0].end_seconds).toBeCloseTo(1.2,1);

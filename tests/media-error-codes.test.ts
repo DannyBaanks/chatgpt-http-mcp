@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MEDIA_ERROR_CODES, classifyMediaError, sanitizeMediaDetail } from '../src/media/error-codes';
+import { MEDIA_ERROR_CODES, classifyMediaError, sanitizeMediaDetail, type MediaErrorCode } from '../src/media/error-codes';
 import { MediaCatalog } from '../src/media/catalog';
 import { MediaImporter } from '../src/media/importer';
 
@@ -15,7 +15,7 @@ describe('M0: catalogo de errores de media', () => {
     }
   });
 
-  const cases: Array<[string, string]> = [
+  const cases: Array<[string, MediaErrorCode]> = [
     ["ERROR: [youtube] YC5Papilj6E: Sign in to confirm you're not a bot.", 'media_youtube_bot_wall'],
     ['ERROR: [youtube] x: Video unavailable; please sign in to watch this video', 'media_youtube_login_required'],
     ['ERROR: Unable to download webpage: HTTP Error 429: Too Many Requests', 'media_rate_limited'],

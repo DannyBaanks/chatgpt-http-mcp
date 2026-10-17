@@ -23,7 +23,7 @@ export interface LaunchIntent {
   effort: "high";
 }
 
-export interface ConversationReceipt extends LaunchIntent {
+export interface ConversationReceipt extends Omit<LaunchIntent, "version"> {
   version: "isymcp-conversation/1";
   threadId: string;
   url: string;

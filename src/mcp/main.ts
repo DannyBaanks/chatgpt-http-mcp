@@ -65,7 +65,7 @@ function option(name: string, fallback: string): string {
   return value;
 }
 
-const contract = option("--contract", "native");
+const contract = option("--contract", "native") as "native" | "safe";
 if (contract !== "native" && contract !== "safe") {
   throw new Error(`--contract debe ser native o safe, recibido: ${contract}`);
 }
@@ -221,8 +221,8 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
       watchSandboxProcess(launch, raw.exited);
       const proc: BgProc = {
         stdin: raw.stdin as unknown as BgProc["stdin"],
-        stdout: raw.stdout,
-        stderr: raw.stderr,
+        stdout: raw.stdout as unknown as BgProc["stdout"],
+        stderr: raw.stderr as unknown as BgProc["stderr"],
         kill: (signal) => { stopSandboxPlan(launch); raw.kill(signal); },
         exited: raw.exited,
         idleOutputMs: launch.backend === "docker" || launch.backend === "codex-windows" ? 1000 : 250,
@@ -583,7 +583,7 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_turn_start,
     inputSchema: S.codex_turn_start,
   },
-  async (input: Record<string, unknown>) => tracedCall("codex_turn_start", input, async (session) => {
+  async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_turn_start", input, async (session) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
     if (session?.nativeOwner) return routeNativeTool(session, "codex_turn_start", input, contract as "native" | "safe");
@@ -606,7 +606,7 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_exec,
     inputSchema: S.codex_exec,
   },
-  async (input: Record<string, unknown>) => tracedCall("codex_exec", input, async (session) => {
+  async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_exec", input, async (session) => {
     const token = String(input[turnKey] ?? "");
     if (!token) return fail(`${turnKey} requerido`);
     if (session?.nativeOwner) return routeNativeTool(session, "codex_exec", input, contract as "native" | "safe");
@@ -630,7 +630,7 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_turn_complete,
     inputSchema: S.codex_turn_complete,
   },
-  async (input: Record<string, unknown>) => tracedCall("codex_turn_complete", input, async (session) => {
+  async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_turn_complete", input, async (session) => {
     const token = String(input[turnKey] ?? "");
     const response = String(input.response ?? "");
     if (!token || !response) {
@@ -652,7 +652,7 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_tool_inventory,
     inputSchema: S.codex_tool_inventory,
   },
-  async (input: Record<string, unknown>) => tracedCall("codex_tool_inventory", input, async (session) => {
+  async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_tool_inventory", input, async (session) => {
     if (session?.nativeOwner) return routeNativeTool(session, "codex_tool_inventory", input, contract as "native" | "safe");
     if (session) {
       return sessionInventory(session);
@@ -673,7 +673,7 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_write_stdin,
     inputSchema: S.codex_write_stdin,
   },
-  async (input: Record<string, unknown>) => tracedCall("codex_write_stdin", input, async (session) => {
+  async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_write_stdin", input, async (session) => {
     if (session?.nativeOwner) return routeNativeTool(session, "codex_write_stdin", input, contract as "native" | "safe");
     if (session) return runWriteStdin(session, input);
     return jsonText({
@@ -689,7 +689,7 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_apply_patch,
     inputSchema: S.codex_apply_patch,
   },
-  async (input: Record<string, unknown>) => tracedCall("codex_apply_patch", input, async (session) => {
+  async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_apply_patch", input, async (session) => {
     if (session?.nativeOwner) return routeNativeTool(session, "codex_apply_patch", input, contract as "native" | "safe");
     if (session) return runApplyPatch(session, input.patch);
     return jsonText({
@@ -705,7 +705,7 @@ server.registerTool(
     description: TOOL_DESCRIPTIONS.codex_view_image,
     inputSchema: S.codex_view_image,
   },
-  async (input: Record<string, unknown>) => tracedCall("codex_view_image", input, async (session) => {
+  async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_view_image", input, async (session) => {
     if (session?.nativeOwner) return routeNativeTool(session, "codex_view_image", input, contract as "native" | "safe");
     if (session) return runViewImage(session, input.path);
     return jsonText({
@@ -723,7 +723,7 @@ server.registerTool(
     inputSchema: S.codex_tool_call,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
-  async (input: Record<string, unknown>) => tracedCall("codex_tool_call", input, async (session) => {
+  async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_tool_call", input, async (session) => {
     if (session?.nativeOwner) return routeNativeTool(session, "codex_tool_call", input, contract as "native" | "safe");
     if (session) return runToolCall(session, input);
     return jsonText({

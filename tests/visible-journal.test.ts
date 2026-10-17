@@ -11,7 +11,7 @@ test('journal preserves exact Markdown and monotonic sequences after reopening',
  const text='hola 😄\n```json\n{"kind":"call"}\n```';
  await j.append({kind:'assistant',messageId:'message-1',markdown:text,complete:false});
  const k=new ConversationJournal(file,owner); const next=await k.append({kind:'assistant',messageId:'message-1',markdown:text+'\nfin',complete:true});
- expect(next.sequence).toBe(2); expect(k.readAfter(0).map(r=>r.event.markdown)).toEqual([text,text+'\nfin']);
+ expect(next.sequence).toBe(2); expect(k.readAfter(0).map(r=>(r.event as {markdown?:string}).markdown)).toEqual([text,text+'\nfin']);
  if(process.platform==='win32')expect(()=>ensurePrivatePath(file,false)).not.toThrow();
  else expect(statSync(file).mode&0o777).toBe(0o600);
  expect(k.readAfter(1)).toHaveLength(1);
@@ -24,7 +24,7 @@ test('journal rejects a foreign owner or corrupt tail without rewriting evidence
 });
 test('equal prompts with distinct message IDs are retained as distinct events',async()=>{
  const j=new ConversationJournal(path(),owner); await j.append({kind:'user',messageId:'one',text:'hola'});await j.append({kind:'user',messageId:'two',text:'hola'});
- expect(j.readAfter(0).map(e=>e.event.messageId)).toEqual(['one','two']);
+ expect(j.readAfter(0).map(e=>(e.event as {messageId?:string}).messageId)).toEqual(['one','two']);
 });
 test('a second stale writer refuses to append instead of reusing a sequence',async()=>{
  const file=path();const a=new ConversationJournal(file,owner),b=new ConversationJournal(file,owner);

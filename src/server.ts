@@ -168,10 +168,12 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
   };
 }
 
+type WsData = { headers: Record<string, string>; native: NativeWsProxy | null };
+
 export function startServer(config: AppConfig = loadConfig(), options: { webResponse?: typeof handleWebResponses } = {}) {
   const webResponse = options.webResponse ?? handleWebResponses;
   const handler = createHandler(config);
-  const server = Bun.serve({
+  const server = Bun.serve<WsData>({
     hostname: config.hostname,
     port: config.port,
     idleTimeout: 0,

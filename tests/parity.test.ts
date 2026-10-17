@@ -109,14 +109,14 @@ beforeAll(() => {
     },
   });
 
-  const config: AppConfig = {
+  const config = {
     hostname: "127.0.0.1",
     port: 0,
     upstreamBase: `http://127.0.0.1:${mock.port}/backend-api/codex`,
     webModels: "off",
     capabilities: { solAvailable: true, proAvailable: false },
     timeoutMs: 200,
-  };
+  } as AppConfig;
   server = startServer(config);
 });
 
