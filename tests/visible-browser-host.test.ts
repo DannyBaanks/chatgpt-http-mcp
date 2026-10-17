@@ -13,7 +13,7 @@ test('host waits for its exact new page instead of adopting a restored page',asy
  const owned={url:()=>landing};
  const context={pages:()=>++reads>1?[other,owned]:[other]};
  const found=await selectOwnedHostPage({contexts:()=>[context]} as any,landing,500);
- expect(found.page).toBe(owned);expect(reads).toBeGreaterThan(1);
+ expect(found.page).toBe(owned as any);expect(reads).toBeGreaterThan(1);
  await expect(selectOwnedHostPage({contexts:()=>[{pages:()=>[other]}]} as any,landing,1)).rejects.toThrow('unbound');
 });
 test('normal host does not adopt another browser when its own process exits',async()=>{

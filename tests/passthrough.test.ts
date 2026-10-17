@@ -12,7 +12,7 @@ function testConfig(upstreamBase: string, timeoutMs = 120_000): AppConfig {
     webModels: "off",
     capabilities: { solAvailable: true, proAvailable: false },
     timeoutMs,
-  };
+  } as AppConfig;
 }
 
 interface Seen {

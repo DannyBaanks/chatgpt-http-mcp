@@ -67,10 +67,7 @@ jobs:
       - name: Tests
         run: bun test
 
-      # Advisory until the 44 pre-existing type errors are paid down; then drop
-      # continue-on-error to make this a blocking gate.
-      - name: Typecheck (advisory)
-        continue-on-error: true
+      - name: Typecheck
         run: bun run typecheck
 
   windows-host:

@@ -56,7 +56,7 @@ export class NativeWsProxy {
   send(data: string | ArrayBufferLike | Uint8Array): void {
     if (this.closed) return;
     if (!this.upstream) this.open();
-    if (this.upstream!.readyState === WebSocket.OPEN) this.upstream!.send(data);
+    if (this.upstream!.readyState === WebSocket.OPEN) this.upstream!.send(data as string | ArrayBuffer);
     else this.queue.push(data);
   }
 
@@ -72,7 +72,7 @@ export class NativeWsProxy {
     upstream.binaryType = "arraybuffer";
     this.upstream = upstream;
     upstream.onopen = () => {
-      for (const data of this.queue.splice(0)) upstream.send(data);
+      for (const data of this.queue.splice(0)) upstream.send(data as string | ArrayBuffer);
     };
     upstream.onmessage = (event) => {
       try { this.client.send(event.data as string | ArrayBuffer); } catch { /* cliente cerrado */ }

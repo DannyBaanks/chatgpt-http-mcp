@@ -116,7 +116,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 0, async fe
   });
 } });
 status();
-const env = { ...process.env, CODEX_HOME: profile.codexHome, CODEX_ELECTRON_USER_DATA_PATH: electronData, ISYMCP_LAUNCH_ID: launchId };
+const env: Record<string, string | undefined> = { ...process.env, CODEX_HOME: profile.codexHome, CODEX_ELECTRON_USER_DATA_PATH: electronData, ISYMCP_LAUNCH_ID: launchId };
 delete env.OPENAI_BASE_URL; delete env.OPENAI_API_BASE; delete env.CODEX_API_BASE_URL;
 delete env.ELECTRON_RUN_AS_NODE;
 if (!reuseApp) {

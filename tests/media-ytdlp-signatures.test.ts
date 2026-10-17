@@ -1,9 +1,10 @@
 // M1: firmas del stderr de yt-dlp -> codigo estable.
 import { describe, expect, test } from 'bun:test';
 import { classifyYtDlpFailure, isBotWallFailure, YTDLP_SIGNATURES } from '../src/media/ytdlp-signatures';
+import type { MediaErrorCode } from '../src/media/error-codes';
 
 describe('M1: firmas de yt-dlp', () => {
-  const cases: Array<[string, string]> = [
+  const cases: Array<[string, MediaErrorCode]> = [
     ["ERROR: [youtube] YC5Papilj6E: Sign in to confirm you're not a bot.", 'media_youtube_bot_wall'],
     ['ERROR: [youtube] x: This video is private', 'media_youtube_login_required'],
     ['ERROR: Unable to download webpage: HTTP Error 429: Too Many Requests', 'media_rate_limited'],

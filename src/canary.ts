@@ -164,7 +164,7 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
         stdin: "ignore", stdout: "ignore", stderr: "pipe",
       });
       // Drain stderr while the child runs so a full pipe cannot block startup.
-      tempStderr = new Response(temp.stderr).text();
+      tempStderr = new Response(temp.stderr as ReadableStream<Uint8Array>).text();
       base = `http://127.0.0.1:${tempPort}`;
       bridge = "temporary";
       let ready = false;
