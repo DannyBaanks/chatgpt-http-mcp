@@ -576,6 +576,9 @@ function help(): void {
   isymcp command "texto"     texto para pegar en chatgpt.com
   isymcp media prepare      pega una URL, elige carpeta y confirma el paquete
   isymcp media prepare <url> prepara de forma no interactiva y devuelve JSON
+  isymcp comfy workflow add <workflow.json> registra un workflow API local de ComfyUI
+  isymcp comfy workflow list lista los workflows registrados
+  isymcp comfy status         comprueba la instancia local de ComfyUI
   isymcp tui list            TUIs detectadas (config dir y/o binario)
   isymcp tui install         dry-run del parche opencode (provider+MCP)
   isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
@@ -799,6 +802,12 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
     const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "";
     const message = error instanceof Error ? error.message : String(error);
     console.error(code ? `✗ ${code}: ${message}` : `✗ ${message}`);
+    process.exitCode = 1;
+  }
+} else if (cmd === "comfy") {
+  try { await (await import("./comfyui/cli")).comfyCommand(sub, rest); }
+  catch (error) {
+    console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   }
 } else if (cmd === "doctor") {

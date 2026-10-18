@@ -277,12 +277,15 @@ Process explicitly registered audio and video locally, then inspect the evidence
 | **One-off public YouTube video or Short** | Call `media_import(url)`, poll `media_import_status(job_id, wait_seconds: 10)` until `complete`, and use `asset.id`. |
 | **Inspect video** | Use `media_info`, `video_contact_sheet` for an overview and `video_frame` for a specific timestamp. |
 | **Inspect audio** | Use `audio_scan` to scan the complete track in chunks of at most 120 seconds, then `audio_analyze` to zoom into a selected waveform, spectrogram or stereo measurement. |
+| **Generate an image locally** | Register a ComfyUI API workflow with `isymcp comfy workflow add <workflow.json>`, then call `comfyui_generate` and retrieve its verified image with `creative_asset_get`. |
 
 For step-by-step commands and the verified ChatGPT prompt, see **[GUIA.md — Medios locales](GUIA.md#medios-locales-audio-y-video-2026-10-09)**.
 
 ### Local execution, entry points & limits
 
-The independent `src/mcp/media.ts` entry point processes only explicitly registered local assets. The main **Codex ISyMCP** entry point exposes the media tools alongside its existing `codex_*` tools; both share `src/media/register.ts`. `media_list` discovers only user-registered assets, paginated in groups of 20. `media_lookup` resolves only a canonical public YouTube URL already in the catalog and never starts work. Codex session authorization and sandbox behavior remain enforced.
+The independent `src/mcp/media.ts` entry point processes only explicitly registered local assets and exposes the local ComfyUI image tools. The main **Codex ISyMCP** entry point exposes the media and ComfyUI tools alongside its existing `codex_*` tools. `media_list` discovers only user-registered assets, paginated in groups of 20. `media_lookup` resolves only a canonical public YouTube URL already in the catalog and never starts work. Codex session authorization and sandbox behavior remain enforced.
+
+ComfyUI workflows are explicitly registered and stored with a SHA-256 under the private ISyMCP state directory. The connector only accepts a loopback ComfyUI endpoint; it validates declared inputs, stores generated image bytes locally, and returns an image preview by opaque asset ID. See the [ComfyUI setup and use guide](GUIA.md#generación-de-imágenes-local-con-comfyui).
 
 Both MCP entry points publish the bundled ISyMCP PNG through `serverInfo.icons` during initialization. ChatGPT or another MCP client may need to reconnect after upgrading the server before it refreshes the icon and tool catalog.
 
