@@ -379,7 +379,7 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 - **Local only, for real.** The bridge and the panel bind `127.0.0.1` *and* reject foreign `Host`/`Origin` headers and non-JSON POSTs (protection against CSRF and DNS rebinding).
 - **Token Authentication (`CODEX_WEB_HTTP_TOKEN`):** Required for any non-loopback exposure. Clients must send `Authorization: Bearer <TOKEN>` or `x-isymcp-token`.
 - **Sandbox Isolation.** `bubblewrap` on Linux, Docker Desktop on Windows, and the optional Codex native Windows MXC sandbox hide bridge secrets, deny network by default, and scope writes to the selected workspace. The native Windows MCP E2E is demonstrated in [the Windows guide](docs/WINDOWS.md); Docker-backed Windows execution is not demonstrated here.
-- **Session Tokens.** Tokens expire (7 days by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
+- **Session Tokens.** Tokens expire (24 hours by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
 - **Platform safety boundaries:** Reported OpenAI blocks must halt the affected operation without bypass. This safeguard is not a blanket claim that every browser path has passed a compliance audit; see [open risks](docs/compliance/FINAL_VERDICT.md).
 
 ---

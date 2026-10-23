@@ -15,7 +15,7 @@
 | Crear sesión | `isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas]` |
 | Listar sesiones | `isymcp session list` (sólo huella digital / fingerprint) |
 | Revocar sesión | `isymcp session revoke <token|fp>` |
-| Expiración | Por defecto a los 7 días; `--ttl 0` para sesiones persistentes sin expiración |
+| Expiración | Por defecto a las 24 horas; `--ttl 0` para sesiones persistentes sin expiración |
 
 Regla: El token completo sólo se muestra en stdout al emitirlo; los logs y trazas usan exclusivamente el fingerprint sanitizado.
 
