@@ -582,7 +582,7 @@ function help(): void {
   isymcp tui install --restore vuelve al backup
   isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] [--request-file TASK.md]
                              crea un session token del MCP (read-only por defecto;
-                             caduca a los 7 dias, --ttl 0 = nunca;
+                             caduca a las 24 h, --ttl 0 = nunca;
                              request-file vincula una tarea local por SHA-256)
   isymcp session list        sesiones vivas (solo fingerprint)
   isymcp session revoke <token|fp>
@@ -736,7 +736,7 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
   },
   "session-mint-write": async () => {
     const cwd = (await ask(`cwd (${process.cwd()}): `)) || process.cwd();
-    if (!(await confirm(`ChatGPT podra ESCRIBIR en ${cwd} (sandbox, 7 dias). ¿Seguro?`))) return;
+    if (!(await confirm(`ChatGPT podra ESCRIBIR en ${cwd} (sandbox, 24 h). ¿Seguro?`))) return;
     const label = await ask("label (ej: mi-proyecto): ");
     await menuSession("mint", ["--cwd", cwd, "--write", ...(label ? ["--label", label] : [])]);
   },

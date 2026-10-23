@@ -33,6 +33,22 @@ afterEach(() => {
 });
 
 describe("codex-sessions registry", () => {
+  test("procesos concurrentes no pierden escrituras del registro (revoke incluido)", async () => {
+    const victim = mintSession(workspace, { label: "victim" });
+    const module = fileURLToPath(new URL("../src/codex-sessions.ts", import.meta.url));
+    const script = `const m = await import(${JSON.stringify(module)}); const [cwd, id] = process.argv.slice(-2);
+      for (let i = 0; i < 15; i++) m.mintSession(cwd, { label: "w" + id + "-" + i });`;
+    const env = { ...process.env, CODEX_WEB_HTTP_HOME: home };
+    const writers = Array.from({ length: 4 }, (_, id) =>
+      Bun.spawn([process.execPath, "-e", script, workspace, String(id)], { env, stdout: "ignore", stderr: "pipe" }));
+    expect(revokeSession(victim.fp)).toBe(1);
+    const codes = await Promise.all(writers.map((w) => w.exited));
+    expect(codes).toEqual([0, 0, 0, 0]);
+    const labels = readSessions().map((s) => s.label);
+    expect(labels.filter((l) => /^w\d-\d+$/.test(l))).toHaveLength(60);
+    expect(labels).not.toContain("victim");
+  }, 30_000);
+
   test("CLI binds a local task and emits a four-line MCP command without pasting task content", () => {
     const task = "PRIVATE_LOCAL_TASK_ONLY_4_LINES";
     writeFileSync(join(workspace, "TASK.md"), task);

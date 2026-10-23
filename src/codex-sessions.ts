@@ -10,7 +10,7 @@
 // Regla de secretos: el token completo solo se muestra al crearlo. En
 // receipts, listados y logs se usa siempre el fingerprint sha256[:12].
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter as pathDelimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { buildCodexWindowsSandboxPlan, cleanupCodexWindowsSandboxPath, findCodexWindowsCli } from "./platform/codex-windows-sandbox";
@@ -56,7 +56,7 @@ interface Registry {
 const SCHEMA = "codex-web-http.codex-sessions/1";
 
 /** Caducidad por defecto de un session token (horas). */
-export const DEFAULT_TTL_HOURS = 24 * 7;
+export const DEFAULT_TTL_HOURS = 24;
 
 export function bridgeHome(): string {
   return process.env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
@@ -100,6 +100,41 @@ function writeRegistry(reg: Registry): void {
   securePrivatePath(path, false);
 }
 
+const REGISTRY_LOCK_WAIT_MS = 10_000;
+const REGISTRY_LOCK_STALE_MS = 30_000;
+
+/**
+ * Exclusion entre procesos para leer-modificar-escribir el registro: el bridge
+ * acuña y revoca tokens de turno, el MCP marca sesiones nativas y el CLI
+ * revoca. Sin lock, la ultima copia escrita pisa a las demas y un revoke
+ * puede deshacerse. Un lock abandonado (proceso muerto) caduca a los 30 s.
+ */
+function withRegistryLock<T>(work: () => T): T {
+  mkdirSync(bridgeHome(), { recursive: true });
+  securePrivatePath(bridgeHome(), true);
+  const lock = `${registryPath()}.lock`;
+  const deadline = Date.now() + REGISTRY_LOCK_WAIT_MS;
+  let fd: number | null = null;
+  while (fd === null) {
+    try {
+      fd = openSync(lock, "wx", 0o600);
+    } catch (error: any) {
+      if (error?.code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > REGISTRY_LOCK_STALE_MS) { unlinkSync(lock); continue; }
+      } catch { continue; /* el dueño lo solto entre medias */ }
+      if (Date.now() > deadline) throw new Error(`registro de sesiones bloqueado (${lock}); si ningun isymcp esta corriendo, borra ese archivo`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try {
+    return work();
+  } finally {
+    closeSync(fd);
+    try { unlinkSync(lock); } catch { /* ya no existe */ }
+  }
+}
+
 export function mintSession(
   cwd: string,
   options: { label?: string; writable?: boolean; ttlHours?: number; requestFile?: string } = {},
@@ -128,9 +163,11 @@ export function mintSession(
     const local = readLocalRequest(session, filename);
     session.request = { filename, sha256: local.sha256 };
   }
-  const reg = readRegistry();
-  reg.sessions.push(session);
-  writeRegistry(reg);
+  withRegistryLock(() => {
+    const reg = readRegistry();
+    reg.sessions.push(session);
+    writeRegistry(reg);
+  });
   return session;
 }
 
@@ -181,10 +218,12 @@ export function readSessions(): CodexSession[] {
 
 /** Local controller only. This function is not exposed as an MCP tool. */
 export function updateSession(fp: string, update: (session: CodexSession) => void): CodexSession {
-  const registry = readRegistry();
-  const session = registry.sessions.find(s => s.fp === fp);
-  if (!session) throw new Error("session_not_registered");
-  update(session); writeRegistry(registry); return session;
+  return withRegistryLock(() => {
+    const registry = readRegistry();
+    const session = registry.sessions.find(s => s.fp === fp);
+    if (!session) throw new Error("session_not_registered");
+    update(session); writeRegistry(registry); return session;
+  });
 }
 
 /** Sesiones que crea el usuario (sin los tokens efimeros de turno). */
@@ -200,6 +239,10 @@ export const TURN_TOKEN_TTL_MINUTES = 15;
  * de dias, no sale). Limpia de paso los tokens de turno caducados.
  */
 export function mintTurnToken(parentFp: string, turnId: string, ttlMinutes = TURN_TOKEN_TTL_MINUTES): CodexSession {
+  return withRegistryLock(() => mintTurnTokenLocked(parentFp, turnId, ttlMinutes));
+}
+
+function mintTurnTokenLocked(parentFp: string, turnId: string, ttlMinutes: number): CodexSession {
   const reg = readRegistry();
   const parent = reg.sessions.find((s) => s.fp === parentFp && s.kind !== "turn");
   if (!parent) throw new Error("sesion desconocida");
@@ -227,10 +270,12 @@ export function mintTurnToken(parentFp: string, turnId: string, ttlMinutes = TUR
 
 /** Revoca un token de turno por fp exacto (fin del turno). */
 export function revokeTurnToken(fp: string): void {
-  const reg = readRegistry();
-  const before = reg.sessions.length;
-  reg.sessions = reg.sessions.filter((s) => !(s.kind === "turn" && s.fp === fp));
-  if (reg.sessions.length !== before) writeRegistry(reg);
+  withRegistryLock(() => {
+    const reg = readRegistry();
+    const before = reg.sessions.length;
+    reg.sessions = reg.sessions.filter((s) => !(s.kind === "turn" && s.fp === fp));
+    if (reg.sessions.length !== before) writeRegistry(reg);
+  });
 }
 
 /** Prefijo minimo para revocar: con menos, un typo se lleva sesiones ajenas. */
@@ -242,6 +287,10 @@ export function revokeSession(prefixOrFp: string): number {
   if (needle.length < MIN_REVOKE_PREFIX) {
     throw new Error(`revoke requiere al menos ${MIN_REVOKE_PREFIX} caracteres de token o fingerprint`);
   }
+  return withRegistryLock(() => revokeSessionLocked(needle));
+}
+
+function revokeSessionLocked(needle: string): number {
   const reg = readRegistry();
   const matches = reg.sessions.filter((s) => s.token.startsWith(needle) || s.fp.startsWith(needle));
   if (matches.length > 1) {
@@ -444,6 +493,20 @@ function toolchainBinds(home: string): string[] {
   return out;
 }
 
+/**
+ * `--unshare-net` no corta los sockets Unix con ruta: bajo /run viven el bus
+ * D-Bus de la sesion (`systemd-run --user` ejecuta fuera de la burbuja), el
+ * keyring, gpg-agent, Wayland y docker.sock. Se tapan con tmpfs; /var/run
+ * suele ser un symlink a /run y solo se tapa aparte si es un directorio real.
+ */
+export function hostSocketMasks(): string[] {
+  const out = ["--tmpfs", "/run"];
+  try {
+    if (lstatSync("/var/run").isDirectory()) out.push("--tmpfs", "/var/run");
+  } catch { /* sin /var/run no hay nada que tapar */ }
+  return out;
+}
+
 /** Variables que el comando ve dentro de la burbuja (el resto se borra). */
 const SANDBOX_ENV_KEEP = ["PATH", "LANG", "LC_ALL", "TERM", "TZ"];
 
@@ -532,6 +595,7 @@ export function sandboxPlan(
     "--proc", "/proc",
     "--tmpfs", "/tmp",
     "--tmpfs", home,
+    ...hostSocketMasks(),
   ];
   // Secretos del bridge fuera de $HOME (CODEX_WEB_HTTP_HOME) tambien se tapan.
   const secrets = bridgeHome();

@@ -390,7 +390,7 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 
 1. **Tokens de Sesión para Herramientas:**
    ```bash
-   # Crear token de solo lectura (por defecto, 7 días de validez)
+   # Crear token de solo lectura (por defecto, 24 horas de validez)
    isymcp session mint --cwd ~/mi-proyecto
 
    # Crear token con permisos de escritura en la carpeta

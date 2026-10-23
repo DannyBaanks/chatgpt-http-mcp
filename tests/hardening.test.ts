@@ -138,7 +138,10 @@ describe("session tokens — caducidad y revoke", () => {
     expect(forever.expiresAt).toBeNull();
     expect(findSessionByToken(forever.token)?.label).toBe("ttl-0");
     const normal = mintSession(workspace, { label: "ttl-default" });
-    expect(Date.parse(String(normal.expiresAt))).toBeGreaterThan(Date.now() + 6 * 24 * 3_600_000);
+    // El token viaja en el texto del chat: por defecto dura un dia, no una semana.
+    const left = Date.parse(String(normal.expiresAt)) - Date.now();
+    expect(left).toBeGreaterThan(23 * 3_600_000);
+    expect(left).toBeLessThanOrEqual(24 * 3_600_000);
   });
 
   test("sesion v0.3 sin expiresAt sigue valida (compat)", () => {
