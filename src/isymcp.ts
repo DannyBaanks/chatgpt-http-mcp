@@ -582,6 +582,9 @@ function help(): void {
   isymcp comfy workflow add <workflow.json> registra un workflow API local de ComfyUI
   isymcp comfy workflow list lista los workflows registrados
   isymcp comfy status         comprueba la instancia local de ComfyUI
+  isymcp tablero status      estado del grupo tablero_* (apagado por defecto)
+  isymcp tablero init|on|off plantilla / encender / apagar al instante
+  isymcp tablero stop        cierra todas las consolas lanzadas desde el Tablero
   isymcp tui list            TUIs detectadas (config dir y/o binario)
   isymcp tui install         dry-run del parche opencode (provider+MCP)
   isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
@@ -801,6 +804,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await status();
 } else if (cmd === "native-browser") {
   process.exitCode = await nativeBrowserCommand(sub, rest);
+} else if (cmd === "tablero") {
+  process.exitCode = (await import("./tablero/cli")).tableroCommand(sub ?? "status");
 } else if (cmd === "media") {
   try { await (await import("./media/cli")).mediaCommand(sub, rest); }
   catch (error) {
