@@ -576,6 +576,9 @@ function help(): void {
   isymcp command "texto"     texto para pegar en chatgpt.com
   isymcp media prepare      pega una URL, elige carpeta y confirma el paquete
   isymcp media prepare <url> prepara de forma no interactiva y devuelve JSON
+  isymcp tablero status      estado del grupo tablero_* (apagado por defecto)
+  isymcp tablero init|on|off plantilla / encender / apagar al instante
+  isymcp tablero stop        cierra todas las consolas lanzadas desde el Tablero
   isymcp tui list            TUIs detectadas (config dir y/o binario)
   isymcp tui install         dry-run del parche opencode (provider+MCP)
   isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
@@ -793,6 +796,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await openMenu();
 } else if (!cmd || cmd === "status") {
   await status();
+} else if (cmd === "tablero") {
+  process.exitCode = (await import("./tablero/cli")).tableroCommand(sub ?? "status");
 } else if (cmd === "media") {
   try { await (await import("./media/cli")).mediaCommand(sub, rest); }
   catch (error) {
