@@ -559,7 +559,8 @@ function help(): void {
                              el mismo chat (visible en el panel); --new abre otro.
                              Tambien por stdin: echo hola | isymcp ask
   isymcp up [--no-connector] levanta server (detached) y conecta el tunel;
-                             el server deja elegido el connector Codex ISyMCP
+                             no toca ~/.codex/config.toml. Para enrutarlo ahi:
+                             isymcp models apply, o usa isymcp codex
   isymcp down                para server y tunel
   isymcp server start|stop
   isymcp tunnel connect|stop|status
