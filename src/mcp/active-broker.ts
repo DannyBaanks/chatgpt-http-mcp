@@ -1,9 +1,11 @@
 // Owner-only IPC coordinator. It queues calls; it NEVER executes tool code.
 // Protocol 5 keeps compatibility with the already-probed native gateway.
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync } from "node:fs";
+import { chmodSync, existsSync, realpathSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { isWindowsPipePath, localIpcPath } from "../platform/ipc";
+import { canaryCommand, validCanaryEnvironment } from "./current-owner-canary";
+import { nativeGateway } from "./active-native";
 
 interface Call { callId: string; wireName: string; freeform: true; input: string; delivered: boolean; resolve: (r: unknown) => void; reject: (e: Error) => void }
 interface Channel {
@@ -33,15 +35,17 @@ export async function createActiveBroker(socketPath: string) {
     for (const id of c.bindings) bindings.delete(id); channels.delete(token);
   };
   async function dispatch(r: any): Promise<unknown> {
-    if (r.method === "owner_status") return { protocolVersion: 5, acceptingExternalOwners: true };
+    if (r.method === "owner_status") return { protocolVersion: 5, acceptingExternalOwners: true, currentTurnCanary: true };
     if (r.method === "owner_register") {
       if (!Number.isInteger(r.ttlMs) || r.ttlMs < 1000 || r.ttlMs > 1200000 ||
-        !r.environment || typeof r.environment.cwd !== "string" || r.environment.sandboxPolicy?.type !== "readOnly" ||
+        !r.environment || typeof r.environment.cwd !== "string" ||
+        !(r.environment.sandboxPolicy?.type === "readOnly" && r.environment.executionGrant === undefined || validCanaryEnvironment(r.environment)) ||
         !Array.isArray(r.environment.writableRoots) || r.environment.writableRoots.length ||
         !Array.isArray(r.environment.tools) || r.environment.tools.length !== 1 || r.environment.tools[0].name !== "exec" || r.environment.tools[0].freeform !== true) throw Error("invalid_native_owner_environment");
       if (channels.size >= 32) throw Error("native_owner_limit");
       const token = key("turn_");
-      channels.set(token, { environment: r.environment, expires: Date.now() + r.ttlMs, revision: 0, committed: false,
+      const environment = validCanaryEnvironment(r.environment) ? { ...r.environment, cwd: realpathSync(r.environment.cwd) } : r.environment;
+      channels.set(token, { environment, expires: Date.now() + r.ttlMs, revision: 0, committed: false,
         activities: new Set(), bindings: new Set(), calls: new Map() }); return { token };
     }
     if (r.method === "owner_revoke") { revoke(r.token); return { revoked: true }; }
@@ -56,6 +60,8 @@ export async function createActiveBroker(socketPath: string) {
       const binding = bindings.get(r.bindingId), c = binding?.channel;
       if (!c || c.committed || c.expires <= Date.now() || !c.activities.has(binding!.activityId)) throw Error("native_binding_inactive");
       if (r.wireName !== "exec" || r.freeform !== true || typeof r.input !== "string" || r.input.length > 65536) throw Error("unsupported_native_invocation");
+      if (c.environment.executionGrant && r.input !== nativeGateway(canaryCommand(c.environment.executionGrant.marker), c.environment.cwd))
+        throw Error("native_canary_command_required");
       if (c.calls.size) throw Error("native_call_already_pending");
       c.revision++;
       return new Promise((resolve, reject) => {

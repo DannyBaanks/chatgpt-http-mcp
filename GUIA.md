@@ -531,6 +531,41 @@ En ChatGPT, selecciona **Codex ISyMCP** y pide primero `media_lookup(url)`. Si a
 
 Codex ISyMCP es un servidor de herramientas; la respuesta en lenguaje natural la genera el modelo de ChatGPT. Las herramientas de medios se invocan directamente y no necesitan `turn_token`. Las herramientas `codex_*` sí requieren un token de sesión válido: créalo con `isymcp session mint --cwd <directorio>` y pega el `turn_token` junto con `COMANDO: @CODEX ISYMCP`. `codex_turn_start` no crea ese token. Un token inventado o desconocido solo recibe un recibo de compatibilidad y no ejecuta comandos; `codex_tool_inventory` en ese modo responde `tools: []` con la razón, en vez de anunciar herramientas que no corren.
 
+## Generación de imágenes local con ComfyUI
+
+ISyMCP puede enviar a ComfyUI un workflow exportado en formato **API**, con los campos que tú declares como configurables. Solo procesa workflows que registres explícitamente. ComfyUI debe estar ejecutándose en el mismo equipo; por defecto ISyMCP usa `http://127.0.0.1:8188`.
+
+Primero exporta el workflow desde ComfyUI en formato API. Añade declaraciones de entrada al JSON exportado; los IDs y nombres de campos deben existir en el grafo. Ejemplo de las declaraciones que se agregan al objeto raíz:
+
+```json
+"inputs": {
+  "prompt": { "node_id": "6", "field": "text", "type": "string", "required": true },
+  "seed": { "node_id": "3", "field": "seed", "type": "integer", "min": 0, "max": 4294967295, "default": 123 }
+}
+```
+
+Se aceptan entradas `string`, `number`, `integer`, `boolean` y `enum`; también `required`, `default`, rangos `min`/`max` y opciones para `enum`. Solo los campos declarados pueden cambiar durante una llamada. Guarda el bundle como JSON y regístralo:
+
+```bash
+bun src/isymcp.ts comfy workflow add ./workflow-isymcp.json
+bun src/isymcp.ts comfy workflow list
+bun src/isymcp.ts comfy status
+```
+
+`comfy status` solo comprueba la instancia; no la inicia. Si está en otro puerto loopback, define `ISYMCP_COMFYUI_URL=http://127.0.0.1:<puerto>`. La dirección solo puede ser loopback HTTP/HTTPS. Workflows, trabajos e imágenes se guardan de forma privada en `~/.local/state/isymcp/comfyui`; para usar otro catálogo configura `ISYMCP_COMFYUI_HOME` en el proceso MCP y en la CLI.
+
+En ChatGPT, actualiza/reconecta **Codex ISyMCP** para cargar las tools y pide una imagen usando el workflow registrado. El ciclo es `comfyui_workflows` → `comfyui_generate(workflow_id, inputs)` → `comfyui_job_status(job_id)` hasta `completed` → `creative_asset_get(asset_id)`. También existen `comfyui_status` y `comfyui_job_status`; las tools de imagen funcionan sin `turn_token`. `src/mcp/media.ts` ofrece estas tools por separado.
+
+Una generación completada devuelve la imagen del catálogo local mediante un ID opaco, SHA-256 y vista previa MCP. El archivo no se expone por ruta; se valida el tipo y la firma del contenido. El límite del artefacto es 100 MiB y se devuelve una vista previa MCP de hasta 1 MiB. La instancia local de ComfyUI recibe el prompt y los parámetros declarados; la imagen solicitada sí se entrega al cliente MCP.
+
+Pruebas locales con servidor ComfyUI simulado: **PASS** para registro, validación de entradas, generación, consulta y recuperación de una imagen. Rechazo de destinos no locales: **PASS**. La prueba con una instancia real de ComfyUI y una llamada desde ChatGPT aún está **NOT_DEMONSTRATED**; no avances al siguiente milestone de integración hasta confirmar una generación real desde ISyMCP.
+
+En ChatGPT, con ComfyUI encendido y el workflow registrado, pega algo como:
+
+> Usa `comfyui_workflows` para elegir el workflow de imagen. Genera una imagen con prompt "un zorro mecánico bajo lluvia azul" y seed 123. Espera con `comfyui_job_status` hasta que termine y muestra la imagen con `creative_asset_get`. Informa el ID y hash del artefacto.
+
+Si `comfyui_status` indica `available: false`, inicia ComfyUI y revisa su dirección. Si el trabajo termina sin imagen, falla con `comfyui_no_image_output`; si indica error de ejecución, revisa nodos, modelos y conexión en ComfyUI. Conserva el ID/hash devuelto y confirma aquí que la imagen apareció en ChatGPT; esa confirmación cierra el milestone de uso real.
+
 ## Las ocho herramientas codex_* (completas)
 
 **Evidencia histórica de 2026-10-10:** las ocho herramientas `codex_*` se probaron con un token válido dentro de bwrap en Linux. Esta rama añade Docker y Codex CLI sandbox para Windows; ambos recorridos en Windows son **NOT_DEMONSTRATED** hasta que CI y una ejecución local confirmen el comportamiento. [Evidencia y límites](docs/verification/2026-10-10-native-mcp-live.md).

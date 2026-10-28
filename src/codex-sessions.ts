@@ -25,6 +25,8 @@ export interface CodexSession {
     phase: "prepared" | "active" | "completed";
     source?: { url: string; messageId: string };
     response?: string;
+    /** Fixed diagnostic operation, not an expanded general execution grant. */
+    canary?: { marker: string; hostSandbox: "dangerFullAccess" };
   };
   token: string;
   fp: string;
