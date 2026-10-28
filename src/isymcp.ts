@@ -34,6 +34,7 @@ import { detectTuis, installIntoOpencode } from "./tui";
 import { bridgeAuthHeaders } from "./local-guard";
 import { processMatches, stopProcessTree } from "./platform/process";
 import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
+import { nativeBrowserCommand, parseBrowserOption, rejectUnavailableBrowser } from "./visible/native-browser";
 
 const ROOT = join(import.meta.dir, "..");
 const PORT = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
@@ -558,10 +559,13 @@ function help(): void {
                              el mismo chat (visible en el panel); --new abre otro.
                              Tambien por stdin: echo hola | isymcp ask
   isymcp up [--no-connector] levanta server (detached) y conecta el tunel;
-                             el server deja elegido el connector Codex ISyMCP
+                             no toca ~/.codex/config.toml. Para enrutarlo ahi:
+                             isymcp models apply, o usa isymcp codex
   isymcp down                para server y tunel
   isymcp server start|stop
   isymcp tunnel connect|stop|status
+  isymcp native-browser status|probe [--json] diagnostico del navegador nativo
+  isymcp ask "texto" --browser native seleccion explicita; falla si no esta disponible
   isymcp models              dry-run del perfil Web privado
   isymcp models apply        prepara perfil aislado; no cambia Codex global
   isymcp models restore      restaura solo el perfil Web propio
@@ -576,6 +580,12 @@ function help(): void {
   isymcp command "texto"     texto para pegar en chatgpt.com
   isymcp media prepare      pega una URL, elige carpeta y confirma el paquete
   isymcp media prepare <url> prepara de forma no interactiva y devuelve JSON
+  isymcp comfy workflow add <workflow.json> registra un workflow API local de ComfyUI
+  isymcp comfy workflow list lista los workflows registrados
+  isymcp comfy status         comprueba la instancia local de ComfyUI
+  isymcp tablero status      estado del grupo tablero_* (apagado por defecto)
+  isymcp tablero init|on|off plantilla / encender / apagar al instante
+  isymcp tablero stop        cierra todas las consolas lanzadas desde el Tablero
   isymcp tui list            TUIs detectadas (config dir y/o binario)
   isymcp tui install         dry-run del parche opencode (provider+MCP)
   isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
@@ -793,12 +803,22 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await openMenu();
 } else if (!cmd || cmd === "status") {
   await status();
+} else if (cmd === "native-browser") {
+  process.exitCode = await nativeBrowserCommand(sub, rest);
+} else if (cmd === "tablero") {
+  process.exitCode = (await import("./tablero/cli")).tableroCommand(sub ?? "status");
 } else if (cmd === "media") {
   try { await (await import("./media/cli")).mediaCommand(sub, rest); }
   catch (error) {
     const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "";
     const message = error instanceof Error ? error.message : String(error);
     console.error(code ? `✗ ${code}: ${message}` : `✗ ${message}`);
+    process.exitCode = 1;
+  }
+} else if (cmd === "comfy") {
+  try { await (await import("./comfyui/cli")).comfyCommand(sub, rest); }
+  catch (error) {
+    console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   }
 } else if (cmd === "doctor") {
@@ -927,7 +947,16 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
     process.exit(2);
   }
 } else if (cmd === "ask") {
-  const args = [sub, ...rest].filter((a): a is string => Boolean(a));
+  let selected: ReturnType<typeof parseBrowserOption>;
+  try { selected = parseBrowserOption([sub, ...rest].filter((a): a is string => Boolean(a))); }
+  catch (error) { console.error(error instanceof Error ? error.message : "browser_selection_invalid"); process.exit(2); }
+  const denied = rejectUnavailableBrowser(selected.browser);
+  if (denied) {
+    const body = await denied.json();
+    console.error(`${body.error.type}: ${body.error.message}`);
+    process.exit(2);
+  }
+  const args = selected.args;
   const fresh = args.includes("--new");
   let text = args.filter((a) => a !== "--new").join(" ");
   if (!text && !process.stdin.isTTY) text = await Bun.stdin.text();

@@ -1,0 +1,201 @@
+{
+  "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+  "media_info": {
+    "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+    "sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+    "source_url": "https://www.youtube.com/watch?v=lHkDE3BahB0",
+    "method": "ffprobe source container and stream metadata",
+    "version": "isymcp-media/1",
+    "result": {
+      "duration_seconds": 18.521,
+      "streams": [
+        {
+          "codec_name": "av1",
+          "codec_type": "video",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "codec_name": "opus",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "channels": 2,
+          "channel_layout": "stereo"
+        }
+      ]
+    }
+  },
+  "audio_analyze_mix_baseline": {
+    "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+    "sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+    "source_url": "https://www.youtube.com/watch?v=lHkDE3BahB0",
+    "window": {
+      "start_seconds": 0,
+      "end_seconds": 10
+    },
+    "method": "FFmpeg/ffprobe; audio mono mix at 16 kHz",
+    "version": "isymcp-media/1",
+    "result": {
+      "sample_rate": 16000,
+      "source_channels": 2,
+      "analysis_channels": 1,
+      "channel_mode": "mix",
+      "decoded_seconds": 9.9925,
+      "rms": 0.20121871850877115,
+      "peak": 0.9518107175827026,
+      "silence_threshold_dbfs": -50,
+      "silence_resolution_seconds": 0.1,
+      "silence": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 0.1
+        }
+      ],
+      "image_order": [
+        "mono mix waveform",
+        "mono mix spectrogram"
+      ],
+      "waveform_axes": "absolute source seconds; linear full-scale amplitude ±1 (values clipped in display)",
+      "spectrogram_axes": "log frequency and seconds relative to the requested interval start; add start_seconds for absolute source time"
+    },
+    "limitations": "Waveform and spectrum are acoustic measurements, not native listening or sound identification."
+  },
+  "audio_segments": {
+    "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+    "sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+    "source_url": "https://www.youtube.com/watch?v=lHkDE3BahB0",
+    "window": {
+      "start_seconds": 0,
+      "end_seconds": 10
+    },
+    "method": "FFmpeg RMS activity segmentation; mono 16 kHz",
+    "version": "isymcp-media/1",
+    "result": {
+      "sample_rate": 16000,
+      "analysis_channels": 1,
+      "decoded_seconds": 9.9925,
+      "method": "100 Hz RMS activity threshold on mono 16 kHz audio",
+      "parameters": {
+        "thresholdDbfs": -32,
+        "mergeGapSeconds": 0.15,
+        "minSegmentSeconds": 0.12,
+        "resolution_seconds": 0.01
+      },
+      "segments": [
+        {
+          "start_seconds": 0.17,
+          "end_seconds": 1.49,
+          "duration_seconds": 1.32,
+          "rms": 0.2640764914204965,
+          "peak": 0.9348395466804504
+        },
+        {
+          "start_seconds": 1.72,
+          "end_seconds": 2.41,
+          "duration_seconds": 0.69,
+          "rms": 0.2393862763536179,
+          "peak": 0.8286656141281128
+        },
+        {
+          "start_seconds": 2.65,
+          "end_seconds": 2.8,
+          "duration_seconds": 0.15,
+          "rms": 0.037534807015759966,
+          "peak": 0.288383811712265
+        },
+        {
+          "start_seconds": 3.02,
+          "end_seconds": 5.72,
+          "duration_seconds": 2.7,
+          "rms": 0.2498149132549113,
+          "peak": 0.9518107175827026
+        },
+        {
+          "start_seconds": 6.13,
+          "end_seconds": 6.62,
+          "duration_seconds": 0.49,
+          "rms": 0.11290515645814496,
+          "peak": 0.6060795783996582
+        },
+        {
+          "start_seconds": 6.93,
+          "end_seconds": 9.992,
+          "duration_seconds": 3.063,
+          "rms": 0.17861937034478342,
+          "peak": 0.6841768026351929
+        }
+      ],
+      "limitations": "Detects acoustic activity, not speech. Music, effects and noise can create segments; quiet speech can be missed. Use audio_analyze on a returned interval to inspect its waveform and spectrogram."
+    }
+  },
+  "audio_analyze_separate": {
+    "asset_id": "media_fa1cbbdc-8ad8-4211-bb22-971c0f6893f0",
+    "sha256": "af5d0a6c35ee5b9141e5f9620c9eb79fe38d7791543022b8f4c281df745739af",
+    "source_url": "https://www.youtube.com/watch?v=lHkDE3BahB0",
+    "window": {
+      "start_seconds": 3,
+      "end_seconds": 5
+    },
+    "method": "FFmpeg/ffprobe; audio channel separate at 16 kHz",
+    "version": "isymcp-media/1",
+    "result": {
+      "sample_rate": 16000,
+      "source_channels": 2,
+      "analysis_channels": 2,
+      "channel_mode": "separate",
+      "decoded_seconds": 2,
+      "rms": 0.21559856482534515,
+      "peak": 0.8344092965126038,
+      "silence_threshold_dbfs": -50,
+      "silence_resolution_seconds": 0.1,
+      "silence": [],
+      "channels": [
+        {
+          "name": "left",
+          "decoded_seconds": 2,
+          "rms": 0.1537532148531656,
+          "peak": 0.6106830835342407,
+          "silence_threshold_dbfs": -50,
+          "silence_resolution_seconds": 0.1,
+          "silence": []
+        },
+        {
+          "name": "right",
+          "decoded_seconds": 2,
+          "rms": 0.15146442115761613,
+          "peak": 0.5854928493499756,
+          "silence_threshold_dbfs": -50,
+          "silence_resolution_seconds": 0.1,
+          "silence": []
+        }
+      ],
+      "image_order": [
+        "left waveform",
+        "left spectrogram",
+        "right waveform",
+        "right spectrogram"
+      ],
+      "waveform_axes": "absolute source seconds; linear full-scale amplitude ±1 (values clipped in display)",
+      "spectrogram_axes": "log frequency and seconds relative to the requested interval start; add start_seconds for absolute source time"
+    },
+    "limitations": "Waveform and spectrum are acoustic measurements, not native listening or sound identification."
+  },
+  "images": [
+    {
+      "path": "/tmp/isymcp-audio-segments-0.png",
+      "bytes": 5599
+    },
+    {
+      "path": "/tmp/isymcp-audio-segments-1.png",
+      "bytes": 304397
+    },
+    {
+      "path": "/tmp/isymcp-audio-segments-2.png",
+      "bytes": 5442
+    },
+    {
+      "path": "/tmp/isymcp-audio-segments-3.png",
+      "bytes": 304428
+    }
+  ]
+}

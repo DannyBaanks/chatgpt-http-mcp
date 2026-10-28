@@ -1,0 +1,35 @@
+{
+  "version": "isymcp-native-browser-gate/1",
+  "browser": "native",
+  "ready": false,
+  "fallback": "none",
+  "phase": "capability-gate",
+  "modes": {
+    "codex": {
+      "state": "blocked",
+      "blocker": "native_browser_owner_adapter_missing",
+      "detail": "Las herramientas de navegador del chat no están conectadas al broker de ISyMCP mediante un propietario nativo verificado."
+    },
+    "autonomous": {
+      "state": "blocked",
+      "blocker": "native_browser_external_control_unverified",
+      "detail": "No hay un adaptador verificado que permita al panel o CLI abrir, controlar y recuperar la pestaña integrada sin este chat activo."
+    }
+  },
+  "acceptance": {
+    "boundNativeRead": "unverified",
+    "boundNativePatch": "unverified",
+    "boundNativeProcess": "unverified",
+    "twoConcurrentPairs": "unverified",
+    "autonomousRecovery": "unverified"
+  },
+  "next_action": "Implementar y demostrar el adaptador de propietario y navegador con un recibo MCP/nativo correlacionado antes de ampliar permisos o concurrencia.",
+  "protocol": {
+    "inspectedAt": "2026-10-23T08:26:11.369Z",
+    "version": "codex-cli 0.162.0",
+    "clientRequestSha256": "f1425525dae2903cb5b658ee412530ff7a8fcaf78887f182c169b299e7f6b09b",
+    "methodCount": 170,
+    "browserMethodCandidates": [],
+    "note": "La inspección del protocolo no prueba disponibilidad de herramientas inyectadas por la app, control externo del navegador ni ejecución E2E."
+  }
+}

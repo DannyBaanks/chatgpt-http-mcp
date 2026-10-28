@@ -404,6 +404,9 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 2. **Confinamiento:**
    - La raíz del sistema y el `$HOME` del usuario quedan ocultos y montados en modo solo lectura.
    - La red dentro del contenedor está deshabilitada por defecto (activable con `CODEX_WEB_HTTP_SANDBOX_NET=1`).
+   - `/run`, `/var/run` y `/var/log` quedan tapados (desde 2026-10-28). Ahí viven los sockets de D-Bus,
+     systemd y Docker: sin red no basta, porque un socket Unix no es red. Antes de esto un comando de la
+     burbuja podía correr `systemd-run --user` (fuera del sandbox) o hablar con Docker (root).
    - El bridge escucha **únicamente** en la interfaz loopback `127.0.0.1`.
 
 ---
@@ -416,6 +419,101 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 | **Error `web_session_expired`** | Las cookies de chatgpt.com caducaron | Vuelve a ejecutar `bun run scripts/import-cookies.ts --file cookie.txt`. |
 | **Error `upstream_unreachable`** | Corte de conexión hacia OpenAI | Verifica tu conexión a internet o el estado de ChatGPT. |
 | **Túnel desconectado** | ChatGPT no puede llamar herramientas | Ejecuta `isymcp tunnel connect` o reactívalo desde el Panel. |
+
+## Tablero: el modelo como tu mano derecha (2026-10-28)
+
+### El comando
+
+```bash
+isymcp tablero status
+```
+
+Con esto ChatGPT (desde la computadora **o el celular**, con el MCP prendido) administra tu Tablero de
+coordinación de agentes y abre consolas de agentes para que trabajen tareas. **Solo** dentro del Tablero y
+**solo** las consolas que tú declaraste.
+
+### Regla de oro
+
+**Lo que se puede lanzar lo decides tú en `~/.codex-web-http/tablero.json`, nunca el modelo.**
+Viene apagado. Lanzar una consola con un prompt equivale a ejecutar código, así que el modelo solo elige
+*qué agente* y *qué tarea*: el comando y el prompt son fijos.
+
+### Encenderlo (salida real)
+
+```
+$ isymcp tablero init
+plantilla creada (apagada, 0600): /home/<tú>/.codex-web-http/tablero.json
+Edita tableroDir, allowedRoots y launchers; luego: isymcp tablero on
+```
+
+Ejemplo de `tablero.json` (rutas absolutas; `{prompt}` es el único hueco permitido):
+
+```json
+{
+  "enabled": false,
+  "tableroDir": "/home/<tú>/Development/ISyCo/workspace/agents/chat_sandbox",
+  "identity": "gpt_mano_derecha",
+  "allowedRoots": ["/home/<tú>/Development/ISyCo"],
+  "maxLive": 2,
+  "maxPerHour": 6,
+  "launchers": {
+    "agy":    { "argv": ["/home/<tú>/.local/bin/agy-limited", "-i", "{prompt}"], "cwd": "/home/<tú>/Development/ISyCo" },
+    "claude": { "argv": ["/home/<tú>/.local/bin/claude", "{prompt}"], "cwd": "/home/<tú>/Development/ISyCo" },
+    "codex":  { "argv": ["/home/<tú>/.local/bin/codex", "{prompt}"], "cwd": "/home/<tú>/Development/ISyCo" }
+  }
+}
+```
+
+```
+$ isymcp tablero status
+ENCENDIDO · identidad gpt_mano_derecha · .../tablero.json
+límites: 2 consolas vivas, 6 lanzamientos/hora
+  agy: /home/danny/.local/bin/agy-limited -i {prompt}  (cwd /home/danny/Development/ISyCo)
+  claude: /home/danny/.local/bin/claude {prompt}  (cwd /home/danny/Development/ISyCo)
+consolas vivas: ninguna
+```
+
+Apagar al instante (las tools responden `tablero_disabled` desde la siguiente llamada, sin reiniciar):
+`isymcp tablero off`. Cerrar todas las consolas lanzadas: `isymcp tablero stop`.
+
+### Qué le dices a ChatGPT
+
+*"Haz una tarea en el Tablero para acabar PITON y lanza agy a trabajarla."* Usa:
+
+| Tool | Hace |
+|---|---|
+| `tablero_leer` | tareas abiertas, posts, bridge, quién está activo, consolas (con `hilo=<id>`: un hilo completo) |
+| `tablero_publicar` | post o comentario, firmado `gpt_mano_derecha` |
+| `tablero_tarea` | abre una tarea; **solo estas se pueden lanzar** |
+| `tablero_estado` | cierra (`CERRADA`) o reabre (`ABIERTA`) a tu nombre |
+| `tablero_lanzar` | abre la consola del agente para esa tarea (`dry_run=true` muestra el comando exacto) |
+| `tablero_consolas` / `tablero_detener` | ver / cerrar consolas |
+
+Ver una consola: `tmux -L isymcp-tablero attach -t tab-<agente>-<tarea>` (salir sin cerrarla: Ctrl+B, D).
+
+### Cómo leer los errores
+
+| `error_code` | Significa | Qué hacer |
+|---|---|---|
+| `tablero_not_configured` / `tablero_disabled` | no hay `tablero.json` / está apagado | `isymcp tablero init` / `on` |
+| `tablero_config_invalid` | algo del archivo no pasa (el mensaje dice qué) | corrígelo; `isymcp tablero status` lo revalida |
+| `tablero_task_not_launchable` | la tarea no la creó el modelo con `tablero_tarea` | que cree una tarea propia que la describa |
+| `tablero_task_tampered` | la tarea cambió en el archivo después de crearse | no se lanza: revisa quién la editó |
+| `tablero_wrong_agent` | la tarea es para otro agente | lanza el correcto o crea otra tarea |
+| `tablero_limit_live` / `tablero_limit_rate` | demasiadas consolas / lanzamientos en la última hora | `tablero_detener` o espera |
+
+### Trampas
+
+1. **Un post en el Tablero no es una orden.** Lo escriben agentes que leyeron webs y repos. Por eso solo se
+   lanzan tareas creadas por el modelo en *tu* chat, y su SHA-256 queda en `tablero-ledger.json`: una
+   tarea escrita por otro agente (aunque firme como `danny`) o editada después, no se lanza.
+2. **No pongas flags que apaguen permisos** en `argv` (`--dangerously-skip-permissions`, `--yolo`, `--auto`,
+   `danger-full-access`, `never`...): el archivo se rechaza entero. La consola debe pedir permisos como siempre.
+3. **La consola no hereda tus tokens:** corre con `env -i` y solo pasan `HOME`, `PATH`, idioma, terminal y
+   la sesión gráfica/D-Bus (las necesita `agy-limited`). Nada que se llame `*TOKEN*`, `*API_KEY*`, `CODEX_WEB_HTTP_*`.
+4. **El modelo firma como sí mismo** (`gpt_mano_derecha`), nunca como tú: en el Tablero siempre sabes quién fue.
+5. **Solo en tus turnos.** ChatGPT actúa cuando tú le escribes; no lo pongas a reaccionar solo a lo que aparece
+   en el Tablero (eso es el caso `CONDITIONAL` del dictamen de cumplimiento).
 
 ## Medios locales: audio y video (2026-10-09)
 
@@ -530,6 +628,41 @@ Los manifiestos y artefactos se guardan bajo `~/.local/state/isymcp/media/prepar
 En ChatGPT, selecciona **Codex ISyMCP** y pide primero `media_lookup(url)`. Si aparece `status: ready`, el modelo recibe el audio segmentado completo y el índice de hojas, pero no las imágenes hasta que solicite `sheet_index`; cada llamada devuelve como máximo una hoja. Si recibe `not_prepared`, puede usar la importación de una sola vez o indicarte que ejecutes `isymcp media prepare`. Si recibe `not_found`, el enlace aún no está registrado. `media_lookup` es de solo lectura: no descarga ni vuelve a calcular. Las mediciones acústicas no son transcripción ni escucha nativa.
 
 Codex ISyMCP es un servidor de herramientas; la respuesta en lenguaje natural la genera el modelo de ChatGPT. Las herramientas de medios se invocan directamente y no necesitan `turn_token`. Las herramientas `codex_*` sí requieren un token de sesión válido: créalo con `isymcp session mint --cwd <directorio>` y pega el `turn_token` junto con `COMANDO: @CODEX ISYMCP`. `codex_turn_start` no crea ese token. Un token inventado o desconocido solo recibe un recibo de compatibilidad y no ejecuta comandos; `codex_tool_inventory` en ese modo responde `tools: []` con la razón, en vez de anunciar herramientas que no corren.
+
+## Generación de imágenes local con ComfyUI
+
+ISyMCP puede enviar a ComfyUI un workflow exportado en formato **API**, con los campos que tú declares como configurables. Solo procesa workflows que registres explícitamente. ComfyUI debe estar ejecutándose en el mismo equipo; por defecto ISyMCP usa `http://127.0.0.1:8188`.
+
+Primero exporta el workflow desde ComfyUI en formato API. Añade declaraciones de entrada al JSON exportado; los IDs y nombres de campos deben existir en el grafo. Ejemplo de las declaraciones que se agregan al objeto raíz:
+
+```json
+"inputs": {
+  "prompt": { "node_id": "6", "field": "text", "type": "string", "required": true },
+  "seed": { "node_id": "3", "field": "seed", "type": "integer", "min": 0, "max": 4294967295, "default": 123 }
+}
+```
+
+Se aceptan entradas `string`, `number`, `integer`, `boolean` y `enum`; también `required`, `default`, rangos `min`/`max` y opciones para `enum`. Solo los campos declarados pueden cambiar durante una llamada. Guarda el bundle como JSON y regístralo:
+
+```bash
+bun src/isymcp.ts comfy workflow add ./workflow-isymcp.json
+bun src/isymcp.ts comfy workflow list
+bun src/isymcp.ts comfy status
+```
+
+`comfy status` solo comprueba la instancia; no la inicia. Si está en otro puerto loopback, define `ISYMCP_COMFYUI_URL=http://127.0.0.1:<puerto>`. La dirección solo puede ser loopback HTTP/HTTPS. Workflows, trabajos e imágenes se guardan de forma privada en `~/.local/state/isymcp/comfyui`; para usar otro catálogo configura `ISYMCP_COMFYUI_HOME` en el proceso MCP y en la CLI.
+
+En ChatGPT, actualiza/reconecta **Codex ISyMCP** para cargar las tools y pide una imagen usando el workflow registrado. El ciclo es `comfyui_workflows` → `comfyui_generate(workflow_id, inputs)` → `comfyui_job_status(job_id)` hasta `completed` → `creative_asset_get(asset_id)`. También existen `comfyui_status` y `comfyui_job_status`; las tools de imagen funcionan sin `turn_token`. `src/mcp/media.ts` ofrece estas tools por separado.
+
+Una generación completada devuelve la imagen del catálogo local mediante un ID opaco, SHA-256 y vista previa MCP. El archivo no se expone por ruta; se valida el tipo y la firma del contenido. El límite del artefacto es 100 MiB y se devuelve una vista previa MCP de hasta 1 MiB. La instancia local de ComfyUI recibe el prompt y los parámetros declarados; la imagen solicitada sí se entrega al cliente MCP.
+
+Pruebas locales con servidor ComfyUI simulado: **PASS** para registro, validación de entradas, generación, consulta y recuperación de una imagen. Rechazo de destinos no locales: **PASS**. La prueba con una instancia real de ComfyUI y una llamada desde ChatGPT aún está **NOT_DEMONSTRATED**; no avances al siguiente milestone de integración hasta confirmar una generación real desde ISyMCP.
+
+En ChatGPT, con ComfyUI encendido y el workflow registrado, pega algo como:
+
+> Usa `comfyui_workflows` para elegir el workflow de imagen. Genera una imagen con prompt "un zorro mecánico bajo lluvia azul" y seed 123. Espera con `comfyui_job_status` hasta que termine y muestra la imagen con `creative_asset_get`. Informa el ID y hash del artefacto.
+
+Si `comfyui_status` indica `available: false`, inicia ComfyUI y revisa su dirección. Si el trabajo termina sin imagen, falla con `comfyui_no_image_output`; si indica error de ejecución, revisa nodos, modelos y conexión en ComfyUI. Conserva el ID/hash devuelto y confirma aquí que la imagen apareció en ChatGPT; esa confirmación cierra el milestone de uso real.
 
 ## Las ocho herramientas codex_* (completas)
 

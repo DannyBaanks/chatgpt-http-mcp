@@ -54,6 +54,8 @@ import { drain, findLive, killSessionExecs, registerLiveExec, writeStdin as stdi
 import { CODEX_TOOLS, buildInstructions } from "./identity";
 import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
+import { registerComfyTools } from "../comfyui/register";
+import { registerTableroTools } from "../tablero/register";
 import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
 
 const args = process.argv.slice(2);
@@ -736,6 +738,9 @@ server.registerTool(
 );
 
 registerMediaTools(server);
+registerComfyTools(server);
+// Solo si el usuario creo tablero.json; apagado por defecto (ver src/tablero/config.ts).
+registerTableroTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

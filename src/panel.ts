@@ -16,6 +16,7 @@ import { chatPath, createChat, listChats, loadChat, publicChat, saveChat, MAX_DR
 import { CHAT_SCRIPT, CHAT_STYLE, renderChatView } from "./panel-chat";
 import { apply as harnessApply, detect as harnessDetect, plan as harnessPlan, type HarnessAction } from "./harness";
 import type { SystemMetrics } from "./metrics";
+import { nativeBrowserStatus, rejectUnavailableBrowser } from "./visible/native-browser";
 
 function pgrep(pattern: string): boolean {
   return processMatches(pattern);
@@ -391,6 +392,11 @@ export function renderMain(state: PanelState): string {
   </section>
 </div>
 ${visibleBrowserCard(state.visibleSession, state.tunnel === "ready")}
+<section class="card">
+  <h3>NAVEGADOR NATIVO DE CODEX <span class="pill tone-warn">blocked</span></h3>
+  <p class="small">La conexión E2E con la pestaña integrada está sin demostrar. Desde Codex falta vincular el propietario al broker; desde panel o CLI falta verificar el control autónomo de la pestaña.</p>
+  <p class="small muted">Diagnóstico: <code>isymcp native-browser probe --json</code>. La selección <code>--browser native</code> devuelve el bloqueo sin enviar el mensaje a otro navegador.</p>
+</section>
 ${complianceCard()}
 <section class="card">
   <h3>TAREAS DE CODEX <span class="muted small">· API Responses: una conversación de GPT.com por tarea</span></h3>
@@ -606,6 +612,10 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       const denied = guardLocalRequest(req, { requireJsonBody: true, loopbackOnly: true });
       if (denied) return denied;
       const url = new URL(req.url);
+      if (url.pathname === "/api/native-browser/status") {
+        if (req.method !== "GET") return apiError(405, "method_not_allowed", "GET");
+        return Response.json(nativeBrowserStatus(), { headers: { "cache-control": "no-store" } });
+      }
       if (url.pathname === "/assets/openai-white-monoblossom.png" && req.method === "GET") {
         try {
           return new Response(readFileSync(BLOSSOM_ASSET), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
@@ -712,8 +722,10 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
     return Response.json(publicChat(chat, false));
   }
   if (req.method !== "POST") return apiError(405, "method_not_allowed", "POST");
-  const body = (await req.json().catch(() => null)) as { message?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { message?: unknown; browser?: unknown } | null;
   if (!body || typeof body.message !== "string") return apiError(400, "chat_bad_request", "se espera {message}");
+  const denied = rejectUnavailableBrowser(body.browser);
+  if (denied) return denied;
   // Solo se reenvian chat_id + message: aunque el navegador mande mas campos
   // (p. ej. una URL), no llegan al bridge.
   try {

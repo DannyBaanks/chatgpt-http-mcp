@@ -190,6 +190,15 @@ isymcp codex launcher                              # installs ~/.local/bin/codex
 isymcp smoke                                       # automated end-to-end sanity verification
 ```
 
+**Native Codex browser — capability gate only.** `isymcp native-browser status --json`
+reports why the integrated-browser execution modes are currently blocked;
+`isymcp native-browser probe --json` inspects the installed Codex protocol without
+starting a model or changing configuration (exit 2 while unverified).
+`isymcp ask "hello" --browser native` fails explicitly rather than sending the
+message through the existing Chrome adapter. The native owner, autonomous
+browser adapter and two-pair E2E are not implemented. See the
+[capability matrix and evidence](docs/verification/2026-10-23-native-browser-gate.md).
+
 **Model and reasoning (experimental Web transport).** The browser adapter attempts to use whichever model and reasoning settings are available in the signed-in UI; availability and labels can change. In the chat's side panel, **Verificar** shows what ISyMCP sees (for example `GPT-5.6 Sol · High (3/3)`). **Sincronizar ajustes** opens a visible Chrome with your session: you set the model and reasoning by hand, close the window, and that becomes the bridge's default.
 
 *Note on Reasoning Traces vs Internal CoT:* The captured thinking (`reasoning_content` in API / thought boxes in the panel) represents the **visible summary and UI-rendered thoughts** exposed by ChatGPT Web's DOM. Capturing this DOM presentation is NOT equivalent to obtaining the model's full, raw latent internal Chain-of-Thought tokens. We document and stream strictly what is visibly presented on screen.
@@ -277,12 +286,15 @@ Process explicitly registered audio and video locally, then inspect the evidence
 | **One-off public YouTube video or Short** | Call `media_import(url)`, poll `media_import_status(job_id, wait_seconds: 10)` until `complete`, and use `asset.id`. |
 | **Inspect video** | Use `media_info`, `video_contact_sheet` for an overview and `video_frame` for a specific timestamp. |
 | **Inspect audio** | Use `audio_scan` to scan the complete track in chunks of at most 120 seconds, then `audio_analyze` to zoom into a selected waveform, spectrogram or stereo measurement. |
+| **Generate an image locally** | Register a ComfyUI API workflow with `isymcp comfy workflow add <workflow.json>`, then call `comfyui_generate` and retrieve its verified image with `creative_asset_get`. |
 
 For step-by-step commands and the verified ChatGPT prompt, see **[GUIA.md — Medios locales](GUIA.md#medios-locales-audio-y-video-2026-10-09)**.
 
 ### Local execution, entry points & limits
 
-The independent `src/mcp/media.ts` entry point processes only explicitly registered local assets. The main **Codex ISyMCP** entry point exposes the media tools alongside its existing `codex_*` tools; both share `src/media/register.ts`. `media_list` discovers only user-registered assets, paginated in groups of 20. `media_lookup` resolves only a canonical public YouTube URL already in the catalog and never starts work. Codex session authorization and sandbox behavior remain enforced.
+The independent `src/mcp/media.ts` entry point processes only explicitly registered local assets and exposes the local ComfyUI image tools. The main **Codex ISyMCP** entry point exposes the media and ComfyUI tools alongside its existing `codex_*` tools. `media_list` discovers only user-registered assets, paginated in groups of 20. `media_lookup` resolves only a canonical public YouTube URL already in the catalog and never starts work. Codex session authorization and sandbox behavior remain enforced.
+
+ComfyUI workflows are explicitly registered and stored with a SHA-256 under the private ISyMCP state directory. The connector only accepts a loopback ComfyUI endpoint; it validates declared inputs, stores generated image bytes locally, and returns an image preview by opaque asset ID. See the [ComfyUI setup and use guide](GUIA.md#generación-de-imágenes-local-con-comfyui).
 
 Both MCP entry points publish the bundled ISyMCP PNG through `serverInfo.icons` during initialization. ChatGPT or another MCP client may need to reconnect after upgrading the server before it refreshes the icon and tool catalog.
 
