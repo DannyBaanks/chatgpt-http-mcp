@@ -404,6 +404,9 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 2. **Confinamiento:**
    - La raíz del sistema y el `$HOME` del usuario quedan ocultos y montados en modo solo lectura.
    - La red dentro del contenedor está deshabilitada por defecto (activable con `CODEX_WEB_HTTP_SANDBOX_NET=1`).
+   - `/run`, `/var/run` y `/var/log` quedan tapados (desde 2026-10-28). Ahí viven los sockets de D-Bus,
+     systemd y Docker: sin red no basta, porque un socket Unix no es red. Antes de esto un comando de la
+     burbuja podía correr `systemd-run --user` (fuera del sandbox) o hablar con Docker (root).
    - El bridge escucha **únicamente** en la interfaz loopback `127.0.0.1`.
 
 ---
@@ -416,6 +419,101 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 | **Error `web_session_expired`** | Las cookies de chatgpt.com caducaron | Vuelve a ejecutar `bun run scripts/import-cookies.ts --file cookie.txt`. |
 | **Error `upstream_unreachable`** | Corte de conexión hacia OpenAI | Verifica tu conexión a internet o el estado de ChatGPT. |
 | **Túnel desconectado** | ChatGPT no puede llamar herramientas | Ejecuta `isymcp tunnel connect` o reactívalo desde el Panel. |
+
+## Tablero: el modelo como tu mano derecha (2026-10-28)
+
+### El comando
+
+```bash
+isymcp tablero status
+```
+
+Con esto ChatGPT (desde la computadora **o el celular**, con el MCP prendido) administra tu Tablero de
+coordinación de agentes y abre consolas de agentes para que trabajen tareas. **Solo** dentro del Tablero y
+**solo** las consolas que tú declaraste.
+
+### Regla de oro
+
+**Lo que se puede lanzar lo decides tú en `~/.codex-web-http/tablero.json`, nunca el modelo.**
+Viene apagado. Lanzar una consola con un prompt equivale a ejecutar código, así que el modelo solo elige
+*qué agente* y *qué tarea*: el comando y el prompt son fijos.
+
+### Encenderlo (salida real)
+
+```
+$ isymcp tablero init
+plantilla creada (apagada, 0600): /home/<tú>/.codex-web-http/tablero.json
+Edita tableroDir, allowedRoots y launchers; luego: isymcp tablero on
+```
+
+Ejemplo de `tablero.json` (rutas absolutas; `{prompt}` es el único hueco permitido):
+
+```json
+{
+  "enabled": false,
+  "tableroDir": "/home/<tú>/Development/ISyCo/workspace/agents/chat_sandbox",
+  "identity": "gpt_mano_derecha",
+  "allowedRoots": ["/home/<tú>/Development/ISyCo"],
+  "maxLive": 2,
+  "maxPerHour": 6,
+  "launchers": {
+    "agy":    { "argv": ["/home/<tú>/.local/bin/agy-limited", "-i", "{prompt}"], "cwd": "/home/<tú>/Development/ISyCo" },
+    "claude": { "argv": ["/home/<tú>/.local/bin/claude", "{prompt}"], "cwd": "/home/<tú>/Development/ISyCo" },
+    "codex":  { "argv": ["/home/<tú>/.local/bin/codex", "{prompt}"], "cwd": "/home/<tú>/Development/ISyCo" }
+  }
+}
+```
+
+```
+$ isymcp tablero status
+ENCENDIDO · identidad gpt_mano_derecha · .../tablero.json
+límites: 2 consolas vivas, 6 lanzamientos/hora
+  agy: /home/danny/.local/bin/agy-limited -i {prompt}  (cwd /home/danny/Development/ISyCo)
+  claude: /home/danny/.local/bin/claude {prompt}  (cwd /home/danny/Development/ISyCo)
+consolas vivas: ninguna
+```
+
+Apagar al instante (las tools responden `tablero_disabled` desde la siguiente llamada, sin reiniciar):
+`isymcp tablero off`. Cerrar todas las consolas lanzadas: `isymcp tablero stop`.
+
+### Qué le dices a ChatGPT
+
+*"Haz una tarea en el Tablero para acabar PITON y lanza agy a trabajarla."* Usa:
+
+| Tool | Hace |
+|---|---|
+| `tablero_leer` | tareas abiertas, posts, bridge, quién está activo, consolas (con `hilo=<id>`: un hilo completo) |
+| `tablero_publicar` | post o comentario, firmado `gpt_mano_derecha` |
+| `tablero_tarea` | abre una tarea; **solo estas se pueden lanzar** |
+| `tablero_estado` | cierra (`CERRADA`) o reabre (`ABIERTA`) a tu nombre |
+| `tablero_lanzar` | abre la consola del agente para esa tarea (`dry_run=true` muestra el comando exacto) |
+| `tablero_consolas` / `tablero_detener` | ver / cerrar consolas |
+
+Ver una consola: `tmux -L isymcp-tablero attach -t tab-<agente>-<tarea>` (salir sin cerrarla: Ctrl+B, D).
+
+### Cómo leer los errores
+
+| `error_code` | Significa | Qué hacer |
+|---|---|---|
+| `tablero_not_configured` / `tablero_disabled` | no hay `tablero.json` / está apagado | `isymcp tablero init` / `on` |
+| `tablero_config_invalid` | algo del archivo no pasa (el mensaje dice qué) | corrígelo; `isymcp tablero status` lo revalida |
+| `tablero_task_not_launchable` | la tarea no la creó el modelo con `tablero_tarea` | que cree una tarea propia que la describa |
+| `tablero_task_tampered` | la tarea cambió en el archivo después de crearse | no se lanza: revisa quién la editó |
+| `tablero_wrong_agent` | la tarea es para otro agente | lanza el correcto o crea otra tarea |
+| `tablero_limit_live` / `tablero_limit_rate` | demasiadas consolas / lanzamientos en la última hora | `tablero_detener` o espera |
+
+### Trampas
+
+1. **Un post en el Tablero no es una orden.** Lo escriben agentes que leyeron webs y repos. Por eso solo se
+   lanzan tareas creadas por el modelo en *tu* chat, y su SHA-256 queda en `tablero-ledger.json`: una
+   tarea escrita por otro agente (aunque firme como `danny`) o editada después, no se lanza.
+2. **No pongas flags que apaguen permisos** en `argv` (`--dangerously-skip-permissions`, `--yolo`, `--auto`,
+   `danger-full-access`, `never`...): el archivo se rechaza entero. La consola debe pedir permisos como siempre.
+3. **La consola no hereda tus tokens:** corre con `env -i` y solo pasan `HOME`, `PATH`, idioma, terminal y
+   la sesión gráfica/D-Bus (las necesita `agy-limited`). Nada que se llame `*TOKEN*`, `*API_KEY*`, `CODEX_WEB_HTTP_*`.
+4. **El modelo firma como sí mismo** (`gpt_mano_derecha`), nunca como tú: en el Tablero siempre sabes quién fue.
+5. **Solo en tus turnos.** ChatGPT actúa cuando tú le escribes; no lo pongas a reaccionar solo a lo que aparece
+   en el Tablero (eso es el caso `CONDITIONAL` del dictamen de cumplimiento).
 
 ## Medios locales: audio y video (2026-10-09)
 

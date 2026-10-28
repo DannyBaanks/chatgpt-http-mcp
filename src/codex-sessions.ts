@@ -444,6 +444,44 @@ function toolchainBinds(home: string): string[] {
   return out;
 }
 
+/**
+ * Rutas del host tapadas con tmpfs encima de `--ro-bind / /`.
+ *
+ * /run y /var/run guardan sockets Unix con ruta (D-Bus de sesion y de sistema,
+ * systemd --user, docker.sock). --unshare-net no los corta y conectar a un
+ * socket no es "escribir", asi que el ro-bind no protegia: un comando llegaba
+ * a `systemd-run --user` (ejecutar fuera de la burbuja) o a docker (root si el
+ * usuario esta en el grupo docker). Demostrado 2026-10-28. /var/log se lee con
+ * el grupo adm.
+ */
+const HOST_MASKS = ["/run", "/var/run", "/var/log"];
+
+function hostMaskArgs(shareNet: boolean): string[] {
+  const masked = new Set<string>();
+  for (const path of HOST_MASKS) {
+    let real: string;
+    try {
+      real = realpathSync(path); // /var/run -> /run en Ubuntu: un solo tmpfs
+    } catch {
+      continue;
+    }
+    if (statSync(real).isDirectory()) masked.add(real);
+  }
+  const out: string[] = [];
+  for (const dir of masked) out.push("--tmpfs", dir);
+  // Con red opt-in, /etc/resolv.conf suele apuntar a /run/systemd/resolve/:
+  // re-exponer solo ese archivo (ro), no el directorio ni su socket.
+  if (shareNet) {
+    try {
+      const resolv = realpathSync("/etc/resolv.conf");
+      if ([...masked].some((dir) => resolveWithin(dir, resolv) !== null)) out.push("--ro-bind", resolv, resolv);
+    } catch {
+      // sin resolv.conf no hay nada que re-exponer
+    }
+  }
+  return out;
+}
+
 /** Variables que el comando ve dentro de la burbuja (el resto se borra). */
 const SANDBOX_ENV_KEEP = ["PATH", "LANG", "LC_ALL", "TERM", "TZ"];
 
@@ -525,6 +563,7 @@ export function sandboxPlan(
     }
   }
   const home = homedir();
+  const shareNet = process.env.CODEX_WEB_HTTP_SANDBOX_NET?.trim() === "1";
   const args = [
     BWRAP,
     "--ro-bind", "/", "/",
@@ -532,6 +571,7 @@ export function sandboxPlan(
     "--proc", "/proc",
     "--tmpfs", "/tmp",
     "--tmpfs", home,
+    ...hostMaskArgs(shareNet),
   ];
   // Secretos del bridge fuera de $HOME (CODEX_WEB_HTTP_HOME) tambien se tapan.
   const secrets = bridgeHome();
@@ -540,7 +580,7 @@ export function sandboxPlan(
   }
   args.push(...toolchainBinds(home));
   args.push("--unshare-all");
-  if (process.env.CODEX_WEB_HTTP_SANDBOX_NET?.trim() === "1") args.push("--share-net");
+  if (shareNet) args.push("--share-net");
   args.push("--die-with-parent", "--new-session", "--clearenv", ...sandboxEnv(home));
   // Re-exponer el workspace DESPUES de los tmpfs: si vive bajo /tmp o $HOME
   // el tmpfs lo taparia y --chdir fallaria.

@@ -93,6 +93,34 @@ describe.skipIf(!sandboxAvailable())("sandbox: aislamiento de secretos", () => {
     expect(String(res.stdout).trim().split(/\s+/)).toEqual(["lo"]);
   });
 
+  // --unshare-net no corta sockets Unix con ruta y conectar a uno no es
+  // "escribir": con --ro-bind / / el comando llegaba a /run/user/<uid>/bus
+  // (systemd-run --user = ejecutar fuera de la burbuja) y a docker.sock (root
+  // si el usuario esta en el grupo docker). Escape demostrado 2026-10-28.
+  test.skipIf(backend !== "bwrap")("no alcanza sockets del host (D-Bus, systemd, docker) ni /var/log", async () => {
+    const uid = process.getuid?.() ?? 1000;
+    const hostPaths = [
+      `/run/user/${uid}/bus`,
+      `/run/user/${uid}/systemd`,
+      "/run/docker.sock",
+      "/var/run/docker.sock",
+      "/run/dbus/system_bus_socket",
+      "/var/log/syslog",
+    ];
+    // Control: solo cuenta lo que existe en este host; si nada existe, la prueba no demostraria nada.
+    const present = hostPaths.filter((p) => existsSync(p));
+    expect(present.length).toBeGreaterThan(0);
+    const ro = mintSession(workspace, { label: "iso-sockets" });
+    const probe = present.map((p) => `test -e '${p}' && echo "VISIBLE ${p}"`).join("; ");
+    const res = await callMcpTool(bridgeHome, "codex_exec", {
+      turn_token: ro.token,
+      command: ["sh", "-c", `${probe}; echo probe-done`],
+    }, env());
+    expect(res.executed).toBe(true);
+    expect(String(res.stdout)).toContain("probe-done");
+    expect(String(res.stdout)).not.toContain("VISIBLE");
+  });
+
   sandboxTest("workspace que contiene el home del bridge: el registro sigue tapado", async () => {
     const outer = join(base, "outer");
     const innerBridge = join(outer, ".codex-web-http");
