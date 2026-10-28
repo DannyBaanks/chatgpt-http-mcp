@@ -16,6 +16,7 @@ import { parseWsTurn, wsFrames } from "./ws-responses";
 import { guardLocalRequest } from "./local-guard";
 import { forwardHeaders, NativeWsProxy, upstreamWsUrl } from "./ws-native-proxy";
 import { ChatTurnError, chatStatus, runChatTurn } from "./chat-turn";
+import { rejectUnavailableBrowser } from "./visible/native-browser";
 import { publicChat } from "./chats";
 import { finishSettingsWindow, openSettingsWindow, settingsStatus, verifySettings } from "./chatgpt-settings";
 import { formatPrometheusMetrics, getMetrics } from "./metrics";
@@ -126,10 +127,12 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
     }
     if (url.pathname === "/isymcp/chat/turn") {
       if (req.method !== "POST") return errorJson(405, "method_not_allowed", "POST esperado");
-      const body = (await req.json().catch(() => null)) as { chat_id?: unknown; message?: unknown } | null;
+      const body = (await req.json().catch(() => null)) as { chat_id?: unknown; message?: unknown; browser?: unknown } | null;
       if (!body || typeof body.chat_id !== "string" || typeof body.message !== "string") {
         return errorJson(400, "chat_bad_request", "se espera {chat_id, message}");
       }
+      const denied = rejectUnavailableBrowser(body.browser);
+      if (denied) return denied;
       try {
         const outcome = await runChatTurn(body.chat_id, body.message, config);
         return Response.json({ ok: outcome.ok, reply: outcome.reply, chat: publicChat(outcome.chat, false) });

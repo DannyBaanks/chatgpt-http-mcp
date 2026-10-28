@@ -190,6 +190,15 @@ isymcp codex launcher                              # installs ~/.local/bin/codex
 isymcp smoke                                       # automated end-to-end sanity verification
 ```
 
+**Native Codex browser — capability gate only.** `isymcp native-browser status --json`
+reports why the integrated-browser execution modes are currently blocked;
+`isymcp native-browser probe --json` inspects the installed Codex protocol without
+starting a model or changing configuration (exit 2 while unverified).
+`isymcp ask "hello" --browser native` fails explicitly rather than sending the
+message through the existing Chrome adapter. The native owner, autonomous
+browser adapter and two-pair E2E are not implemented. See the
+[capability matrix and evidence](docs/verification/2026-10-23-native-browser-gate.md).
+
 **Model and reasoning (experimental Web transport).** The browser adapter attempts to use whichever model and reasoning settings are available in the signed-in UI; availability and labels can change. In the chat's side panel, **Verificar** shows what ISyMCP sees (for example `GPT-5.6 Sol · High (3/3)`). **Sincronizar ajustes** opens a visible Chrome with your session: you set the model and reasoning by hand, close the window, and that becomes the bridge's default.
 
 *Note on Reasoning Traces vs Internal CoT:* The captured thinking (`reasoning_content` in API / thought boxes in the panel) represents the **visible summary and UI-rendered thoughts** exposed by ChatGPT Web's DOM. Capturing this DOM presentation is NOT equivalent to obtaining the model's full, raw latent internal Chain-of-Thought tokens. We document and stream strictly what is visibly presented on screen.

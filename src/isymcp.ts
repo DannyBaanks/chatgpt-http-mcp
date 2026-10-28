@@ -34,6 +34,7 @@ import { detectTuis, installIntoOpencode } from "./tui";
 import { bridgeAuthHeaders } from "./local-guard";
 import { processMatches, stopProcessTree } from "./platform/process";
 import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
+import { nativeBrowserCommand, parseBrowserOption, rejectUnavailableBrowser } from "./visible/native-browser";
 
 const ROOT = join(import.meta.dir, "..");
 const PORT = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
@@ -562,6 +563,8 @@ function help(): void {
   isymcp down                para server y tunel
   isymcp server start|stop
   isymcp tunnel connect|stop|status
+  isymcp native-browser status|probe [--json] diagnostico del navegador nativo
+  isymcp ask "texto" --browser native seleccion explicita; falla si no esta disponible
   isymcp models              dry-run del perfil Web privado
   isymcp models apply        prepara perfil aislado; no cambia Codex global
   isymcp models restore      restaura solo el perfil Web propio
@@ -796,6 +799,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await openMenu();
 } else if (!cmd || cmd === "status") {
   await status();
+} else if (cmd === "native-browser") {
+  process.exitCode = await nativeBrowserCommand(sub, rest);
 } else if (cmd === "media") {
   try { await (await import("./media/cli")).mediaCommand(sub, rest); }
   catch (error) {
@@ -936,7 +941,16 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
     process.exit(2);
   }
 } else if (cmd === "ask") {
-  const args = [sub, ...rest].filter((a): a is string => Boolean(a));
+  let selected: ReturnType<typeof parseBrowserOption>;
+  try { selected = parseBrowserOption([sub, ...rest].filter((a): a is string => Boolean(a))); }
+  catch (error) { console.error(error instanceof Error ? error.message : "browser_selection_invalid"); process.exit(2); }
+  const denied = rejectUnavailableBrowser(selected.browser);
+  if (denied) {
+    const body = await denied.json();
+    console.error(`${body.error.type}: ${body.error.message}`);
+    process.exit(2);
+  }
+  const args = selected.args;
   const fresh = args.includes("--new");
   let text = args.filter((a) => a !== "--new").join(" ");
   if (!text && !process.stdin.isTTY) text = await Bun.stdin.text();
