@@ -539,7 +539,8 @@ function help(): void {
                              el mismo chat (visible en el panel); --new abre otro.
                              Tambien por stdin: echo hola | isymcp ask
   isymcp up [--no-connector] levanta server (detached) y conecta el tunel;
-                             el server deja elegido el connector Codex ISyMCP
+                             no toca ~/.codex/config.toml. Para enrutarlo ahi:
+                             isymcp models apply, o usa isymcp codex
   isymcp down                para server y tunel
   isymcp server start|stop
   isymcp tunnel connect|stop|status
@@ -620,13 +621,9 @@ async function ask(question: string): Promise<string> {
   return answer.trim();
 }
 
-const reinstall = () => {
-  try { installIntoCodex(true); } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-  }
-};
-
 // Una entrada por hoja visible del menu (tests/menu.test.ts lo exige).
+// up/restart no escriben ~/.codex/config.toml. La ruta global es opt-in:
+// isymcp models apply. Si no, Codex manda tambien Luna al bridge apagado.
 const ACTIONS: Record<string, () => Promise<void> | void> = {
   "up": async () => {
     startServer();
@@ -634,10 +631,9 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
     console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
     tunnel("connect");
     guardarSesion("default");
-    reinstall();
   },
   "down": () => { tunnel("stop"); stopServer(); },
-  "restart": () => { tunnel("stop"); stopServer(); startServer(); tunnel("connect"); reinstall(); },
+  "restart": () => { tunnel("stop"); stopServer(); startServer(); tunnel("connect"); },
   "status": () => status(),
   "panel-open": () => openPanel(),
   "panel-start": async () => { await startPanelDetached(); },
@@ -758,7 +754,6 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await new Promise((r) => setTimeout(r, 800));
   console.log(`health: ${(await serverUp()) ? "ok" : "aun no responde"}`);
   tunnel("connect");
-  installIntoCodex(true);
 } else if (cmd === "down") {
   tunnel("stop");
   stopServer();
