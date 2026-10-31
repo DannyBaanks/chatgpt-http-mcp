@@ -81,13 +81,27 @@ export function toolSchemas(registry: Map<string, NativeTool>, names: unknown): 
 /** Large registries are indexed; exact non-core schemas can be requested. */
 export function toolPrompt(registry: Map<string, NativeTool>, choice: NativeToolChoice = "auto"): string {
   if (!registry.size) return "";
-  if (choice === "none") return `ISyMCP CODEX RESPONSE CONTRACT\nThe caller selected tool_choice=none. Tools and schema requests are disabled for this response. Reply with exactly ONE JSON object: {"kind":"final","text":"your answer"}, optionally inside one json code fence. Do not execute through ChatGPT apps or invent tool results.\nEND CODEX RESPONSE CONTRACT\n\n`;
+  if (choice ===
+    "none") return (`ISyMCP CODEX RESPONSE CONTRACT\nThe caller selected tool_choice=none. Tools and schema requests are disabled for this response. Reply ` +
+      `with exactly ONE JSON object: {"kind":"final","text":"your answer"}, optionally inside one json code fence. Do not execute through ChatGPT apps or ` +
+      `invent tool results.\nEND CODEX RESPONSE CONTRACT\n\n`);
   const directory = JSON.stringify([...registry.values()].map(t => ({ tool: t.wireName, type: t.type })));
   if (directory.length > 200_000) throw new WebTaskError("web_tool_registry_too_large", 400, "tool directory exceeds transport budget");
-  const core = [...registry.values()].filter(t => t.type === "tool_search" || /^(?:functions\.)?(exec|exec_command|shell|shell_command|write_stdin|apply_patch|view_image)$/.test(t.wireName));
+  const core = [...registry.values()].filter(t => t.type === "tool_search" ||
+    /^(?:functions\.)?(exec|exec_command|shell|shell_command|write_stdin|apply_patch|view_image)$/.test(t.wireName));
   let initial = JSON.stringify(core.map(schema));
   if (initial.length > 128_000) initial = "[]";
-  return `ISyMCP CODEX RESPONSE CONTRACT\nYou are the reasoning model of an outer Codex task. Codex executes tools and owns its sandbox, approvals and process sessions. Native image outputs are unsupported in this text transport; image viewers are excluded. Other tools that return images/audio must not be requested. Reply with exactly ONE JSON object, optionally inside one json code fence. No other prose outside it.\nFor a final answer: {"kind":"final","text":"your answer"}.\nFor one native function call: {"kind":"call","tool":"exact registered name","arguments":{...}}. For one native custom tool: {"kind":"call","tool":"exact registered name","input":"exact freeform input"}. Do not execute through ChatGPT apps or invent tool results. Wait for the next message containing the real Codex result before reporting success. Nonzero exits and denials remain failures.\nTo obtain exact schemas for other registered tools first: {"kind":"describe_tools","names":["exact name"]}. If tool_search is enabled, discover additional client tools with {"kind":"call","tool":"tool_search","arguments":{...}} using its supplied schema; Codex performs that search and returns the authorized definitions. Do not invent undiscovered names. Only one native call per response; later calls can follow its result.\nTool directory (enabled names from this client):\n${directory}\nInitial exact schemas:\n${initial}\nEND CODEX RESPONSE CONTRACT\n\n`;
+  return (`ISyMCP CODEX RESPONSE CONTRACT\nYou are the reasoning model of an outer Codex task. Codex executes tools and owns its sandbox,` +
+    ` approvals and process sessions. Native image outputs are unsupported in this text transport; image viewers are excluded. Other tools that return ` +
+    `images/audio must not be requested. Reply with exactly ONE JSON object, optionally inside one json code fence. No other prose outside it.\nFor a final ` +
+    `answer: {"kind":"final","text":"your answer"}.\nFor one native function call: {"kind":"call","tool":"exact registered name","arguments":{...}}` +
+    `. For one native custom tool: {"kind":"call","tool":"exact registered name","input":"exact freeform input"}. Do not execute through ChatGPT apps or ` +
+    `invent tool results. Wait for the next message containing the real Codex result before reporting success. Nonzero exits and denials remain ` +
+    `failures.\nTo obtain exact schemas for other registered tools first: {"kind":"describe_tools","names":["exact name"]}` +
+    `. If tool_search is enabled, discover additional client tools with {"kind":"call","tool":"tool_search","arguments":{...}} using its supplied schema;` +
+    ` Codex performs that search and returns the authorized definitions. Do not invent undiscovered names. Only one native call per response;` +
+    ` later calls can follow its result.\nTool directory (enabled names from this client):\n${
+    directory}\nInitial exact schemas:\n${initial}\nEND CODEX RESPONSE CONTRACT\n\n`);
 }
 
 export type ToolReply = { kind: "final"; text: string } | { kind: "call"; call: NativeCall } | { kind: "describe_tools"; schemas: string };

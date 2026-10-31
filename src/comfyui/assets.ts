@@ -47,7 +47,8 @@ export class CreativeAssetStore {
     mkdirSync(this.assetsHome, { recursive: true, mode: 0o700 });
   }
 
-  addImage(bytes: Buffer, mimeType: string, source: { job_id: string; workflow_id: string; workflow_sha256: string; output_index: number }): CreativeImageAsset {
+  addImage(bytes: Buffer, mimeType: string, source: { job_id: string; workflow_id: string; workflow_sha256: string; output_index: number }):
+    CreativeImageAsset {
     if (bytes.length < 12 || bytes.length > MAX_IMAGE_BYTES) throw Error('ComfyUI image exceeds the local asset limit');
     if (!validMagic(bytes, mimeType)) throw Error('ComfyUI returned invalid image bytes');
     if (!Number.isInteger(source.output_index) || source.output_index < 0) throw Error('Invalid image output index');
@@ -89,7 +90,8 @@ export class CreativeAssetStore {
     if (asset.id !== id || asset.kind !== 'image' || asset.file !== `${id}${extension(asset.mime_type)}`) throw Error('Creative asset metadata is invalid');
     if (extname(asset.file) !== extension(asset.mime_type)) throw Error('Creative asset metadata is invalid');
     const bytes = readFileSync(join(this.assetsHome, asset.file));
-    if (bytes.length !== asset.bytes || digest(bytes) !== asset.sha256 || !validMagic(bytes, asset.mime_type)) throw Error('Creative asset integrity check failed');
+    if (bytes.length !== asset.bytes || digest(bytes) !== asset.sha256 || !validMagic(bytes, asset.mime_type)) throw Error(
+      'Creative asset integrity check failed');
     return { asset, bytes };
   }
 }

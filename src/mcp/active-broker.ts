@@ -7,7 +7,8 @@ import { isWindowsPipePath, localIpcPath } from "../platform/ipc";
 import { canaryCommand, validCanaryEnvironment } from "./current-owner-canary";
 import { nativeGateway } from "./active-native";
 
-interface Call { callId: string; wireName: string; freeform: true; input: string; delivered: boolean; resolve: (r: unknown) => void; reject: (e: Error) => void }
+interface Call { callId: string; wireName: string; freeform: true; input: string; delivered: boolean; resolve: (r: unknown) => void;
+  reject: (e: Error) => void }
 interface Channel {
   environment: any; expires: number; revision: number; committed: boolean;
   activities: Set<string>; bindings: Set<string>; calls: Map<string, Call>;
@@ -41,7 +42,8 @@ export async function createActiveBroker(socketPath: string) {
         !r.environment || typeof r.environment.cwd !== "string" ||
         !(r.environment.sandboxPolicy?.type === "readOnly" && r.environment.executionGrant === undefined || validCanaryEnvironment(r.environment)) ||
         !Array.isArray(r.environment.writableRoots) || r.environment.writableRoots.length ||
-        !Array.isArray(r.environment.tools) || r.environment.tools.length !== 1 || r.environment.tools[0].name !== "exec" || r.environment.tools[0].freeform !== true) throw Error("invalid_native_owner_environment");
+        !Array.isArray(r.environment.tools) || r.environment.tools.length !== 1 || r.environment.tools[0].name !== "exec" ||
+          r.environment.tools[0].freeform !== true) throw Error("invalid_native_owner_environment");
       if (channels.size >= 32) throw Error("native_owner_limit");
       const token = key("turn_");
       const environment = validCanaryEnvironment(r.environment) ? { ...r.environment, cwd: realpathSync(r.environment.cwd) } : r.environment;

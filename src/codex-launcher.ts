@@ -85,7 +85,8 @@ export function createWindowsShortcut(powershell: string, ps: string): void {
   const timeouts = [20000, 30000, 45000];
   let lastError = "";
   for (let attempt = 0; attempt < timeouts.length; attempt++) {
-    const result = Bun.spawnSync([powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", ps], { stdout: "ignore", stderr: "pipe", timeout: timeouts[attempt] });
+    const result = Bun.spawnSync([powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", ps], { stdout: "ignore", stderr: "pipe",
+      timeout: timeouts[attempt] });
     if (result.exitCode === 0) return;
     lastError = result.stderr.toString().slice(0, 250);
     if (attempt < timeouts.length - 1) Bun.sleepSync(500);
@@ -113,10 +114,19 @@ export function installDesktopLauncher(options: { binDir?: string; appDir?: stri
     const binPath = join(winBinDir, "codex-isymcp.cmd");
     const desktopPath = join(winAppDir, "Codex (ISyMCP Web).lnk");
     const entryPoint = join(import.meta.dir, "isymcp.ts");
-    writeFileSync(binPath, `@echo off\r\nsetlocal\r\nif not defined CODEX_WEB_HTTP_PORT set "CODEX_WEB_HTTP_PORT=${port}"\r\n"${process.execPath}" run "${entryPoint}" codex %*\r\n`);
+    writeFileSync(binPath, `@echo off\r\nsetlocal\r\nif not defined CODEX_WEB_HTTP_PORT set "CODEX_WEB_HTTP_PORT=${port}"\r\n"${process.execPath}" run "${
+      entryPoint}" codex %*\r\n`);
     securePrivatePath(binPath, false);
     const b64 = (value: string) => Buffer.from(value, "utf16le").toString("base64");
-    const ps = `$ErrorActionPreference='Stop'; $shell=New-Object -ComObject WScript.Shell; $shortcut=$shell.CreateShortcut([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(desktopPath)}'))); $shortcut.TargetPath=[Environment]::GetEnvironmentVariable('ComSpec'); $bin=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(binPath)}')); $shortcut.Arguments='/d /s /c ""'+$bin+'""'; $shortcut.WorkingDirectory=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(join(import.meta.dir, ".."))}')); $shortcut.Description='Codex con el perfil Web aislado de ISyMCP'; $shortcut.Save()`;
+    const ps =
+      (`$ErrorActionPreference='Stop'; $shell=New-Object -ComObject WScript.Shell; $shortcut=$shell.CreateShortcut([Text.Encoding]::Unicode.GetString([Conver` +
+        `t]::FromBase64String('${
+      b64(
+      desktopPath)}'))); $shortcut.TargetPath=[Environment]::GetEnvironmentVariable('ComSpec'); $bin=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64` +
+        `String('${
+      b64(
+      binPath)}')); $shortcut.Arguments='/d /s /c ""'+$bin+'""'; $shortcut.WorkingDirectory=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${
+      b64(join(import.meta.dir, ".."))}')); $shortcut.Description='Codex con el perfil Web aislado de ISyMCP'; $shortcut.Save()`);
     const powershell = process.env.SystemRoot ? join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
     createWindowsShortcut(powershell, ps);
     securePrivatePath(desktopPath, false);
@@ -164,7 +174,8 @@ export function removeDesktopLauncher(options: { binDir?: string; appDir?: strin
 } {
   const home = homedir();
   const binDir = options.binDir ?? (process.platform === "win32" ? join(process.env.LOCALAPPDATA ?? home, "Programs", "ISyMCP") : join(home, ".local", "bin"));
-  const appDir = options.appDir ?? (process.platform === "win32" ? join(process.env.APPDATA ?? home, "Microsoft", "Windows", "Start Menu", "Programs", "ISyMCP") : join(home, ".local", "share", "applications"));
+  const appDir = options.appDir ?? (process.platform === "win32" ? join(process.env.APPDATA ?? home, "Microsoft", "Windows", "Start Menu", "Programs",
+    "ISyMCP") : join(home, ".local", "share", "applications"));
 
   const binPath = join(binDir, process.platform === "win32" ? "codex-isymcp.cmd" : "codex-isymcp");
   const desktopPath = join(appDir, process.platform === "win32" ? "Codex (ISyMCP Web).lnk" : "codex-isymcp.desktop");

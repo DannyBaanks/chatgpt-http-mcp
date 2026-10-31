@@ -27,7 +27,8 @@ export class ConversationJournal {
   const lines=text.trimEnd().split('\n');let header:any;
   try{header=JSON.parse(lines.shift()!);}catch{throw Error('journal_corrupt_header');}
   if(header.version!=='isymcp-conversation-journal/1'||identity(header.owner)!==identity(owner))throw Error('journal_owner_mismatch');
-  try{this.entries=lines.map((line,i)=>{const row=JSON.parse(line);if(row.sequence!==i+1||identity(row.owner)!==identity(owner)||!row.event||!row.at)throw Error();return row;});}
+  try{this.entries=lines.map((line,i)=>{const row=JSON.parse(line);if(row.sequence!==i+1||identity(row.owner)!==identity(owner)||!row.event||
+    !row.at)throw Error();return row;});}
   catch{throw Error('journal_corrupt_records_preserved');}
   this.bytes=Buffer.byteLength(text);
  }
@@ -36,9 +37,11 @@ export class ConversationJournal {
   try{fd=openSync(lock,'wx',0o600);}catch{throw Error('journal_writer_conflict');}
   try{
    const stat=lstatSync(this.path);
-   if(!stat.isFile()||stat.isSymbolicLink()||(process.platform!=='win32'&&stat.uid!==process.getuid?.())||stat.size!==this.bytes)throw Error('journal_writer_changed');
+   if(!stat.isFile()||stat.isSymbolicLink()||(process.platform!=='win32'&&stat.uid!==process.getuid?.())||stat.size!==this.bytes)throw Error(
+     'journal_writer_changed');
    const entry:ConversationEntry={sequence:this.entries.length+1,at:new Date().toISOString(),owner:this.owner,event:structuredClone(event)};
-   const line=JSON.stringify(entry)+'\n';const out=openSync(this.path,constants.O_WRONLY|constants.O_APPEND|(process.platform==='win32'?0:constants.O_NOFOLLOW));
+   const line=JSON.stringify(entry)+'\n';const out=openSync(this.path,constants.O_WRONLY|constants.O_APPEND|(process.platform==='win32'?
+     0:constants.O_NOFOLLOW));
    try{appendFileSync(out,line);}finally{closeSync(out);}
    this.bytes+=Buffer.byteLength(line);this.entries.push(entry);return structuredClone(entry);
   }finally{closeSync(fd);unlinkSync(lock);}

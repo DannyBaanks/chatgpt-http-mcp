@@ -13,7 +13,8 @@ export function youtubeDownloaderBinary(env:NodeJS.ProcessEnv=process.env):strin
 }
 export function downloadBudget(dir:string,maxBytes:number):string|undefined {
  let sum=0;
- for(const name of readdirSync(dir)){const stat=statSync(join(dir,name));if(!stat.isFile())continue;sum+=stat.size;if(stat.size>maxBytes)return 'Downloaded media exceeds file limit';}
+ for(const name of readdirSync(dir)){const stat=statSync(join(dir,name));if(!stat.isFile())continue;sum+=stat.size;if(stat.
+   size>maxBytes)return 'Downloaded media exceeds file limit';}
  if(sum>maxBytes*2)return 'Download workspace exceeds disk limit';
  const disk=statfsSync(dir);if(disk.bavail*disk.bsize<64*1024*1024)return 'Insufficient free disk space for import';
 }

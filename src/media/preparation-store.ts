@@ -124,7 +124,8 @@ export class MediaPreparationStore {
     try { value = JSON.parse(data.toString('utf8')); } catch { throw Error('Invalid preparation manifest'); }
     if (!isRecord(value) || value.schema_version !== SCHEMA || value.asset_id !== assetId || value.generation_id !== generationId ||
       !hashPattern.test(String(value.source_sha256)) || typeof value.source_url !== 'string' ||
-      !['preparing', 'partial', 'failed', 'ready'].includes(String(value.status)) || !Array.isArray(value.artifacts)) throw Error('Invalid preparation manifest');
+      !['preparing', 'partial', 'failed', 'ready'].includes(String(value.status)) || !Array.isArray(value.artifacts)) throw Error(
+        'Invalid preparation manifest');
     const ids = new Set<string>();
     for (const raw of value.artifacts) {
       if (!isRecord(raw) || !['audio_scan', 'contact_sheet'].includes(String(raw.kind)) || typeof raw.id !== 'string' ||
@@ -132,7 +133,8 @@ export class MediaPreparationStore {
         !Number.isSafeInteger(raw.bytes) || Number(raw.bytes) < 0 || !hashPattern.test(String(raw.sha256)) ||
         !hashPattern.test(String(raw.fingerprint)) || typeof raw.algorithm_version !== 'string' || !isRecord(raw.time_range) ||
         !Number.isFinite(raw.time_range.start_seconds) || !Number.isFinite(raw.time_range.end_seconds) ||
-        Number(raw.time_range.start_seconds) < 0 || Number(raw.time_range.end_seconds) <= Number(raw.time_range.start_seconds)) throw Error('Invalid preparation manifest');
+        Number(raw.time_range.start_seconds) < 0 || Number(raw.time_range.end_seconds) <= Number(raw.time_range.start_seconds)) throw Error(
+          'Invalid preparation manifest');
       ids.add(raw.id);
     }
     return value as unknown as PreparationManifest;
@@ -148,7 +150,8 @@ export class MediaPreparationStore {
     if (!info.isFile() || info.isSymbolicLink()) throw Error('Invalid preparation pointer');
     let pointer: unknown;
     try { pointer = JSON.parse(readFileSync(file, 'utf8')); } catch { throw Error('Invalid preparation pointer'); }
-    if (!isRecord(pointer) || typeof pointer.generation_id !== 'string' || !uuidPattern.test(pointer.generation_id) || !hashPattern.test(String(pointer.manifest_sha256))) throw Error('Invalid preparation pointer');
+    if (!isRecord(pointer) || typeof pointer.generation_id !== 'string' || !uuidPattern.test(pointer.generation_id) || !hashPattern.test(String(pointer.
+      manifest_sha256))) throw Error('Invalid preparation pointer');
     return pointer as { generation_id: string; manifest_sha256: string };
   }
 
@@ -167,7 +170,8 @@ export class MediaPreparationStore {
 
   begin(assetId: string, sourceUrl: string, sourceSha256: string, sourceBytes?: number, forceNew = false): PreparationManifest {
     validateAssetId(assetId);
-    if (!hashPattern.test(sourceSha256) || !sourceUrl.startsWith('https://') || (sourceBytes !== undefined && (!Number.isSafeInteger(sourceBytes) || sourceBytes < 0))) throw Error('Invalid preparation source');
+    if (!hashPattern.test(sourceSha256) || !sourceUrl.startsWith('https://') || (sourceBytes !== undefined && (!Number.isSafeInteger(sourceBytes) ||
+      sourceBytes < 0))) throw Error('Invalid preparation source');
     const current = this.current(assetId);
     if (!forceNew && current?.source_url === sourceUrl && current.source_sha256 === sourceSha256) return current;
     const generations = this.generationsDir(assetId, true);
@@ -190,7 +194,8 @@ export class MediaPreparationStore {
     return manifest;
   }
 
-  updateMetadata(assetId: string, generationId: string, metadata: Pick<PreparationManifest, 'source_bytes' | 'duration_seconds' | 'streams' | 'unavailable_modalities' | 'pipeline_versions'>): PreparationManifest {
+  updateMetadata(assetId: string, generationId: string, metadata: Pick<PreparationManifest, 'source_bytes' | 'duration_seconds' | 'streams' |
+    'unavailable_modalities' | 'pipeline_versions'>): PreparationManifest {
     const manifest = this.parseManifest(assetId, generationId);
     Object.assign(manifest, metadata);
     manifest.updated_at = new Date().toISOString();
@@ -198,11 +203,13 @@ export class MediaPreparationStore {
     return manifest;
   }
 
-  recordArtifact(assetId: string, generationId: string, artifact: Omit<PreparationArtifact, 'filename' | 'bytes' | 'sha256'>, data: Buffer): PreparationArtifact {
+  recordArtifact(assetId: string, generationId: string, artifact: Omit<PreparationArtifact, 'filename' | 'bytes' | 'sha256'>,
+    data: Buffer): PreparationArtifact {
     validateAssetId(assetId); validateGenerationId(generationId); validateArtifactId(artifact.id);
     if (!['audio_scan', 'contact_sheet'].includes(artifact.kind) || !hashPattern.test(artifact.fingerprint) || !artifact.algorithm_version ||
       !Number.isFinite(artifact.time_range.start_seconds) || !Number.isFinite(artifact.time_range.end_seconds) ||
-      artifact.time_range.start_seconds < 0 || artifact.time_range.end_seconds <= artifact.time_range.start_seconds || !Buffer.isBuffer(data)) throw Error('Invalid preparation artifact');
+      artifact.time_range.start_seconds < 0 || artifact.time_range.end_seconds <= artifact.time_range.start_seconds || !Buffer.isBuffer(data)) throw Error(
+        'Invalid preparation artifact');
     const manifest = this.parseManifest(assetId, generationId);
     const filename = artifactFilename(artifact);
     const complete: PreparationArtifact = { ...artifact, filename, bytes: data.length, sha256: digest(data) };

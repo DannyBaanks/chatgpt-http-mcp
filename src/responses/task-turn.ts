@@ -56,9 +56,11 @@ function write(path: string, value: unknown) {
 }
 interface State {
   url: string; input: TaskInputItem[]; instructions: string; pending?: string;
-  awaiting?: { turnId: string; call: NativeCall; registryFingerprint: string; step: number; searchRegistry?: NativeTool[]; registryFormat?: "native-registry/2" | "native-registry/3" | "native-registry/4" };
+  awaiting?: { turnId: string; call: NativeCall; registryFingerprint: string; step: number; searchRegistry?: NativeTool[]; registryFormat?
+    : "native-registry/2" | "native-registry/3" | "native-registry/4" };
 }
-interface Turn { fingerprint: string; phase: "prepared" | "attempted" | "done" | "failed"; response?: Record<string, any>; error?: { type: string; status: number; message: string }; diagnostic?: { name: string; message: string } }
+interface Turn { fingerprint: string; phase: "prepared" | "attempted" | "done" | "failed"; response?: Record<string, any>; error?: { type: string;
+  status: number; message: string }; diagnostic?: { name: string; message: string } }
 interface Dependencies { dir?: string; send?: typeof sendWebTurn; selectSettings?: typeof selectComposerSettings }
 
 const registryDigest = (registry: Map<string, NativeTool>, format: "native-registry/2" | "native-registry/3" | "native-registry/4" = "native-registry/4") => {
@@ -129,7 +131,8 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
     }
     try {
       const previous = read<Turn>(requestPath);
-      if (previous && (typeof previous.fingerprint !== "string" || !["prepared", "attempted", "done", "failed"].includes(previous.phase) || (previous.phase === "done" && (!previous.response || typeof previous.response.output_text !== "string"))))
+      if (previous && (typeof previous.fingerprint !== "string" || !["prepared", "attempted", "done", "failed"].includes(previous.phase) ||
+        (previous.phase === "done" && (!previous.response || typeof previous.response.output_text !== "string"))))
         throw new WebTaskError("web_task_state_invalid", 503, "invalid durable turn record");
       if (previous) {
         if (previous.fingerprint !== fingerprint) throw new WebTaskError("web_turn_identity_conflict", 409, "same turn has different request content");
@@ -141,7 +144,8 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
         throw new WebTaskError("web_turn_ambiguous", 409, "previous request did not commit a response; it will not be resent");
       }
       const task = read<State>(taskPath);
-      if (task && (typeof task.url !== "string" || typeof task.instructions !== "string" || !Array.isArray(task.input) || task.input.some((i) => !i || (!("type" in i) && (typeof i.role !== "string" || typeof i.text !== "string"))) || (!task.pending && canonicalConversationUrl(task.url) !== task.url)))
+      if (task && (typeof task.url !== "string" || typeof task.instructions !== "string" || !Array.isArray(task.input) || task.input.some((i) => !i ||
+        (!("type" in i) && (typeof i.role !== "string" || typeof i.text !== "string"))) || (!task.pending && canonicalConversationUrl(task.url) !== task.url)))
         throw new WebTaskError("web_task_state_invalid", 503, "invalid durable task record");
       if (task?.pending) throw new WebTaskError("web_task_pending", 409, "a previous submit is unresolved; new turns are blocked");
       const priorRound = read<Turn>(turnPath);
@@ -152,7 +156,8 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
             rememberConversation(priorRound.response);
             return { body: priorRound.response, replayed: true };
           }
-          if (priorRound.phase === "failed" && priorRound.error) throw new WebTaskError(priorRound.error.type, priorRound.error.status, priorRound.error.message);
+          if (priorRound.phase === "failed" && priorRound.error) throw new WebTaskError(priorRound.error.type, priorRound.error.status,
+            priorRound.error.message);
           throw new WebTaskError("web_turn_ambiguous", 409, "previous round did not commit; it will not be resent");
         }
         if (!task?.awaiting || task.awaiting.turnId !== identity.turnId || priorRound.phase !== "done")
@@ -188,14 +193,16 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
         if (!isSearch && task.awaiting.registryFormat === "native-registry/4") {
           if (!Array.isArray(task.awaiting.searchRegistry)) throw new WebTaskError("web_task_state_invalid", 503, "pending call has no committed registry");
           const expected = new Map(task.awaiting.searchRegistry.map(t => [t.wireName, t]));
-          if (registryDigest(expected) !== task.awaiting.registryFingerprint) throw new WebTaskError("web_task_state_invalid", 503, "pending registry is inconsistent");
+          if (registryDigest(expected) !== task.awaiting.registryFingerprint) throw new WebTaskError("web_task_state_invalid", 503,
+            "pending registry is inconsistent");
           // The native client may finish plugin discovery during execution.
           // All previous definitions must remain unchanged; only additions and
           // descriptive refreshes are accepted on the matching result.
           const retained = new Map([...expected.keys()].filter(k => registry.has(k)).map(k => [k, registry.get(k)!]));
           matchedRegistry = registryDigest(retained);
         }
-        if (task.awaiting.turnId !== identity.turnId || (!isSearch && matchedRegistry !== task.awaiting.registryFingerprint) || delta.slice(1).some(i => "type" in i || i.role === "assistant") ||
+        if (task.awaiting.turnId !== identity.turnId || (!isSearch && matchedRegistry !== task.awaiting.registryFingerprint) ||
+          delta.slice(1).some(i => "type" in i || i.role === "assistant") ||
           !output || !("type" in output) || output.type !== expectedType || output.call_id !== task.awaiting.call.call_id)
           throw new WebTaskError("web_tool_result_mismatch", 409, "result must match the single pending call, registry and Codex turn");
         if (isSearch) {
@@ -210,7 +217,11 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
       } else if (delta.some(i => "type" in i)) {
         throw new WebTaskError("web_tool_result_mismatch", 409, "unsolicited native call or result in a task without a pending call");
       }
-      const notice = unconfirmedCall ? `[Unconfirmed prior native call]\n${JSON.stringify({ type: unconfirmedCall.type, call_id: unconfirmedCall.call_id, name: unconfirmedCall.name, namespace: unconfirmedCall.namespace })}\nCodex opened a new turn without returning a matching result for this call. Execution status is unknown: it may or may not have executed. Do not claim success or failure. Do not retry this call automatically. Continue with the new user/developer text.\n\n` : "";
+      const notice = unconfirmedCall ? (`[Unconfirmed prior native call]\n${JSON.stringify({ type: unconfirmedCall.type, call_id: unconfirmedCall.call_id,
+        name: unconfirmedCall.name, namespace: unconfirmedCall.
+        namespace })}\nCodex opened a new turn without returning a matching result for this call. Execution status is unknown: it may or may not have ` +
+        `executed. Do not claim success or failure. Do not retry this call automatically. Continue with the new user/developer text.\n\n`) :
+        "";
       const prompt = notice + parseResponsesInput({ instructions: task ? undefined : instructions,
         input: delta.map((i) => "type" in i ? i : ({ type: "message", role: i.role, content: i.text })) }).prompt;
       const record: Turn = { fingerprint, phase: "prepared" };
@@ -305,7 +316,8 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
           awaiting = { turnId: identity.turnId, call: answer.call, registryFingerprint, registryFormat: "native-registry/4", step,
             searchRegistry: [...registry.values()] };
         }
-        response.metadata = { isymcp_conversation: url, isymcp_model_state: "visible_state_verified", isymcp_model: webModelLabel(body.model), isymcp_effort: "High" };
+        response.metadata = { isymcp_conversation: url, isymcp_model_state: "visible_state_verified", isymcp_model: webModelLabel(body.model),
+          isymcp_effort: "High" };
         write(taskPath, { url, input: [...input, emitted], instructions, ...(awaiting ? { awaiting } : {}) });
         record.phase = "done"; record.response = response; persistRound();
         committed = { body: response, replayed: false };

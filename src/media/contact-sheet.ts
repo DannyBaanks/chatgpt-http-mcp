@@ -9,7 +9,8 @@ export async function contactSheet(path:string,start:number,end:number,columns=4
  if(![3,4,6].includes(columns))throw Error('Contact sheet columns must be 3, 4 or 6');
  const info=await probe(path),video=info.streams.find(s=>s.codec_type==='video');if(!video)throw Error('Media has no video stream');
  windowRange(start,end,info.duration_seconds);
- const rate=(value:unknown)=>{const match=/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/.exec(String(value??''));const result=match?Number(match[1])/Number(match[2]):Number.NaN;return Number.isFinite(result)&&result>0?result:undefined;};
+ const rate=(value:unknown)=>{const match=/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/.exec(String(value??''));const result=match?
+   Number(match[1])/Number(match[2]):Number.NaN;return Number.isFinite(result)&&result>0?result:undefined;};
  const fps=rate(video.avg_frame_rate)||rate(video.r_frame_rate);
  const safeEnd=fps?Math.max(start,end-1/fps):end;
  const times=safeEnd>start?sampleTimes(start,safeEnd,columns*columns,info.duration_seconds):Array.from({length:columns*columns},()=>start);
@@ -17,8 +18,10 @@ export async function contactSheet(path:string,start:number,end:number,columns=4
  const canvas=Buffer.alloc(1920*1080*3);const samples=[];
  for(let index=0;index<times.length;index++) {
   const t=times[index],label=`${String(index+1).padStart(2,'0')}  t=${t.toFixed(3)}s`;
-  const filter=`scale=${width}:${height-band}:force_original_aspect_ratio=decrease,pad=${width}:${height-band}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,pad=${width}:${height}:0:0:black,drawtext=text='${label}':fontsize=16:fontcolor=white:x=8:y=${height-band+3}`;
-  const cell=await run('ffmpeg',['-v','error','-nostdin','-protocol_whitelist','file,pipe','-ss',String(t),'-i',path,'-map','0:v:0','-an','-vf',filter,'-frames:v','1','-threads','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'],width*height*3);
+  const filter=`scale=${width}:${height-band}:force_original_aspect_ratio=decrease,pad=${width}:${height-band}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,pad=${
+    width}:${height}:0:0:black,drawtext=text='${label}':fontsize=16:fontcolor=white:x=8:y=${height-band+3}`;
+  const cell=await run('ffmpeg',['-v','error','-nostdin','-protocol_whitelist','file,pipe','-ss',String(t),'-i',path,'-map','0:v:0','-an','-vf',filter,
+    '-frames:v','1','-threads','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'],width*height*3);
   if(cell.length!==width*height*3)throw Error('Requested frame could not be decoded; no sheet returned');
   const column=index%columns,row=Math.floor(index/columns);
   for(let y=0;y<height;y++)cell.copy(canvas,((row*height+y)*1920+column*width)*3,y*width*3,(y+1)*width*3);
@@ -26,9 +29,13 @@ export async function contactSheet(path:string,start:number,end:number,columns=4
  }
  for(const quality of [4,8,12]) {
   try {
-   const jpg=await run('ffmpeg',['-v','error','-nostdin','-f','rawvideo','-pixel_format','rgb24','-video_size','1920x1080','-i','pipe:0','-frames:v','1','-threads','1','-c:v','mjpeg','-q:v',String(quality),'-pix_fmt','yuvj420p','-f','image2pipe','pipe:1'],1024*1024,60000,{input:canvas});
+   const jpg=await run('ffmpeg',['-v','error','-nostdin','-f','rawvideo','-pixel_format','rgb24','-video_size','1920x1080','-i','pipe:0','-frames:v','1',
+     '-threads','1','-c:v','mjpeg','-q:v',String(quality),'-pix_fmt','yuvj420p','-f','image2pipe','pipe:1'],1024*1024,60000,{input:canvas});
    if(!jpg.subarray(0,3).equals(Buffer.from([255,216,255])))throw Error('Invalid contact sheet JPEG');
-   return {metadata:{width:1920,height:1080,columns,rows:columns,cell_width:width,cell_height:height,jpeg_quality:quality,order:'left-to-right then top-to-bottom',samples,limitations:'Timestamps are requested seek times; decoded frames may differ by frame timing. Sheet is a sampled overview, not animation. Ask video_frame for detail.'},image:{type:'image' as const,mimeType:'image/jpeg',data:jpg.toString('base64')}};
+   return {metadata:{width:1920,height:1080,columns,rows:columns,cell_width:width,cell_height:height,jpeg_quality:quality,
+     order:'left-to-right then top-to-bottom',samples,limitations:
+     'Timestamps are requested seek times; decoded frames may differ by frame timing. Sheet is a sampled overview, not animation. Ask video_frame for detail.'},
+     image:{type:'image' as const,mimeType:'image/jpeg',data:jpg.toString('base64')}};
   }catch(error){if(!(error instanceof Error)||!error.message.includes('exceeds limit'))throw error;}
  }
  throw Error('Contact sheet exceeds image limit; request fewer columns');

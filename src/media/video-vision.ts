@@ -8,9 +8,11 @@ export function frameResult(result:any) {
  const images=(result.content||[]).filter((c:any)=>c.type==='image');
  if(images.length!==1) throw Error('Video Vision did not return exactly one image');
  const i=images[0];
- if(!['image/jpeg','image/png'].includes(i.mimeType)||typeof i.data!=='string'||i.data.length>1398104) throw Error('Video Vision image exceeds limits or has invalid MIME');
+ if(!['image/jpeg','image/png'].includes(i.mimeType)||typeof i.data!=='string'||i.data.length>1398104) throw Error(
+   'Video Vision image exceeds limits or has invalid MIME');
  const bytes=Buffer.from(i.data,'base64');
- if(bytes.length>1024*1024||!(i.mimeType==='image/jpeg'?bytes.subarray(0,3).equals(Buffer.from([255,216,255])):bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))) throw Error('Invalid Video Vision image');
+ if(bytes.length>1024*1024||!(i.mimeType==='image/jpeg'?bytes.subarray(0,3).equals(Buffer.from([255,216,255])):bytes.subarray(0,8).equals(Buffer.from([137,80,
+   78,71,13,10,26,10])))) throw Error('Invalid Video Vision image');
  return {type:'image' as const,mimeType:i.mimeType,data:i.data};
 }
 export async function videoFrame(path:string,timestamp:number) {
@@ -24,6 +26,7 @@ export async function videoFrame(path:string,timestamp:number) {
  const timeout=setTimeout(abort,remaining());
  try {
   await client.connect(transport,{timeout:remaining()});
-  return frameResult(await client.callTool({name:'extract_frame_at',arguments:{source:path,timestamp:String(timestamp),max_width:640} },undefined,{timeout:remaining()}));
+  return frameResult(await client.callTool({name:'extract_frame_at',arguments:{source:path,timestamp:String(timestamp),max_width:640} },undefined,
+    {timeout:remaining()}));
  } finally {clearTimeout(timeout);cancellation?.removeEventListener('abort',abort);await client.close();}
 }

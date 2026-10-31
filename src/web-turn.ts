@@ -221,7 +221,11 @@ export function extractResponse(main: string): string {
   if (idx < 0) return "";
   let rest = main.slice(idx + markers[0].length);
   const cut = rest.search(
-    /(ChatGPT puede cometer errores|ChatGPT can make mistakes|Última respuesta|Tú dijiste:|You said:|(?:^|\n)\s*¿?Te gusta esta personalidad\?|(?:^|\n)\s*Do you like this personality\?)/i,
+    new RegExp(
+      String.raw`(ChatGPT puede cometer errores|ChatGPT can make mistakes|Última respuesta|Tú dijiste:|You said:` +
+        String.raw`|(?:^|\n)\s*¿?Te gusta esta personalidad\?|(?:^|\n)\s*Do you like this personality\?)`,
+      "i",
+    ),
   );
   if (cut >= 0) rest = rest.slice(0, cut);
   return rest.trim();
@@ -365,7 +369,8 @@ async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text
         return false;
       };
 
-      const thoughtEls = Array.from(last.querySelectorAll('[data-testid="thought-content"], [data-testid="reasoning-content"], details.thought, .thought-content')) as HTMLElement[];
+      const thoughtEls = Array.from(last.querySelectorAll(
+        '[data-testid="thought-content"], [data-testid="reasoning-content"], details.thought, .thought-content')) as HTMLElement[];
       for (const el of thoughtEls) {
         if (!isAssistantMessage(el)) {
           thought = (el.innerText ?? "").trim();
@@ -497,7 +502,8 @@ async function dumpCaptureFailure(page: Page): Promise<void> {
           conversationTurn: sel('[data-testid^="conversation-turn-"]'),
           authorRole: sel('[data-message-author-role]'),
           markdown: sel(".markdown"),
-          assistantPrimary: sel('[data-testid^="conversation-turn-"][data-message-author-role="assistant"], [data-turn-key]:has([data-conversation-role="assistant"])'),
+          assistantPrimary: sel(
+            '[data-testid^="conversation-turn-"][data-message-author-role="assistant"], [data-turn-key]:has([data-conversation-role="assistant"])'),
           stopButton: sel('button[data-testid="stop-button"], button[aria-label*="Detener"], button[aria-label*="Stop"]'),
         },
       };

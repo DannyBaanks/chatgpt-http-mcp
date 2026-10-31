@@ -130,7 +130,8 @@ function sessionFrom(input: Record<string, unknown>, tool: string, callId: strin
  * "tarjeta de tool". Va con token_fp (y turn_id si es un token de turno) para
  * correlacionar con el turno exacto. Nunca guarda stdout/stderr ni el token.
  */
-function traceResult(session: CodexSession | null, tool: string, callId: string, token: string, out: { content: Array<{ type: string; text?: string }>; isError?: boolean }): void {
+function traceResult(session: CodexSession | null, tool: string, callId: string, token: string, out: { content: Array<{ type: string; text?: string }>; isError?
+  : boolean }): void {
   try {
     const text = out.content.find((c) => c.type === "text")?.text ?? "{}";
     const r = JSON.parse(text) as Record<string, unknown>;
@@ -164,7 +165,8 @@ function traceResult(session: CodexSession | null, tool: string, callId: string,
 async function tracedCall(
   tool: string,
   input: Record<string, unknown>,
-  dispatch: (session: CodexSession | null, callId: string) => Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean }> | { content: Array<{ type: string; text?: string }>; isError?: boolean },
+  dispatch: (session: CodexSession | null, callId: string) => Promise<{ content: Array<{ type: string; text?: string }>; isError?
+    : boolean }> | { content: Array<{ type: string; text?: string }>; isError?: boolean },
 ) {
   const callId = randomUUID();
   const session = sessionFrom(input, tool, callId);
@@ -204,7 +206,8 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
   }
   const launch = sandboxPlan(session, workdir, command as string[]);
   if (!launch) {
-    return fail(`fail-closed: ${sandboxUnavailableReason()} (sin sandbox no se ejecuta; CODEX_WEB_HTTP_SANDBOX=off solo habilita sesiones writable)`, { session: sessionMeta(session) });
+    return fail(`fail-closed: ${sandboxUnavailableReason()} (sin sandbox no se ejecuta; CODEX_WEB_HTTP_SANDBOX=off solo habilita sesiones writable)`,
+      { session: sessionMeta(session) });
   }
   const { argv } = launch;
   const sandbox = launch.backend === "none" ? "none" : sandboxLabel(session);
@@ -337,7 +340,9 @@ async function runApplyPatch(session: CodexSession, patch: unknown) {
   }
   const patchRoot = windowsDocker ? "/workspace" : session.cwd;
   const command = codexFormat
-    ? ["bun", "-e", `import { applyCodexPatch } from ${JSON.stringify(patchModuleSpecifier)}; const patch = await Bun.stdin.text(); try { console.log(JSON.stringify({files: applyCodexPatch(${JSON.stringify(patchRoot)}, patch)})); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }`]
+    ? ["bun", "-e", `import { applyCodexPatch } from ${JSON.stringify(
+      patchModuleSpecifier)}; const patch = await Bun.stdin.text(); try { console.log(JSON.stringify({files: applyCodexPatch(${
+      JSON.stringify(patchRoot)}, patch)})); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }`]
     : ["git", "apply", "--whitespace=nowarn", "-"];
   const launch = sandboxPlan(session, session.cwd, command);
   if (!launch) {
@@ -501,7 +506,8 @@ function replayToolCall(out: ToolCallResult, wire: string): ToolCallResult {
 }
 
 /** Dispatch local de codex_tool_call a las tools nativas ejecutables. */
-async function dispatchTool(session: CodexSession, tool: "codex_exec" | "codex_write_stdin" | "codex_apply_patch" | "codex_view_image" | "codex_tool_inventory", args: Record<string, unknown>) {
+async function dispatchTool(session: CodexSession, tool: "codex_exec" | "codex_write_stdin" | "codex_apply_patch" | "codex_view_image" | "codex_tool_inventory",
+  args: Record<string, unknown>) {
   switch (tool) {
     case "codex_exec":
       return runExec(session, args.command, args.cwd, args.background, args.capture_ms);
@@ -519,7 +525,8 @@ async function dispatchTool(session: CodexSession, tool: "codex_exec" | "codex_w
 async function runToolCall(session: CodexSession, input: Record<string, unknown>) {
   const wire = String(input.wire_name ?? "");
   const tool = WIRE_ALIASES[wire] as ToolName | undefined;
-  if (!tool || (tool !== "codex_exec" && tool !== "codex_write_stdin" && tool !== "codex_apply_patch" && tool !== "codex_view_image" && tool !== "codex_tool_inventory")) {
+  if (!tool || (tool !== "codex_exec" && tool !== "codex_write_stdin" && tool !== "codex_apply_patch" && tool !== "codex_view_image" &&
+    tool !== "codex_tool_inventory")) {
     return fail(`tool no soportada por el harness: ${wire}; usa codex_tool_inventory para ver las disponibles`, { session: sessionMeta(session) });
   }
   // arguments: objeto directo, o JSON de arguments en input (tool "custom").
@@ -745,5 +752,6 @@ registerTableroTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`[codex-web-http MCP] contract=${contract} broker=${brokerSocketPath} sandbox=${sandboxAvailable() ? sandboxLabel({ writable: false }) : "unavailable"}`);
+console.error(`[codex-web-http MCP] contract=${contract} broker=${brokerSocketPath} sandbox=${sandboxAvailable() ? sandboxLabel({
+  writable: false }) : "unavailable"}`);
 trace("startup", { pid: process.pid, contract, sandbox: sandboxAvailable() ? sandboxLabel({ writable: false }) : "unavailable" });

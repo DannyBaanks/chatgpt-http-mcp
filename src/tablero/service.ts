@@ -207,7 +207,8 @@ export class TableroService {
         la_tiene: t.holder ?? t.lease_holder ?? null, lanzable: t.id in ledger.tasks, texto: clip(t.content, 600),
       })),
       cerradas_recientes: tasks.filter((t) => t.status === "CERRADA").slice(-5).map((t) => ({ id: t.id, titulo: t.title })),
-      posts: roots.map((m) => ({ id: m.id, autor: m.author, canal: m.topic, titulo: m.title, ts: m.ts, respuestas: replies.get(m.id) ?? 0, extracto: clip(m.content, 300) })),
+      posts: roots.map((m) => ({ id: m.id, autor: m.author, canal: m.topic, titulo: m.title, ts: m.ts, respuestas: replies.get(m.id) ?? 0,
+        extracto: clip(m.content, 300) })),
       bridge: bridge.slice(-10).reverse().map((b) => ({ id: b.id, kind: b.kind, autor: b.author, topic: b.topic, ts: b.ts, extracto: clip(b.payload, 300) })),
       activos: (s.online ?? []).map((o: Msg) => o.agent),
       leases: (s.leases ?? []).map((l: Msg) => ({ topic: l.topic, holder: l.holder })),
@@ -276,10 +277,12 @@ export class TableroService {
     const shown = { agente: input.agente, sesion: session, cwd: launcher.cwd, comando: launcher.argv.map((a) => (a === PROMPT_SLOT ? "<prompt>" : a)), prompt };
     const live = this.consoles();
     if (live.some((c) => c.session === session)) throw new TableroError("tablero_already_running", `ya hay una consola para esa tarea: ${session}`);
-    if (live.length >= cfg.maxLive) throw new TableroError("tablero_limit_live", `ya hay ${live.length} consolas vivas (maxLive=${cfg.maxLive})`, { consolas: live });
+    if (live.length >= cfg.maxLive) throw new TableroError("tablero_limit_live", `ya hay ${live.length} consolas vivas (maxLive=${cfg.maxLive})`,
+      { consolas: live });
     const hourAgo = this.now() - 3_600_000;
     const recent = ledger.launches.filter((l) => Date.parse(l.ts) > hourAgo);
-    if (recent.length >= cfg.maxPerHour) throw new TableroError("tablero_limit_rate", `${recent.length} lanzamientos en la ultima hora (maxPerHour=${cfg.maxPerHour})`);
+    if (recent.length >= cfg.maxPerHour) throw new TableroError("tablero_limit_rate", `${recent.length} lanzamientos en la ultima hora (maxPerHour=${
+      cfg.maxPerHour})`);
     if (input.dry_run) return { dry_run: true, ...shown };
 
     const proc = Bun.spawnSync(argv, { env, timeout: 15_000 });
@@ -326,7 +329,8 @@ export class TableroService {
         const extra = error instanceof TableroError ? error.extra : {};
         return { content: [{ type: "text", text: JSON.stringify({ error: error.message, error_code: error.code, ...extra }) }], isError: true };
       }
-      return { content: [{ type: "text", text: JSON.stringify({ error: String((error as Error).message ?? error), error_code: "tablero_internal" }) }], isError: true };
+      return { content: [{ type: "text", text: JSON.stringify({ error: String((error as Error).message ?? error), error_code: "tablero_internal" }) }],
+        isError: true };
     }
   }
 }

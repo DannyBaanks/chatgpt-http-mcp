@@ -111,7 +111,8 @@ export function judge(name: CanaryCheck["name"], reply: string, expect: { exact?
   if (name === "markdown") {
     const list = /^(\s*[-*]\s+|\s*\d+[.)]\s+)\S/m.test(reply);
     const fence = /```[\s\S]*canario[\s\S]*```/.test(reply);
-    return { ok: list && fence, detail: list && fence ? "lista + bloque de codigo" : `${list ? "" : "sin lista "}${fence ? "" : "sin bloque de codigo"}`.trim() };
+    return { ok: list && fence, detail: list && fence ? "lista + bloque de codigo" : `${list ? "" : "sin lista "}${fence ?
+      "" : "sin bloque de codigo"}`.trim() };
   }
   const got = strip(reply);
   if (expect.absent && reply.includes(expect.absent)) return { ok: false, detail: `CONTAMINADA: trae el nonce del turno anterior (${expect.absent})` };
@@ -142,14 +143,16 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
       method: "POST", headers: bridgeAuthHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ chat_id: chatId, message }), signal: AbortSignal.timeout(240_000),
     });
-    const data = (await r.json().catch(() => null)) as { ok?: boolean; reply?: { text?: string; meta?: { kind?: string } }; error?: { message?: string } } | null;
+    const data = (await r.json().catch(() => null)) as { ok?: boolean; reply?: { text?: string; meta?: { kind?: string } }; error?: { message?
+      : string } } | null;
     return { ok: data?.ok === true, text: data?.reply?.text ?? data?.error?.message ?? `HTTP ${r.status}`, kind: data?.reply?.meta?.kind };
   });
 
   const checks: CanaryCheck[] = [];
   let error: string | undefined;
   try {
-    const up = async (url: string) => fetch(`${url}/health`, { headers: bridgeAuthHeaders(), signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
+    const up = async (url: string) => fetch(`${url}/health`, { headers: bridgeAuthHeaders(), signal: AbortSignal.timeout(2000) }).then((r) => r.ok,
+      () => false);
     if (!opts.turn && !(await up(base))) {
       if (opts.spawnBridge === false) {
         const result: CanaryResult = { ts, ok: false, bridge: "unavailable", checks: [], error: `bridge apagado en ${base}` };
@@ -186,7 +189,8 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
     const plan: Array<{ name: CanaryCheck["name"]; msg: string; expect: { exact?: string; absent?: string } }> = [
       { name: "eco-a", msg: `Canario de ISyMCP. Responde EXACTAMENTE este texto, sin nada mas: ${A}`, expect: { exact: A } },
       { name: "eco-b", msg: `Ahora responde EXACTAMENTE este otro texto, sin nada mas: ${B}`, expect: { exact: B, absent: A } },
-      { name: "markdown", msg: "Responde solo con una lista de dos puntos (uno, dos) y despues un bloque de codigo bash que contenga: echo canario", expect: {} },
+      { name: "markdown", msg: "Responde solo con una lista de dos puntos (uno, dos) y despues un bloque de codigo bash que contenga: echo canario",
+        expect: {} },
     ];
     for (const step of plan) {
       const started = Date.now();

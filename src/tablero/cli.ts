@@ -92,7 +92,8 @@ export function tableroCommand(sub: string): number {
       return 0;
     } catch (error) {
       if (error instanceof TableroConfigError) {
-        console.log(`${error.code === "tablero_disabled" ? "APAGADO" : error.code === "tablero_not_configured" ? "SIN CONFIGURAR" : "CONFIG INVÁLIDA"}: ${error.message}`);
+        console.log(`${error.code === "tablero_disabled" ? "APAGADO" : error.code === "tablero_not_configured" ? "SIN CONFIGURAR" : "CONFIG INVÁLIDA"}: ${
+          error.message}`);
         return error.code === "tablero_config_invalid" ? 1 : 0;
       }
       throw error;

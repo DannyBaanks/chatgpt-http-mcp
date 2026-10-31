@@ -36,7 +36,8 @@ function which(bin: string): string | undefined {
 /** Inventario: config dir y/o binario en PATH. Solo opencode es instalable. */
 export function detectTuis(home: string = HOME): TuiInfo[] {
   const table: Array<Omit<TuiInfo, "present" | "installable">> = [
-    { id: "opencode", label: "opencode/OpenISy", configDir: join(home, ".config", "opencode"), configPath: join(home, ".config", "opencode", "opencode.json"), bin: which("opencode") },
+    { id: "opencode", label: "opencode/OpenISy", configDir: join(home, ".config", "opencode"), configPath: join(home, ".config", "opencode", "opencode.json"),
+      bin: which("opencode") },
     { id: "codex", label: "Codex", configDir: join(home, ".codex") },
     { id: "hermes", label: "Hermes", configDir: join(home, ".hermes") },
     { id: "openclaw", label: "OpenClaw", configDir: join(home, ".openclaw") },

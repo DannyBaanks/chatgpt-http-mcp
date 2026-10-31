@@ -39,5 +39,6 @@ export function assertWebSelection(model: string, effort: unknown, ...observatio
     throw new WebTaskError("web_model_selection_unsupported", 400, "this Responses delivery verifies only high / 3 of 3");
   const seen = observation[0];
   if (observation.length && (!seen || seen.model !== label || !isHighEffortLabel(label, seen.effort) || seen.effortPosition !== 3 || seen.effortSteps !== 3))
-    throw new WebTaskError("web_model_state_mismatch", 409, `requested ${label} / High; observed ${seen?.model ?? "unknown"} / ${seen?.effort ?? "unknown"} (${seen?.effortPosition ?? "?"}/${seen?.effortSteps ?? "?"})`);
+    throw new WebTaskError("web_model_state_mismatch", 409, `requested ${label} / High; observed ${seen?.model ?? "unknown"} / ${seen?.effort ?? "unknown"} (${
+      seen?.effortPosition ?? "?"}/${seen?.effortSteps ?? "?"})`);
 }

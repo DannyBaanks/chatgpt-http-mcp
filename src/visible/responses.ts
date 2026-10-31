@@ -25,7 +25,8 @@ export class ObservedResponseProjector {
  push(observed:ConversationEvent):any[]{
   if(!this.started||this.terminal)throw Error('visible_projection_terminal_or_not_started');
   if(observed.kind==='closed'){
-   this.terminal=true;return [this.event('response.failed',{response:{...this.response('failed'),output:[],error:{code:'visible_browser_closed',message:observed.reason}}})];
+   this.terminal=true;return [this.event('response.failed',{response:{...this.response('failed'),output:[],error:{code:'visible_browser_closed',
+     message:observed.reason}}})];
   }
   if(observed.kind!=='assistant')return [];
   if(!observed.messageId||(this.browserMessageId&&this.browserMessageId!==observed.messageId))throw Error('visible_message_identity_changed');
@@ -37,7 +38,8 @@ export class ObservedResponseProjector {
   if(observed.complete){
    this.terminal=true;const part={type:'output_text',text:this.text,annotations:[]};
    events.push(this.event('response.output_text.done',{...at,text:this.text}),this.event('response.content_part.done',{...at,part}),
-    this.event('response.output_item.done',{output_index:0,item:this.item('completed')}),this.event('response.completed',{response:this.response('completed')}));
+    this.event('response.output_item.done',{output_index:0,item:this.item('completed')}),this.event('response.completed',
+      {response:this.response('completed')}));
   }
   return events;
  }

@@ -85,7 +85,8 @@ export class ComfyService {
     try { url = new URL(raw); }
     catch { throw Error('ComfyUI URL is invalid'); }
     const localHosts = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-    if (!['http:', 'https:'].includes(url.protocol) || !localHosts.has(url.hostname.toLowerCase()) || url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) {
+    if (!['http:', 'https:'].includes(url.protocol) || !localHosts.has(url.hostname.toLowerCase()) || url.username || url.password || url.search || url.hash ||
+      (url.pathname !== '/' && url.pathname !== '')) {
       throw Error('ComfyUI must use a local HTTP endpoint without credentials or a URL path');
     }
     return url;
@@ -212,7 +213,8 @@ export class ComfyService {
     }
     const assets: ComfyJob['assets'] = [];
     for (const [index, image] of images.entries()) {
-      if (!object(image) || typeof image.filename !== 'string' || image.filename.length > 512 || /[\u0000-\u001f\u007f]/.test(image.filename) || typeof image.subfolder !== 'string' || image.subfolder.length > 512 || !['input', 'output', 'temp'].includes(image.type)) {
+      if (!object(image) || typeof image.filename !== 'string' || image.filename.length > 512 || /[\u0000-\u001f\u007f]/.test(image.filename) ||
+        typeof image.subfolder !== 'string' || image.subfolder.length > 512 || !['input', 'output', 'temp'].includes(image.type)) {
         throw Error('ComfyUI returned invalid image metadata');
       }
       const view = this.endpoint('/view');
@@ -308,7 +310,8 @@ export class ComfyService {
       preview = { type: 'image', mimeType: asset.mime_type, data: bytes.toString('base64') };
     } else {
       try {
-        const jpeg = await run('ffmpeg', ['-v', 'error', '-i', 'pipe:0', '-vf', 'scale=640:640:force_original_aspect_ratio=decrease', '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '5', 'pipe:1'], 1024 * 1024, 15_000, { input: bytes });
+        const jpeg = await run('ffmpeg', ['-v', 'error', '-i', 'pipe:0', '-vf', 'scale=640:640:force_original_aspect_ratio=decrease', '-frames:v', '1', '-f',
+          'image2pipe', '-vcodec', 'mjpeg', '-q:v', '5', 'pipe:1'], 1024 * 1024, 15_000, { input: bytes });
         preview = { type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') };
       } catch { /* return the local asset record even if no preview can be made */ }
     }
@@ -334,9 +337,11 @@ export class ComfyService {
     if (name === 'comfyui_status') {
       try {
         const response = await this.json('/system_stats');
-        return { content: [{ type: 'text' as const, text: JSON.stringify({ available: true, version: typeof response?.system?.comfyui_version === 'string' ? response.system.comfyui_version : 'unknown' }) }] };
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ available: true, version: typeof response?.system?.comfyui_version === 'string' ?
+          response.system.comfyui_version : 'unknown' }) }] };
       } catch {
-        return { content: [{ type: 'text' as const, text: JSON.stringify({ available: false, message: 'ComfyUI is not reachable at the configured local endpoint.' }) }] };
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ available: false, message:
+          'ComfyUI is not reachable at the configured local endpoint.' }) }] };
       }
     }
     try {

@@ -10,7 +10,9 @@ export function processMatches(pattern: string): boolean {
   // PowerShell returns only a status code so command lines (which may contain
   // unrelated user arguments) never reach the panel or CLI output.
   const needle = pattern.replaceAll("'", "''");
-  const script = `$needle='${needle}'; $found=$false; Get-CimInstance Win32_Process | ForEach-Object { if (-not $found -and $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($needle,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $found=$true } }; if ($found) { exit 0 } else { exit 1 }`;
+  const script = (`$needle='${
+    needle}'; $found=$false; Get-CimInstance Win32_Process | ForEach-Object { if (-not $found -and $_.ProcessId -ne $PID -and $_.CommandLine -and ` +
+    `$_.CommandLine.IndexOf($needle,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $found=$true } }; if ($found) { exit 0 } else { exit 1 }`);
   const powershell = process.env.SystemRoot
     ? `${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
     : "powershell.exe";

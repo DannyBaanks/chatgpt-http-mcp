@@ -34,7 +34,8 @@ function contentText(value: unknown): string {
 
 function toolItem(item: Record<string, unknown>): TaskInputItem | null {
   const type = item.type;
-  if (!["function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "tool_search_call", "tool_search_output"].includes(type as string)) return null;
+  if (!["function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "tool_search_call", "tool_search_output"].includes(
+    type as string)) return null;
   if (typeof item.call_id !== "string" || !item.call_id || item.call_id.length > 256) return invalid("tool item requires a bounded call_id");
   if (type === "tool_search_call" || type === "tool_search_output") {
     if (item.execution !== "client") return unsupported("only client-executed tool search is supported");
@@ -94,7 +95,8 @@ export function parseResponsesInput(body: Record<string, unknown>): ParsedRespon
         return `[Codex tool evidence]\n${JSON.stringify(identity)}${output === undefined ? "" : `\n${output}`}`;
       }
       if (item.type !== undefined && item.type !== "message") return unsupported("input item is not supported by the Web Responses adapter");
-      if (!["user", "assistant", "developer", "system"].includes(item.role as string)) return invalid("message role must be user, assistant, developer or system");
+      if (!["user", "assistant", "developer", "system"].includes(item.role as string)) return invalid(
+        "message role must be user, assistant, developer or system");
       const text = contentText(item.content);
       return text.trim() ? `[${item.role}]\n${text}` : "";
     }).filter(Boolean).join("\n\n");

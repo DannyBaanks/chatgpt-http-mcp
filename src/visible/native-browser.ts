@@ -20,7 +20,9 @@ export function nativeBrowserStatus() {
       codex: {
         state: "blocked",
         blocker: "native_browser_general_owner_adapter_unverified",
-        detail: "Existe un adaptador experimental para un canario fijo mediado por el agente; falta demostrar el retorno MCP y el adaptador de ejecución general para las pestañas nativas.",
+        detail:
+          ("Existe un adaptador experimental para un canario fijo mediado por el agente; falta demostrar el retorno MCP y el adaptador de ejecución general " +
+            "para las pestañas nativas."),
       },
       autonomous: {
         state: "blocked",
@@ -35,7 +37,8 @@ export function nativeBrowserStatus() {
       twoConcurrentPairs: "unverified",
       autonomousRecovery: "unverified",
     },
-    next_action: "Implementar y demostrar el adaptador de propietario y navegador con un recibo MCP/nativo correlacionado antes de ampliar permisos o concurrencia.",
+    next_action:
+      "Implementar y demostrar el adaptador de propietario y navegador con un recibo MCP/nativo correlacionado antes de ampliar permisos o concurrencia.",
   };
 }
 
@@ -48,7 +51,8 @@ export function rejectUnavailableBrowser(browser: unknown): Response | null {
   return Response.json({
     error: {
       type: "native_browser_unavailable",
-      message: "Navegador nativo bloqueado: falta un propietario y adaptador verificados. Consulta isymcp native-browser status --json. No se envió el mensaje.",
+      message:
+        "Navegador nativo bloqueado: falta un propietario y adaptador verificados. Consulta isymcp native-browser status --json. No se envió el mensaje.",
     },
     native_browser: nativeBrowserStatus(),
   }, { status: 503, headers: { "cache-control": "no-store" } });
