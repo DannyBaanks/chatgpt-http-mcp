@@ -8,13 +8,13 @@
 Scoped tools · Native Codex CLI integration · Verifiable execution receipts · Bun on Linux & Windows
 
 [![CI](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml)
-[![Release candidate](https://img.shields.io/github/v/release/DannyBaanks/chatgpt-http-mcp?include_prereleases&label=prerelease)](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2)
+[![Latest release](https://img.shields.io/github/v/release/DannyBaanks/chatgpt-http-mcp?label=release)](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0)
 [![Recorded tests](https://img.shields.io/badge/recorded%20suite-705%20pass%20%7C%203%20skip-informational)](docs/verification/2026-10-31-suite-stability-and-dependency-audit.md)
 [![License MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Bun 1.4.2](https://img.shields.io/badge/runtime-Bun%201.4.2-222)
 ![Experimental](https://img.shields.io/badge/status-experimental-orange)
 
-**[Download rc.2](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2)** · **[Guía en español](GUIA.md)** · **[Quickstart](#quickstart)** · **[Security & limitations](#limitations--risks--read-before-using)**
+**[Download 1.0.0](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0)** · **[Guía en español](GUIA.md)** · **[Quickstart](#quickstart)** · **[Security & limitations](#limitations--risks--read-before-using)**
 
 <img src="docs/images/chat-tools.png" alt="ISyMCP demo panel with tool execution receipts and success/failure cards" width="900">
 
@@ -31,7 +31,7 @@ Scoped tools · Native Codex CLI integration · Verifiable execution receipts ·
 
 | I want to… | Go to |
 |---|---|
-| Download a versioned source package | [v1.0.0-rc.2 release](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2) |
+| Download a versioned source package | [v1.0.0 release](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0) |
 | Set up ISyMCP on Linux | [Quickstart](#quickstart) · [Spanish guide](GUIA.md) |
 | Set up ISyMCP on Windows | [Windows guide](docs/WINDOWS.md) |
 | See what was actually tested | [Verification records](docs/EVIDENCE.md) |
@@ -41,9 +41,9 @@ Scoped tools · Native Codex CLI integration · Verifiable execution receipts ·
 
 ### Releases & downloads
 
-**Current published candidate: `v1.0.0-rc.2` (October 14, 2026).** [Release notes & assets](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2) · [All releases](https://github.com/DannyBaanks/chatgpt-http-mcp/releases) · [Tags](https://github.com/DannyBaanks/chatgpt-http-mcp/tags).
+**Current published release: `v1.0.0` (October 31, 2026).** [Release notes & assets](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0) · [All releases](https://github.com/DannyBaanks/chatgpt-http-mcp/releases) · [Tags](https://github.com/DannyBaanks/chatgpt-http-mcp/tags).
 
-Download `isymcp-v1.0.0-rc.2.tar.gz` or `.zip`, plus `SHA256SUMS`, from the release. **They are source archives, not standalone binaries.** Bun is required. The release workflow publishes only after CI succeeds against the tagged commit; existing tags are not moved. See [release maintenance](docs/RELEASING.md).
+Download `isymcp-v1.0.0.tar.gz` or `.zip`, plus `SHA256SUMS`, from the release. **They are source archives, not standalone binaries.** Bun is required. The release workflow publishes only after CI succeeds against the tagged commit; existing tags are not moved. See [release maintenance](docs/RELEASING.md).
 
 > [!NOTE]
 > Why no green **Latest** badge? GitHub excludes prereleases (`-rc.*`) from its stable `/releases/latest` endpoint. The version **is tagged and released**; it is simply not marked stable yet.
@@ -190,14 +190,18 @@ isymcp codex launcher                              # installs ~/.local/bin/codex
 isymcp smoke                                       # automated end-to-end sanity verification
 ```
 
-**Native Codex browser — capability gate only.** `isymcp native-browser status --json`
-reports why the integrated-browser execution modes are currently blocked;
+**Native Codex browser — frozen for 1.0.0.** `isymcp native-browser status --json`
+reports both integrated-browser execution modes as blocked;
 `isymcp native-browser probe --json` inspects the installed Codex protocol without
 starting a model or changing configuration (exit 2 while unverified).
-`isymcp ask "hello" --browser native` fails explicitly rather than sending the
-message through the existing Chrome adapter. The native owner, autonomous
-browser adapter and two-pair E2E are not implemented. See the
-[capability matrix and evidence](docs/verification/2026-10-23-native-browser-gate.md).
+`isymcp ask "hello" --browser native` fails explicitly with
+`503 native_browser_unavailable` rather than sending the message through the
+existing Chrome adapter. The native owner, autonomous browser adapter and
+two-pair E2E are not implemented. The owner froze this line for 1.0.0 after a
+reported OpenAI safety block: no remote retries are performed, and it will only
+be revisited if a documented, authorized owner/browser adapter becomes
+available. See the [decision record](docs/verification/2026-10-31-native-browser-frozen.md)
+and the [capability matrix and evidence](docs/verification/2026-10-23-native-browser-gate.md).
 
 **Model and reasoning (experimental Web transport).** The browser adapter attempts to use whichever model and reasoning settings are available in the signed-in UI; availability and labels can change. In the chat's side panel, **Verificar** shows what ISyMCP sees (for example `GPT-5.6 Sol · High (3/3)`). **Sincronizar ajustes** opens a visible Chrome with your session: you set the model and reasoning by hand, close the window, and that becomes the bridge's default.
 

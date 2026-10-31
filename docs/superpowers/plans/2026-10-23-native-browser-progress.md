@@ -27,3 +27,18 @@ Evidence and remaining acceptance: `docs/verification/2026-10-23-native-browser-
 - Detailed evidence: `docs/verification/2026-10-23-current-owner-browser.md` and `2026-10-23-current-owner-native-record.json`.
 - Independent follow-up review identified canonical-cwd mismatch and cancellation waiting indefinitely after delivery; both fixed with failing-then-passing regression tests.
 - Follow-up verification: `bun run typecheck` passed; `bun test` completed with 670 pass, 3 skip, 0 fail (673 tests across 103 files). `git diff --check` passed.
+
+## Ruling 2026-10-31: frozen for 1.0.0
+
+- The account owner accepted the compliance verdict and chose to freeze the
+  autonomous native-browser line instead of resuming remote tests. No new
+  permissions, owner adapter, pair registry or concurrency are authorized.
+- The capability gate remains in code: `native-browser status` reports
+  `ready:false` with both modes blocked, and the entrypoints keep returning
+  `503 native_browser_unavailable`. No remote retry follows a reported OpenAI
+  safety block.
+- Revisiting this line requires a documented, authorized owner/browser adapter
+  and a new explicit owner decision. Trade-off: autonomous native control is
+  unavailable in 1.0.0; account risk is not increased.
+- Decision record:
+  `docs/verification/2026-10-31-native-browser-frozen.md`.
