@@ -43,20 +43,12 @@ export function chatStatus(): { phase: ChatPhase; chat_id: string | null; queued
   return { phase: queued > 0 ? "queued" : "idle", chat_id: null, queued, since: null };
 }
 
-/**
- * Bloqueos de seguridad de OpenAI: llegan como TEXTO del asistente, no como
- * error HTTP. No son fallos del bridge (evidencia: soak 100 turno 95, soak-tools
- * turno 2) y la tool no llego a ejecutarse.
- */
-const PROVIDER_BLOCK_PATTERNS = [
-  /bloquead[oa] por los controles de seguridad de OpenAI/i,
-  /OpenAI ha bloqueado esta llamada/i,
-  /blocked by OpenAI'?s? (?:safety|security)/i,
-  /OpenAI (?:has )?blocked this (?:tool )?call/i,
-];
-export function isProviderBlock(text: string): boolean {
-  return PROVIDER_BLOCK_PATTERNS.some((re) => re.test(text));
-}
+// Bloqueos de seguridad de OpenAI: llegan como TEXTO del asistente, no como
+// error HTTP. No son fallos del bridge (evidencia: soak 100 turno 95, soak-tools
+// turno 2) y la tool no llego a ejecutarse. La deteccion vive en provider-block
+// para que la ruta MCP la use sin cargar playwright.
+import { isProviderBlock } from "./provider-block";
+export { isProviderBlock };
 
 /** Quien fallo, a partir del tipo nombrado del bridge. */
 export function errorKind(message: string): ChatErrorKind {
