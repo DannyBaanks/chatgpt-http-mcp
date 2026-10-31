@@ -6,6 +6,7 @@ import {join,resolve} from 'node:path';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {run} from '../src/media/process';
+import {bridgeAuthHeaders} from '../src/local-guard';
 
 const root=resolve(import.meta.dir,'..');
 const homes:string[]=[];
@@ -19,7 +20,7 @@ function cli(args:string[],env:NodeJS.ProcessEnv,input?:string){
 }
 async function waitForUnavailable(url:string):Promise<boolean>{
  for(let i=0;i<30;i++){
-  try{if(!(await fetch(url)).ok)return true;}catch{return true;}
+  try{await fetch(url);}catch{return true;}
   await new Promise(r=>setTimeout(r,100));
  }
  return false;
@@ -107,7 +108,7 @@ test('tunnel status and server lifecycle use only fake tools and isolated ports'
   const health=cli(['health'],e.env);expect(health.exitCode).toBe(1);expect(health.stderr.toString()).toContain('Bridge no disponible');
   const metrics=cli(['metrics'],e.env);expect(metrics.exitCode).toBe(1);expect(metrics.stderr.toString()).toContain('Error obteniendo métricas');
   const started=cli(['server','start','--no-connector'],e.env);expect(started.exitCode).toBe(0);expect(started.stdout.toString()).toContain('server detached');
-  let healthy=false;for(let i=0;i<40;i++){try{healthy=(await fetch(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`)).ok;}catch{}if(healthy)break;await new Promise(r=>setTimeout(r,100));}
+  let healthy=false;for(let i=0;i<40;i++){try{healthy=(await fetch(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`,{headers:bridgeAuthHeaders({},e.env)})).ok;}catch{}if(healthy)break;await new Promise(r=>setTimeout(r,100));}
   expect(healthy).toBe(true);
   const stopped=cli(['server','stop'],e.env);expect(stopped.exitCode).toBe(0);expect(stopped.stdout.toString()).toContain('server parado');
   const panel=cli(['panel','start'],e.env);expect(panel.exitCode).toBe(0);expect(panel.stdout.toString()).toContain('panel detached');

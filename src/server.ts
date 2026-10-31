@@ -67,9 +67,12 @@ async function modelsWithWeb(req: Request, config: AppConfig): Promise<Response>
   }
 }
 
-export function createHandler(config: AppConfig): (req: Request) => Promise<Response> {
+export function createHandler(
+  config: AppConfig,
+  options: { requireToken?: boolean } = {},
+): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
-    const denied = guardLocalRequest(req, { requireJsonBody: true, requireToken: true });
+    const denied = guardLocalRequest(req, { requireJsonBody: true, requireToken: options.requireToken !== false });
     if (denied) return denied;
     const url = new URL(req.url);
     if (url.pathname === "/v1/responses" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
@@ -173,9 +176,12 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
 
 type WsData = { headers: Record<string, string>; native: NativeWsProxy | null };
 
-export function startServer(config: AppConfig = loadConfig(), options: { webResponse?: typeof handleWebResponses } = {}) {
+export function startServer(
+  config: AppConfig = loadConfig(),
+  options: { webResponse?: typeof handleWebResponses; requireToken?: boolean } = {},
+) {
   const webResponse = options.webResponse ?? handleWebResponses;
-  const handler = createHandler(config);
+  const handler = createHandler(config, { requireToken: options.requireToken });
   const server = Bun.serve<WsData>({
     hostname: config.hostname,
     port: config.port,
@@ -187,7 +193,7 @@ export function startServer(config: AppConfig = loadConfig(), options: { webResp
       if (url.pathname === "/v1/responses" && (req.method === "GET" || req.headers.get("upgrade"))) {
         // Los websockets no tienen CORS: sin esta guarda cualquier pagina
         // abierta podria hablar con el bridge (CSWSH).
-        const denied = guardLocalRequest(req, { requireToken: true });
+        const denied = guardLocalRequest(req, { requireToken: options.requireToken !== false });
         if (denied) return denied;
         if (bun.upgrade(req, { data: { headers: Object.fromEntries(req.headers), native: null as NativeWsProxy | null } })) return undefined;
         return new Response("websocket requerido", { status: 426 });

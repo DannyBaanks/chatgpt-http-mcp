@@ -70,7 +70,7 @@ test("missing runtime reports probe failure rather than a successful empty proto
 });
 
 test("direct bridge requests reject native selection before running a chat turn", async () => {
-  const handler = createHandler(loadConfig({ ...process.env, CODEX_WEB_HTTP_PORT: "0" }));
+  const handler = createHandler(loadConfig({ ...process.env, CODEX_WEB_HTTP_PORT: "0" }), { requireToken: false });
   const response = await handler(new Request("http://127.0.0.1/isymcp/chat/turn", {
     method: "POST", headers: bridgeAuthHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ chat_id: "not-a-real-chat", message: "must not execute", browser: "native" }),

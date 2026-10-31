@@ -31,7 +31,7 @@ import { defaultExportPath, exportLines, formatLine, parseBound, readAll, select
 import { MENU, brandHeader, findItem, select, visible, visibleLabels } from "./menu";
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
 import { detectTuis, installIntoOpencode } from "./tui";
-import { bridgeAuthHeaders } from "./local-guard";
+import { bridgeAuthHeaders, bridgeToken } from "./local-guard";
 import { processMatches, stopProcessTree } from "./platform/process";
 import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
 import { nativeBrowserCommand, parseBrowserOption, rejectUnavailableBrowser } from "./visible/native-browser";
@@ -1290,7 +1290,8 @@ async function codexCommand(sub: string | undefined, rest: string[]): Promise<vo
     if (profile.catalogReady) catalogPath = profile.catalogPath;
   }
   const fullArgs = buildCodexArgs(userArgs, PORT, catalogPath);
-  const code = await spawnCodex(fullArgs);
+  // El perfil aislado manda x-isymcp-token desde CODEX_WEB_HTTP_TOKEN.
+  const code = await spawnCodex(fullArgs, usesWebBridge(userArgs) ? { CODEX_WEB_HTTP_TOKEN: bridgeToken() } : {});
   // La invocacion desde el menu vuelve al menu; no termina todo isymcp.
   if (code !== 0) process.exitCode = code;
 }

@@ -409,13 +409,37 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
      burbuja podía correr `systemd-run --user` (fuera del sandbox) o hablar con Docker (root).
    - El bridge escucha **únicamente** en la interfaz loopback `127.0.0.1`.
 
+3. **Token local del bridge — obligatorio desde 2026-10-30:**
+   Todas las rutas (`/v1/*`, `/isymcp/*`, `/health`, `/metrics`) y el websocket exigen
+   `x-isymcp-token`. Si no defines `CODEX_WEB_HTTP_TOKEN`, el primer arranque crea
+   `<home del bridge>/token` (por defecto `~/.codex-web-http/token`) con permisos `0600`
+   y lo reutiliza en los siguientes arranques. El panel, el MCP, el canario, `isymcp codex`
+   y la CLI lo leen solos: no hay que configurar nada. Salida real (2026-10-30, home temporal):
+
+   ```console
+   $ curl -i http://127.0.0.1:48991/health
+   HTTP/1.1 401 Unauthorized
+   {"error":{"type":"unauthorized","message":"falta o es invalido x-isymcp-token (CODEX_WEB_HTTP_TOKEN)"}}
+
+   $ ls -l /tmp/tmp.WdtpZ3xwaL/token
+   -rw------- 1 danny danny 44 oct 30 20:55 /tmp/tmp.WdtpZ3xwaL/token
+
+   $ curl -s -H "x-isymcp-token: $(tr -d '\n' < /tmp/tmp.WdtpZ3xwaL/token)" http://127.0.0.1:48991/health
+   {"status":"ok","uptime_seconds":1,"upstream":"https://chatgpt.com/backend-api/codex","web_models":"on",...}
+   ```
+
+   `CODEX_WEB_HTTP_TOKEN`, si está definida, tiene prioridad y no se toca el disco. Si el
+   archivo no se puede crear o leer, el bridge **no arranca**: falla cerrado en vez de quedar
+   abierto. El token de sesión de las herramientas `codex_*` (`isymcp session mint`) es otro
+   mecanismo y no cambia.
+
 ---
 
 ## 10. Solución de Problemas Frecuentes
 
 | Problema | Causa Posible | Solución |
 |---|---|---|
-| **Error 401 en `/health` o `/api/*`** | Variable `CODEX_WEB_HTTP_TOKEN` configurada sin enviar cabecera `Authorization` | Ejecuta `isymcp health` (maneja la auth automáticamente) o exporta tu token. |
+| **Error 401 en `/health` o `/api/*`** | Falta la cabecera `x-isymcp-token` o el token no coincide | Ejecuta `isymcp health` (lee el token solo) o manda `x-isymcp-token` con el valor de `~/.codex-web-http/token` o `CODEX_WEB_HTTP_TOKEN`. |
 | **Error `web_session_expired`** | Las cookies de chatgpt.com caducaron | Vuelve a ejecutar `bun run scripts/import-cookies.ts --file cookie.txt`. |
 | **Error `upstream_unreachable`** | Corte de conexión hacia OpenAI | Verifica tu conexión a internet o el estado de ChatGPT. |
 | **Túnel desconectado** | ChatGPT no puede llamar herramientas | Ejecuta `isymcp tunnel connect` o reactívalo desde el Panel. |

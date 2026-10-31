@@ -318,7 +318,7 @@ export function renderMain(state: PanelState): string {
       tone: state.serverAuth === "token_required" ? "warn" : state.server === "up" ? "ok" : "bad",
       state: state.serverAuth === "token_required" ? "token requerido" : state.server === "up" ? "en linea" : "apagado",
       detail: state.serverAuth === "token_required"
-        ? `http://127.0.0.1:${escapeHtml(state.serverPort)} · inicia el panel con el mismo CODEX_WEB_HTTP_TOKEN del bridge`
+        ? `http://127.0.0.1:${escapeHtml(state.serverPort)} · el token no coincide: usa CODEX_WEB_HTTP_TOKEN o el archivo ~/.codex-web-http/token del bridge`
         : `http://127.0.0.1:${escapeHtml(state.serverPort)}`,
       actions: button("server-start", "Encender", "go") + button("server-stop", "Apagar", "stop"),
     }),
@@ -642,7 +642,7 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
 }
 
 /** 401 del bridge = el panel no tiene (o tiene mal) CODEX_WEB_HTTP_TOKEN: decirlo claro. */
-export const BRIDGE_AUTH_HINT = "el bridge exige CODEX_WEB_HTTP_TOKEN y el panel no lo tiene o no coincide; inicia el panel con la misma variable";
+export const BRIDGE_AUTH_HINT = "el bridge exige token y el panel no tiene uno valido; usa CODEX_WEB_HTTP_TOKEN o comparte ~/.codex-web-http/token";
 
 /** Reenvia la respuesta del bridge; un 401 se traduce a un error accionable. */
 async function relayBridge(r: Response): Promise<Response> {
