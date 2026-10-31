@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.1] - 2026-10-31
+
+Patch release on top of 1.0.0. It contains a single diagnostics fix and the
+matching version/tag updates; no behavior of the bridge, MCP tools or sandbox
+changes.
+
+### Fixed
+
+- `isymcp doctor` no longer reports a stale media failure forever. The last-failure
+  check now ignores an old failed import once a newer import has completed, so a
+  recovered catalog reads `ok · sin fallos registrados`. Raw evidence is untouched:
+  every `job.json` (success and failure) is preserved on disk.
+- Historical failures that predate the stable error codes surfaced as `media_unknown`
+  and could not be cleared by the documented "retry" remedy, because a successful
+  retry writes a new job and leaves the old failed one as the latest failure.
+
+### Changed
+
+- Bump the version to `1.0.1` and the Windows sandbox image tag to `isymcp-sandbox:1.0.1`.
+- Add a regression test covering both the recovered and the still-failing catalog states.
+
 ## [1.0.0] - 2026-10-31
 
 First stable release. It consolidates the rc.2 snapshot plus the security,
