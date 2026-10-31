@@ -43,7 +43,7 @@ describe("MCP con session tokens (vivo)", () => {
     });
     expect(payload.executed).toBe(false);
     expect(String(payload.stderr)).toContain("V1 stub");
-  });
+  }, 30_000);
 
   test("read-only ejecuta y NO puede escribir", async () => {
     const session = mintSession(workspace, { label: "ro", writable: false });
@@ -65,7 +65,7 @@ describe("MCP con session tokens (vivo)", () => {
     expect(denied.executed).toBe(true);
     expect(denied.exit_code).not.toBe(0);
     expect(existsSync(pwn)).toBe(false);
-  });
+  }, 30_000);
 
   test("apply_patch: writable aplica, rechaza escape y read-only", async () => {
     const repo = mkdtempSync(join(tmpdir(), "isyco-mcp-repo-"));
@@ -100,7 +100,7 @@ describe("MCP con session tokens (vivo)", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("sandbox off: read-only falla cerrado, writable ejecuta sin sandbox", async () => {
     const ro = mintSession(workspace, { label: "nosandbox-ro", writable: false });
@@ -120,7 +120,7 @@ describe("MCP con session tokens (vivo)", () => {
     expect(ok.executed).toBe(true);
     expect(ok.sandbox).toBe("none");
     expect(String(ok.stdout)).toContain("sin-sandbox");
-  });
+  }, 30_000);
 
   test("timeout de exec: kill + timed_out", async () => {
     const rw = mintSession(workspace, { label: "timeout-rw", writable: true });
@@ -157,5 +157,5 @@ describe("MCP con session tokens (vivo)", () => {
       cwd: "../",
     });
     expect(String(outside.error)).toContain("fuera del workspace");
-  });
+  }, 30_000);
 });

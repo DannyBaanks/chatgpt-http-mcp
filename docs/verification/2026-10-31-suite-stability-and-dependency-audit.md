@@ -35,6 +35,7 @@ Fix: explicit budgets only where the test crosses a process boundary.
 | `e2e-all` unified smoke (each harness probe carries a 20 s budget) | 90 s |
 | Chromium `beforeAll` for composer/panel E2E | 60 s |
 | CLI end-to-end file and lifecycle tests, panel/composer `afterAll` | 30 s |
+| Live MCP stdio session tests (`tests/mcp-session.test.ts`) | 30 s (the existing exec-timeout test keeps 20 s) |
 
 The global default stays at 5 s for unit tests; no global timeout was raised.
 
@@ -54,6 +55,16 @@ Validation steps:
 The 3 skips are opt-in or platform-gated, not failures: Windows native MCP E2E
 (`ISYMCP_WINDOWS_NATIVE_E2E=1`), installed Video Vision real frame, and the
 native Windows profile launchability check.
+
+The 1.0.0 release re-run exposed one more remaining default budget:
+`MCP con session tokens (vivo) > token desconocido conserva el stub de compat`
+timed out at 5172.42 ms under load. All six live MCP stdio tests in
+`tests/mcp-session.test.ts` now declare 30 s budgets (the existing
+exec-timeout test keeps 20 s). The release re-run after that change is recorded
+below.
+
+Release re-run (2026-10-31, normal machine load): **705 pass / 3 skip / 0 fail**,
+708 tests in 107 files, 68.34 s, exit 0.
 
 ## FS-06 — zero source lines over 160 columns
 
