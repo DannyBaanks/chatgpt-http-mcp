@@ -10,10 +10,10 @@ limitations are documented in the [README](README.md#security-model) and the
 
 | Version | Supported |
 | --- | --- |
-| `1.0.0-rc.2` and later release candidates | Yes |
-| Older tags and forks | No |
+| `1.0.0` | Yes |
+| Older tags, release candidates and forks | No |
 
-Only the latest release candidate and the `main` branch receive security fixes.
+Only the latest stable release and the `main` branch receive security fixes.
 
 ## Reporting a vulnerability
 

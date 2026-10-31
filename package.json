@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-http-mcp",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "ChatGPT Web -> HTTP API local (OpenAI-compatible) + MCP nativo con sandbox multiplataforma",

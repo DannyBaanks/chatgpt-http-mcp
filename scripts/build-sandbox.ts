@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
-const image = process.env.CODEX_WEB_HTTP_SANDBOX_IMAGE?.trim() || "isymcp-sandbox:1.0.0-rc.2";
+const image = process.env.CODEX_WEB_HTTP_SANDBOX_IMAGE?.trim() || "isymcp-sandbox:1.0.0";
 const proc = Bun.spawnSync([
   "docker", "build", "--tag", image, "--file", join(root, "sandbox", "Dockerfile"), join(root, "sandbox"),
 ], { stdout: "inherit", stderr: "inherit", timeout: 15 * 60_000 });

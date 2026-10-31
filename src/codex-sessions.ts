@@ -362,7 +362,7 @@ export function resolveWithinReal(root: string, candidate: string): string | nul
 }
 
 export const BWRAP = "/usr/bin/bwrap";
-export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.0-rc.2";
+export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.0";
 
 export interface SandboxPlan {
   argv: string[];

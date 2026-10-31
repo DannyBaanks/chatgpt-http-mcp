@@ -7,22 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [1.0.0] - 2026-10-31
+
+First stable release. It consolidates the rc.2 snapshot plus the security,
+stability, formatting and documentation work below.
 
 ### Changed
 
 - Wrap every `src/` line longer than 160 columns without behavior changes (61 files; literals and regexes verified equivalent).
 - Give process-spawning integration tests explicit time budgets (30-90 s) instead of relying on Bun's 5 s default; three consecutive full suites pass under controlled CPU load.
 - Bump `@modelcontextprotocol/sdk` from 1.30.0 to 1.32.2 and refresh transitive dependencies within range.
+- Rename the Windows sandbox image tag to `isymcp-sandbox:1.0.0`.
 
 ### Security
 
+- Require the bridge's own token (created with mode 0600 on first start) on every loopback route, including `/v1/*`, `/isymcp/*`, health, metrics and the WebSocket; fail closed with 503 if the token cannot be prepared.
+- Stop `chatgpt_ask` and the MCP route on a reported OpenAI block: record `provider.blocked`, return `provider_blocked` with `isError`, and never retry.
+- Keep the native broker socket in a private 0700 directory (`$XDG_RUNTIME_DIR/isymcp/broker.sock` or `<bridge home>/run/broker.sock`) instead of a shared `/tmp` path.
 - `bun audit` now reports 0 vulnerabilities (was 14: 6 high, 6 moderate, 2 low), via body-parser 2.4.0, fast-uri 3.1.9, ip-address 10.7.4, qs 6.16.1 and zod 4.6.6.
 - Add `SECURITY.md` with private reporting instructions, supported versions and scope.
+
+### Decision
+
+- The account owner accepted the compliance verdict (`docs/compliance/FINAL_VERDICT.md`).
+- The autonomous native-browser line is frozen for 1.0.0: entrypoints keep returning `503 native_browser_unavailable`, no remote retries are performed, and it remains blocked until a documented, authorized owner/browser adapter exists.
 
 ### Documentation
 
 - Refresh the README test badge and suite count (705 pass / 3 skip / 0 fail across 107 files) and add the 2026-10-31 verification record.
+- Add dated operator-guide sections and release notes for 1.0.0.
 
 ## [1.0.0-rc.2] - 2026-10-14
 
