@@ -57,7 +57,11 @@ interface FailedImport {
   phase?: string;
 }
 
-/** Ultimo import fallido del catalogo local (job.json mas reciente). */
+/**
+ * Ultimo import fallido del catalogo local (job.json mas reciente), pero solo si sigue
+ * siendo la ultima actividad: si hay un import completado posterior, el catalogo se recupero
+ * y ya no es un fallo vigente. No toca la evidencia cruda: los job.json se conservan tal cual.
+ */
 export function latestFailedImport(mediaHome: string): FailedImport | undefined {
   const downloads = join(mediaHome, "downloads");
   let entries: string[];
@@ -67,18 +71,24 @@ export function latestFailedImport(mediaHome: string): FailedImport | undefined 
     return undefined;
   }
   let best: { mtime: number; job: FailedImport } | undefined;
+  let latestComplete = 0;
   for (const name of entries) {
     const jobPath = join(downloads, name, "job.json");
     try {
       const mtime = statSync(jobPath).mtimeMs;
       const job = JSON.parse(readFileSync(jobPath, "utf8")) as FailedImport & { state?: string };
+      if (job.state === "complete") {
+        if (mtime > latestComplete) latestComplete = mtime;
+        continue;
+      }
       if (job.state !== "failed") continue;
       if (!best || mtime > best.mtime) best = { mtime, job };
     } catch {
       /* directorio sin job.json legible: se ignora */
     }
   }
-  return best?.job;
+  if (!best) return undefined;
+  return best.mtime > latestComplete ? best.job : undefined;
 }
 
 export function runDoctor(deps: DoctorDeps = {}): DoctorReport {

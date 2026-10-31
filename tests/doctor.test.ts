@@ -1,6 +1,6 @@
 // M3: isymcp doctor determinista.
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { formatDoctor, latestFailedImport, runDoctor } from '../src/doctor';
@@ -36,6 +36,30 @@ describe('M3: runDoctor', () => {
     expect(latestFailedImport(mediaHome)).toMatchObject({ error_code: 'media_youtube_bot_wall', error: 'not a bot' });
     const report = runDoctor({ probe: () => 'x', exists: () => true, mediaHome, home: home() });
     expect(report.checks.find((c) => c.id === 'media-error')!.detail).toContain('media_youtube_bot_wall');
+  });
+
+  test('un fallo anterior a un import completado deja de reportarse (catalogo recuperado)', () => {
+    const mediaHome = home();
+    const failed = join(mediaHome, 'downloads', 'import-old');
+    const done = join(mediaHome, 'downloads', 'import-new');
+    mkdirSync(failed, { recursive: true });
+    mkdirSync(done, { recursive: true });
+    writeFileSync(join(failed, 'job.json'), JSON.stringify({ state: 'failed', error: 'fallo historico' }));
+    writeFileSync(join(done, 'job.json'), JSON.stringify({ state: 'complete', phase: 'ready' }));
+    // El completado es mas reciente: el fallo viejo ya no es actividad vigente.
+    const touch = (path: string, ms: number) => utimesSync(path, new Date(ms), new Date(ms));
+    touch(join(failed, 'job.json'), Date.now() - 86_400_000);
+    touch(join(done, 'job.json'), Date.now());
+    expect(latestFailedImport(mediaHome)).toBeUndefined();
+    const report = runDoctor({ probe: () => 'x', exists: () => true, mediaHome, home: home() });
+    const check = report.checks.find((c) => c.id === 'media-error')!;
+    expect(check.status).toBe('ok');
+    expect(check.detail).toContain('sin fallos registrados');
+
+    // Si el fallo pasa a ser lo mas reciente, vuelve a reportarse.
+    touch(join(failed, 'job.json'), Date.now());
+    touch(join(done, 'job.json'), Date.now() - 86_400_000);
+    expect(latestFailedImport(mediaHome)).toMatchObject({ error: 'fallo historico' });
   });
 
   test('formatDoctor es legible y reporta el resumen', () => {
