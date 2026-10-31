@@ -11,8 +11,8 @@ beforeAll(async () => {
     headless: true,
     timeout: 20_000,
   });
-}, 25_000);
-afterAll(async () => { await browser?.close(); }, 10_000);
+}, 60_000);
+afterAll(async () => { await browser?.close(); }, 30_000);
 
 // Local DOM boundary fixture: no account, network request, cookies or model.
 async function composer(highLabel = "High"): Promise<Page> {
@@ -46,7 +46,7 @@ test("settings read waits for the usable composer control and ignores model butt
     expect(await page.locator('form button').getAttribute('data-opened')).toBe("true");
     expect(await page.locator('[role="menu"]').isVisible()).toBe(false);
   } finally { await page.close(); }
-}, 20000);
+}, 30_000);
 
 test("explicit model selection sets High and confirms the exact model in the composer", async () => {
   const page = await composer();
@@ -55,7 +55,7 @@ test("explicit model selection sets High and confirms the exact model in the com
     expect(await page.locator('form button').getAttribute('data-model-expanded')).toBe("true");
     expect(await page.locator('[role="menu"]').isVisible()).toBe(false);
   } finally { await page.close(); }
-});
+}, 30_000);
 
 test("explicit GPT-5.6 selection accepts the UI's version-prefixed High effort label", async () => {
   const page = await composer("5.6 High");
@@ -64,7 +64,7 @@ test("explicit GPT-5.6 selection accepts the UI's version-prefixed High effort l
       model: "GPT-5.6 Sol", effort: "5.6 High", effortPosition: 3, effortSteps: 3,
     });
   } finally { await page.close(); }
-});
+}, 30_000);
 
 // The live simple view paints the power row before its slider mounts. The row
 // is attached with an empty child and no box, so an immediate visible count is 0.
@@ -99,7 +99,7 @@ test("reasoning selection waits until the owned slider is usable", async () => {
     expect(await settings.selectComposerSettings(page, "GPT-6", "high", { timeoutMs: 3000 })).toMatchObject({ model: "GPT-6", effort: "High", effortPosition: 3, effortSteps: 3 });
     expect(await page.locator('[role="menu"]').isVisible()).toBe(false);
   } finally { await page.close(); }
-}, 20000);
+}, 30_000);
 
 test("an unavailable requested model fails without selecting a different model", async () => {
   const page = await composer();
@@ -112,4 +112,4 @@ test("an unavailable requested model fails without selecting a different model",
     expect(await page.evaluate(() => document.querySelector('[aria-checked="true"]')?.textContent)).toBe("GPT-6");
     expect(await page.locator('[role="menu"]').isVisible()).toBe(false);
   } finally { await page.close(); }
-}, 10000);
+}, 30_000);

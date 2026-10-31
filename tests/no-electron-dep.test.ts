@@ -47,7 +47,7 @@ describe("M2: Electron fuera de este path", () => {
       }
     }
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 
   test("control positivo: el web adapter real es Playwright (no Electron)", () => {
     const webTurn = readFileSync(join(ROOT, "src", "web-turn.ts"), "utf8");

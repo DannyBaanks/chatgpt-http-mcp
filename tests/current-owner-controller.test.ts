@@ -41,4 +41,4 @@ test("cancelling a delivered canary revokes authorization and promptly exits its
     proc.kill(); await proc.exited; await invoke;
     rmSync(home, { recursive: true, force: true });
   }
-}, 8000);
+}, 30_000); // Spawns a controller and waits on filesystem fixtures; 0.2s quiet but >8s under load.

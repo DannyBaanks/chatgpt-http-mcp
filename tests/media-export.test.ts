@@ -26,6 +26,8 @@ async function fixture(verified = true) {
   return { base, parent, catalog, asset, store, manifest };
 }
 
+// Every case builds a real FFmpeg fixture; they run ~1.4s quiet but exceed
+// Bun's five-second default when the machine is under load.
 test('export publishes source and verified full audio/contact-sheet artifacts with a hashed receipt', async () => {
   const state = await fixture();
   const result = await exportMediaPackage(state.catalog, state.asset, state.manifest, state.store, state.parent, preview);
@@ -45,7 +47,7 @@ test('export publishes source and verified full audio/contact-sheet artifacts wi
   }
   expect(readFileSync(join(result.directory, 'source.mp4'))).toEqual(readFileSync(state.asset.realPath));
   expect(state.catalog.findBySourceUrl(sourceUrl)?.id).toBe(state.asset.id);
-});
+}, 30_000);
 
 test('export sanitizes an untrusted title and refuses an existing package without changing it', async () => {
   const state = await fixture();
@@ -57,14 +59,14 @@ test('export sanitizes an untrusted title and refuses an existing package withou
   await expect(exportMediaPackage(state.catalog, state.asset, state.manifest, state.store, state.parent, hostile))
     .rejects.toBeInstanceOf(PackageCollisionError);
   expect(readFileSync(result.manifest_path)).toEqual(originalManifest);
-});
+}, 30_000);
 
 test('export refuses a legacy catalog asset without a verified downloader receipt', async () => {
   const state = await fixture(false);
   await expect(exportMediaPackage(state.catalog, state.asset, state.manifest, state.store, state.parent, preview))
     .rejects.toThrow(/verified download receipt/i);
   expect(existsSync(join(state.parent, 'Angel Engine Part 63 [abcdefghijk]'))).toBe(false);
-});
+}, 30_000);
 
 test('concurrent exports to one package name publish once and preserve same-filesystem atomic staging', async () => {
   const state = await fixture();
@@ -80,7 +82,7 @@ test('concurrent exports to one package name publish once and preserve same-file
   if (collision.staged_directory) expect(existsSync(collision.staged_directory)).toBe(true);
   const published = (results.find(item => item.status === 'fulfilled') as PromiseFulfilledResult<any>).value;
   expect(statSync(published.directory).dev).toBe(statSync(state.parent).dev);
-});
+}, 30_000);
 
 test('publisher failure fails closed and preserves the partial package location', async () => {
   const state = await fixture();
@@ -94,7 +96,7 @@ test('publisher failure fails closed and preserves the partial package location'
   expect(existsSync(partial)).toBe(true);
   expect(existsSync(join(partial, 'manifest.json'))).toBe(true);
   expect(existsSync(join(state.parent, 'Angel Engine Part 63 [abcdefghijk]'))).toBe(false);
-});
+}, 30_000);
 
 test('post-publication verification failure reports the surviving final package path', async () => {
   const state = await fixture();
@@ -111,4 +113,4 @@ test('post-publication verification failure reports the surviving final package 
   expect(preserved).toBe(join(state.parent, 'Angel Engine Part 63 [abcdefghijk]'));
   expect(existsSync(preserved)).toBe(true);
   expect(existsSync(join(preserved, 'manifest.json'))).toBe(true);
-});
+}, 30_000);

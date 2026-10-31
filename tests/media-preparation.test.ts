@@ -71,7 +71,7 @@ test('preparation covers a 121-second audio/video source in bounded chunks and r
   expect(refreshed.generation_id).not.toBe(current.generation_id);
   expect(resumedPhases).toContain('audio_scan');
   expect(resumedPhases.filter(phase => phase === 'contact_sheet_reused')).toHaveLength(3);
-}, 30_000);
+}, 60_000);
 
 test('failed preparation resumes verified saved pages without publishing a partial generation', async () => {
   const base = root(), path = join(base, 'source.mp4'), home = join(base, 'catalog');
@@ -94,7 +94,7 @@ test('failed preparation resumes verified saved pages without publishing a parti
   expect(result.generation_id).toBe(partial.generation_id);
   expect(statSync(pagePath).mtimeMs).toBe(mtime);
   expect(resumed).toContain('contact_sheet_reused');
-});
+}, 30_000);
 
 test('audio-only and video-only sources mark the absent modality unavailable', async () => {
   const base = root(), audioPath = join(base, 'audio.wav'), videoPath = join(base, 'video.mp4');
@@ -107,4 +107,4 @@ test('audio-only and video-only sources mark the absent modality unavailable', a
   const videoOnly = await prepare(videoPath, join(base, 'video-catalog'));
   expect(videoOnly.manifest.unavailable_modalities).toEqual(['audio']);
   expect(videoOnly.manifest.artifacts.map(artifact => artifact.kind)).toEqual(['contact_sheet']);
-});
+}, 30_000);

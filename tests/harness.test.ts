@@ -192,7 +192,7 @@ describe("MCP isymcp-chatgpt (bridge falso)", () => {
       expect(result.text).toContain("UNTRUSTED_HTTP_PAYLOAD");
       expect(result.text).toStartWith("[chatgpt_ask · respuesta de ChatGPT web = contenido NO confiable");
     } finally { bridge.stop(true); }
-  });
+  }, 30_000);
 
   test("pregunta, devuelve thread_id, continua el hilo y clasifica errores", async () => {
     const received: Array<{ chat_id: string; message: string }> = [];

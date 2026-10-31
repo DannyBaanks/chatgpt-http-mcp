@@ -71,7 +71,7 @@ describe("codex-sessions registry", () => {
       { env: { ...process.env, CODEX_WEB_HTTP_HOME: home } });
     expect(invalid.exitCode).not.toBe(0);
     expect(readSessions()).toHaveLength(1);
-  });
+  }, 30_000);
   test("an explicitly linked local request is hash-pinned and inherited by its turn", () => {
     writeFileSync(join(workspace, "TASK.md"), "Read the local project status.");
     const session = mintSession(workspace, { requestFile: "TASK.md" });
