@@ -9,7 +9,7 @@ Scoped tools · Native Codex CLI integration · Verifiable execution receipts ·
 
 [![CI](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml)
 [![Release candidate](https://img.shields.io/github/v/release/DannyBaanks/chatgpt-http-mcp?include_prereleases&label=prerelease)](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2)
-[![Recorded tests](https://img.shields.io/badge/recorded%20suite-545%20pass%20%7C%201%20skip-informational)](docs/verification/2026-10-14-visible-two-way-pass.md)
+[![Recorded tests](https://img.shields.io/badge/recorded%20suite-705%20pass%20%7C%203%20skip-informational)](docs/verification/2026-10-31-suite-stability-and-dependency-audit.md)
 [![License MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Bun 1.4.2](https://img.shields.io/badge/runtime-Bun%201.4.2-222)
 ![Experimental](https://img.shields.io/badge/status-experimental-orange)
@@ -393,12 +393,13 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 - **Sandbox Isolation.** `bubblewrap` on Linux, Docker Desktop on Windows, and the optional Codex native Windows MXC sandbox hide bridge secrets, deny network by default, and scope writes to the selected workspace. The native Windows MCP E2E is demonstrated in [the Windows guide](docs/WINDOWS.md); Docker-backed Windows execution is not demonstrated here.
 - **Session Tokens.** Tokens expire (24 hours by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
 - **Platform safety boundaries:** Reported OpenAI blocks must halt the affected operation without bypass. This safeguard is not a blanket claim that every browser path has passed a compliance audit; see [open risks](docs/compliance/FINAL_VERDICT.md).
+- **Vulnerability reporting:** Use [GitHub private vulnerability reporting](SECURITY.md); never paste live tokens, cookies or account data into a public issue.
 
 ---
 
 ## Verification & Testing
 
-- **Full Test Suite:** **545 tests passing, 1 skipped, 0 failed across 81 files** (`bun test`; verified on 2026-10-14).
+- **Full Test Suite:** **705 tests passing, 3 skipped, 0 failed across 107 files** (`bun test`; verified on 2026-10-31, including three consecutive full runs under controlled CPU load). [Record](docs/verification/2026-10-31-suite-stability-and-dependency-audit.md).
 - **Two-Way E2E Round Trip:** Documented through separately recorded native-owner and sandbox canaries, including an 18 ms sandbox execution. [Receipts and limits](docs/verification/2026-10-14-visible-two-way-pass.md).
 - **Unified E2E Smoke:** Verified with `isymcp smoke` and `scripts/e2e-all.ts`.
 - **Soak Testing:** 99/100 successful real turns in soak baseline; 9/10 with tool execution inside sandbox.

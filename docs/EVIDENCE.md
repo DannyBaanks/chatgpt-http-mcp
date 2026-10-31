@@ -532,3 +532,28 @@ Short, with the M0–M7 code in `main`:
 Note: `isymcp doctor` still reported `media_unknown` afterwards because it reads
 the newest failed *import job* in the catalog; the CLI's invalid-URL failure
 creates no job. That is by design, not a defect.
+
+### Correction: current suite count and dependency audit (2026-10-31)
+
+The 643-test count above is historical. On 2026-10-31 `bun test` reports
+**705 pass, 3 skip, 0 fail across 708 tests in 107 files**, exit 0. The three
+skips are opt-in or platform-gated (Windows native MCP E2E, installed Video
+Vision, native Windows profile), not failures.
+
+The suite was also validated under controlled CPU load: after giving
+process-spawning integration tests explicit 30-90 s budgets (no global timeout
+increase), three consecutive full runs passed under load average 9.91-11.34 in
+91.73 s, 98.50 s and 91.12 s. The pre-fix loaded baseline was 690 pass / 3 skip
+/ 16 fail / 6 errors in 374.06 s.
+
+`bun audit` reports **0 vulnerabilities in 116 packages**, down from 14 (6 high,
+6 moderate, 2 low) after upgrading `@modelcontextprotocol/sdk` to 1.32.2 and
+refreshing body-parser 2.4.0, fast-uri 3.1.9, ip-address 10.7.4, qs 6.16.1 and
+zod 4.6.6 within range. `bun run typecheck` exits 0 and the post-update full
+suite passed 705/3/0 in 66.46 s. Source lines longer than 160 columns in `src/`
+are now zero (61 files reformatted; literals and regexes verified equivalent).
+
+Claim status: CURRENT suite, audit and formatting numbers - DEMONSTRATED. This
+correction adds no live browser, native-owner or account-based E2E claim.
+Details, commands and raw-log SHA-256:
+[2026-10-31 record](verification/2026-10-31-suite-stability-and-dependency-audit.md).

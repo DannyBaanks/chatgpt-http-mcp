@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Wrap every `src/` line longer than 160 columns without behavior changes (61 files; literals and regexes verified equivalent).
+- Give process-spawning integration tests explicit time budgets (30-90 s) instead of relying on Bun's 5 s default; three consecutive full suites pass under controlled CPU load.
+- Bump `@modelcontextprotocol/sdk` from 1.30.0 to 1.32.2 and refresh transitive dependencies within range.
+
+### Security
+
+- `bun audit` now reports 0 vulnerabilities (was 14: 6 high, 6 moderate, 2 low), via body-parser 2.4.0, fast-uri 3.1.9, ip-address 10.7.4, qs 6.16.1 and zod 4.6.6.
+- Add `SECURITY.md` with private reporting instructions, supported versions and scope.
+
+### Documentation
+
+- Refresh the README test badge and suite count (705 pass / 3 skip / 0 fail across 107 files) and add the 2026-10-31 verification record.
+
 ## [1.0.0-rc.2] - 2026-10-14
 
 ### Changed
