@@ -18,7 +18,7 @@
 // instructions viven en ./identity.ts; las shapes/descripciones/capacidades
 // de las tools en ./catalog.ts — un solo lugar cada cosa, sin deriva.
 //
-//   bun run src/mcp/main.ts --contract native --broker-socket /tmp/codex-web-http-broker.sock
+//   bun run src/mcp/main.ts --contract native [--broker-socket <ruta privada 0700>]
 //
 // Session tokens (v0.3): si el turn_token coincide con una sesion del registro
 // (~/.codex-web-http/codex-sessions.json), las tools ejecutan de verdad con la
@@ -48,6 +48,7 @@ import {
   type CodexSession,
 } from "../codex-sessions";
 import { readMcpBootstrap } from "./bootstrap";
+import { defaultBrokerSocketPath } from "./broker-socket";
 import { routeNativeTool } from "./active-native";
 import { capabilities, shapesFor, TOOL_DESCRIPTIONS, WIRE_ALIASES, type ToolName } from "./catalog";
 import { drain, findLive, killSessionExecs, registerLiveExec, writeStdin as stdinWrite, type BgProc } from "./exec-registry";
@@ -71,7 +72,7 @@ const contract = option("--contract", "native") as "native" | "safe";
 if (contract !== "native" && contract !== "safe") {
   throw new Error(`--contract debe ser native o safe, recibido: ${contract}`);
 }
-const brokerSocketPath = option("--broker-socket", process.platform === "win32" ? "\\\\.\\pipe\\isymcp-broker" : "/tmp/codex-web-http-broker.sock");
+const brokerSocketPath = option("--broker-socket", "") || defaultBrokerSocketPath();
 
 const turnKey = contract === "safe" ? "request_id" : "turn_token";
 
