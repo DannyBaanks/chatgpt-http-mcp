@@ -59,7 +59,7 @@ print(p.returncode);print(out.decode(errors='replace'))`;
  const lines=result.stdout.toString().split('\n'),exitCode=Number(lines.shift());
  return {exitCode,stdout:lines.join('\n')+result.stderr.toString(),stderr:result.stderr.toString()};
 }
-afterAll(()=>{for(const home of homes)rmSync(home,{recursive:true,force:true});});
+afterAll(()=>{for(const home of homes)rmSync(home,{recursive:true,force:true});},30000);
 
 test('CLI help, tree, and media CRUD execute in a private temporary HOME',()=>{
  const e=isolated();
@@ -71,7 +71,7 @@ test('CLI help, tree, and media CRUD execute in a private temporary HOME',()=>{
  const listed=cli(['media','list'],e.env);expect(JSON.parse(listed.stdout.toString())).toHaveLength(1);
  const revoked=cli(['media','revoke',asset.id],e.env);expect(revoked.exitCode).toBe(0);
  expect(JSON.parse(cli(['media','list'],e.env).stdout.toString())).toEqual([]);
-});
+},30000);
 
 test('session, dry-run, log export, and read-only CLI commands stay inside temporary HOME',()=>{
  const e=isolated();
@@ -120,14 +120,14 @@ test('tunnel status and server lifecycle use only fake tools and isolated ports'
   expect(await waitForUnavailable(`http://127.0.0.1:${e.env.ISYMCP_PANEL_PORT}/`)).toBe(true);
   expect(await waitForUnavailable(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`)).toBe(true);
  }
-});
+},30000);
 
 test('menu media-prepare routes into the shared guided flow and cancel never downloads',()=>{
  const e=isolated();
  const result=cli(['menu','media-prepare'],e.env,'\n');
  expect(result.exitCode).toBe(0);expect(result.stdout.toString()).toContain('Pega el enlace público de YouTube');
  expect(JSON.parse(cli(['media','list'],e.env).stdout.toString())).toEqual([]);
-});
+},30000);
 
 // This crosses ffmpeg, three CLI launches and a live MCP stdio session; CI's
 // cold runners can exceed Bun's five-second default without the flow hanging.
@@ -160,4 +160,4 @@ test('guided CLI prepares a generated video, verifies package hashes, then MCP r
   expect(sheet.isError).not.toBe(true);expect(JSON.parse(sheet.content[0].text).selected_sheet.index).toBe(0);expect(sheet.content.filter((part:any)=>part.type==='image')).toHaveLength(1);
   const schema=tools.find(tool=>tool.name==='media_lookup')!.inputSchema as any;expect(Object.keys(schema.properties??{})).not.toContain('path');
  } finally {await client.close();}
-},20_000);
+},60_000);

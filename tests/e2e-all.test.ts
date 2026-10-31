@@ -18,5 +18,5 @@ describe("Unified E2E Smoke Suite", () => {
     for (const check of result.checks) {
       expect(check.ok).toBe(true);
     }
-  }, 30_000); // Native harness probes can each take five seconds; keep the integration gate bounded.
+  }, 90_000); // Harness probes carry a 20s budget each and take 4-8s quiet; load can push the suite past 30s.
 });

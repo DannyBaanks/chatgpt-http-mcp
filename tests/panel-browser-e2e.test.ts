@@ -137,7 +137,7 @@ if (!browserAvailable) {
     });
     await page.goto(panelUrl, { waitUntil: "domcontentloaded" });
     await page.locator("#input").waitFor({ state: "visible" });
-  }, 30_000);
+  }, 60_000);
 
   afterAll(async () => {
     await browser?.close().catch(() => undefined);
@@ -148,7 +148,7 @@ if (!browserAvailable) {
     if (previousToken === undefined) delete process.env.CODEX_WEB_HTTP_TOKEN;
     else process.env.CODEX_WEB_HTTP_TOKEN = previousToken;
     if (root && root.startsWith(tmpdir())) rmSync(root, { recursive: true, force: true });
-  });
+  }, 30_000);
 
   test("panel E2E: chats, draft, session, receipts, activity, failures and responsive drawers", async () => {
     const screenshots = process.env.ISYMCP_PANEL_E2E_SCREENSHOTS_DIR;

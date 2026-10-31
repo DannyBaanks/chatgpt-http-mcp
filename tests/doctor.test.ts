@@ -48,5 +48,5 @@ describe('M3: runDoctor', () => {
   test('runDoctor real no lanza y siempre reporta node', () => {
     const report = runDoctor();
     expect(report.checks.find((c) => c.id === 'node')!.status).toBe('ok');
-  });
+  }, 30_000);
 });
