@@ -10,8 +10,8 @@ limitations are documented in the [README](README.md#security-model) and the
 
 | Version | Supported |
 | --- | --- |
-| `1.0.0` | Yes |
-| Older tags, release candidates and forks | No |
+| `1.0.1` | Yes |
+| `1.0.0` and older tags, release candidates and forks | No |
 
 Only the latest stable release and the `main` branch receive security fixes.
 
