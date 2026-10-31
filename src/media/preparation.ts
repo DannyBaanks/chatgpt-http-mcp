@@ -30,7 +30,8 @@ function sheetFingerprint(sourceHash: string, index: number, range: { start_seco
   return fingerprintArtifact('contact_sheet', sourceHash, { ...SHEET_PARAMETERS, page_index: index, ...range }, SHEET_VERSION);
 }
 
-function cloneArtifact(store: MediaPreparationStore, target: PreparationManifest, candidates: PreparationManifest[], id: string, kind: PreparationArtifact['kind'], fingerprint: string): boolean {
+function cloneArtifact(store: MediaPreparationStore, target: PreparationManifest, candidates: PreparationManifest[], id: string,
+  kind: PreparationArtifact['kind'], fingerprint: string): boolean {
   for (const candidate of candidates) {
     const cached = candidate.artifacts.find(item => item.id === id && item.kind === kind && item.fingerprint === fingerprint);
     if (!cached) continue;
@@ -48,13 +49,16 @@ function cloneArtifact(store: MediaPreparationStore, target: PreparationManifest
   return false;
 }
 
-function sameReady(manifest: PreparationManifest | undefined, source: Asset, duration: number, hasAudio: boolean, hasVideo: boolean, pages: Array<{ start_seconds: number; end_seconds: number }>): boolean {
+function sameReady(manifest: PreparationManifest | undefined, source: Asset, duration: number, hasAudio: boolean, hasVideo: boolean,
+  pages: Array<{ start_seconds: number; end_seconds: number }>): boolean {
   if (!manifest || manifest.status !== 'ready' || manifest.source_sha256 !== source.sha256 || manifest.source_url !== source.sourceUrl ||
       manifest.duration_seconds !== duration) return false;
   const expected = (hasAudio ? 1 : 0) + pages.length;
   if (manifest.artifacts.length !== expected) return false;
-  if (hasAudio && !manifest.artifacts.some(item => item.id === 'audio-scan' && item.kind === 'audio_scan' && item.fingerprint === audioFingerprint(source.sha256))) return false;
-  if (pages.some((range, index) => !manifest.artifacts.some(item => item.id === `sheet-${String(index).padStart(3, '0')}` && item.kind === 'contact_sheet' && item.fingerprint === sheetFingerprint(source.sha256, index, range)))) return false;
+  if (hasAudio && !manifest.artifacts.some(item => item.id === 'audio-scan' && item.kind === 'audio_scan' && item.fingerprint === audioFingerprint(source.
+    sha256))) return false;
+  if (pages.some((range, index) => !manifest.artifacts.some(item => item.id === `sheet-${String(index).padStart(3, '0')}` && item.kind === 'contact_sheet' &&
+    item.fingerprint === sheetFingerprint(source.sha256, index, range)))) return false;
   return manifest.unavailable_modalities?.includes('audio') === !hasAudio && manifest.unavailable_modalities?.includes('video') === !hasVideo;
 }
 
@@ -128,7 +132,8 @@ export async function prepareMedia(
       }
 
       phase = 'complete';
-      store.setStatus(verifiedAsset.id, generation.generation_id, 'ready', { phase, completed: (hasAudio ? 1 : 0) + pageRanges.length, total: (hasAudio ? 1 : 0) + pageRanges.length });
+      store.setStatus(verifiedAsset.id, generation.generation_id, 'ready', { phase, completed: (hasAudio ? 1 : 0) + pageRanges.length, total: (hasAudio ?
+        1 : 0) + pageRanges.length });
       store.commitReady(verifiedAsset.id, generation.generation_id);
       published = true;
       progress?.(phase);
@@ -137,7 +142,8 @@ export async function prepareMedia(
     return prepared;
   } catch (error) {
     if (generation && !published) {
-      try { store.setStatus(generation.asset_id, generation.generation_id, 'failed', { phase }); } catch { /* Preserve the original failure and any earlier ready pointer. */ }
+      try { store.setStatus(generation.asset_id, generation.generation_id, 'failed', { phase }); } catch {
+        /* Preserve the original failure and any earlier ready pointer. */ }
     }
     throw error;
   }

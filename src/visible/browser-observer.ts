@@ -15,13 +15,15 @@ export class PassiveConversationObserver {
   if(snapshot.url!==this.url)throw Error('visible_foreign_navigation');
   const keys=new Set<string>();
   for(const message of snapshot.messages){
-   if(!['user','assistant','progress'].includes(message.kind)||typeof message.messageId!=='string'||!message.messageId.trim())throw Error('visible_message_identity_missing');
+   if(!['user','assistant','progress'].includes(message.kind)||typeof message.messageId!=='string'||!message.messageId.trim())throw Error(
+     'visible_message_identity_missing');
    const key=message.kind+':'+message.messageId;if(keys.has(key))throw Error('visible_message_identity_duplicate');keys.add(key);
    if(message.kind==='assistant'&&(typeof message.markdown!=='string'||typeof message.complete!=='boolean'))throw Error('visible_message_shape_invalid');
    if(message.kind!=='assistant'&&typeof message.text!=='string')throw Error('visible_message_shape_invalid');
    const prior=this.seen.get(key);
    if(prior?.kind==='user'&&message.kind==='user'&&prior.text!==message.text)throw Error('visible_user_message_revised');
-   if(prior?.kind==='assistant'&&prior.complete&&message.kind==='assistant'&&message.complete&&message.markdown!==prior.markdown)throw Error('visible_completed_message_revised');
+   if(prior?.kind==='assistant'&&prior.complete&&message.kind==='assistant'&&message.complete&&message.markdown!==prior.markdown)throw Error(
+     'visible_completed_message_revised');
   }
  }
  baseline(snapshot:ConversationSnapshot){

@@ -221,12 +221,17 @@ function codexTasksBody(tasks: CodexTaskView[], now: number): string {
   const tone = { "lista": "ok", "en curso": "warn", "bloqueada": "bad", "ilegible": "bad" } as const;
   const rows = tasks.map((t) => {
     const ago = t.updated ? Math.max(0, Math.round((now - Date.parse(t.updated)) / 60_000)) : null;
-    const when = ago === null ? "" : ago < 1 ? "ahora" : ago < 60 ? `hace ${ago} min` : ago < 2880 ? `hace ${Math.round(ago / 60)} h` : `hace ${Math.round(ago / 1440)} d`;
+    const when = ago === null ? "" : ago < 1 ? "ahora" : ago < 60 ? `hace ${ago} min` : ago < 2880 ? `hace ${Math.round(ago / 60)} h` : `hace ${
+      Math.round(ago / 1440)} d`;
     const conv = t.conversation ? `<a href="${escapeHtml(t.conversation)}" target="_blank" rel="noreferrer">abrir ↗</a>` : "—";
-    return `<tr><td><code>${escapeHtml(t.id)}</code></td><td>${t.turns} turno${t.turns === 1 ? "" : "s"}</td><td class="muted small">${escapeHtml(when)}</td><td>${conv}</td><td><span class="pill tone-${tone[t.state]}">${escapeHtml(t.state)}</span></td></tr>`;
+    return `<tr><td><code>${escapeHtml(t.id)}</code></td><td>${t.turns} turno${t.turns === 1 ? "" : "s"}</td><td class="muted small">${
+      escapeHtml(when)}</td><td>${conv}</td><td><span class="pill tone-${tone[t.state]}">${escapeHtml(t.state)}</span></td></tr>`;
   }).join("");
   const blocked = tasks.some((t) => t.state === "bloqueada");
-  const note = blocked ? `<p class="small" style="margin-top:8px">⚠ <b>Bloqueada</b> = un envío quedó sin confirmar. Por diseño no se reenvía solo (así no se duplica un turno): revisa esa conversación en ChatGPT antes de seguir con esa tarea.</p>` : "";
+  const note = blocked ?
+    (`<p class="small" style="margin-top:8px">⚠ <b>Bloqueada</b> = un envío quedó sin confirmar. Por diseño no se reenvía solo (así no se duplica un turno): ` +
+      `revisa esa conversación en ChatGPT antes de seguir con esa tarea.</p>`) :
+    "";
   return `<table class="tasks"><tbody>${rows}</tbody></table>${note}`;
 }
 
@@ -237,8 +242,11 @@ function canaryLine(c: CanaryResult | null, now: number): string {
   const age = hours < 1 ? "hace menos de 1 h" : hours < 48 ? `hace ${Math.round(hours)} h` : `hace ${Math.round(hours / 24)} d`;
   const tone = !c.ok ? "bad" : hours > 36 ? "warn" : "ok";
   const checks = c.checks.map((k) => `${k.ok ? "✓" : "✗"} ${escapeHtml(k.name)}`).join(" · ") || escapeHtml(c.notice?.summary ?? c.error ?? "");
-  const notice = c.notice ? `<p class="small">Origen: ${escapeHtml(c.notice.source)} / ${escapeHtml(c.notice.component)} · ${escapeHtml(c.notice.severity)} · ${escapeHtml(c.notice.event)}<br>${escapeHtml(c.notice.summary)}<br>Evidencia: <code>${escapeHtml(c.notice.evidence_ref)}</code><br>Detalle: <code>${escapeHtml(c.notice.action ?? "isymcp canary status")}</code></p>` : "";
-  return `<p class="small" style="margin-top:10px">Canario <span class="pill tone-${tone}">${c.ok ? "OK" : "FALLO"}</span> <span class="muted">${age} · ${checks}</span></p>${notice}`;
+  const notice = c.notice ? `<p class="small">Origen: ${escapeHtml(c.notice.source)} / ${escapeHtml(c.notice.component)} · ${escapeHtml(c.notice.severity)} · ${
+    escapeHtml(c.notice.event)}<br>${escapeHtml(c.notice.summary)}<br>Evidencia: <code>${escapeHtml(c.notice.evidence_ref)}</code><br>Detalle: <code>${
+    escapeHtml(c.notice.action ?? "isymcp canary status")}</code></p>` : "";
+  return `<p class="small" style="margin-top:10px">Canario <span class="pill tone-${tone}">${c.ok ? "OK" : "FALLO"}</span> <span class="muted">${age} · ${
+    checks}</span></p>${notice}`;
 }
 
 function metricsBody(m?: SystemMetrics | null): string {
@@ -250,26 +258,31 @@ function metricsBody(m?: SystemMetrics | null): string {
       : `${Math.floor(m.uptimeSeconds / 3600)}h ${Math.floor((m.uptimeSeconds % 3600) / 60)}m`;
   const rssMb = (m.memory.rss_bytes / (1024 * 1024)).toFixed(1);
 
-  return `<div class="metrics-grid">
+  return (`<div class="metrics-grid">
     <div class="metric-item"><div class="metric-val">${m.turns.total}</div><div class="metric-lbl">Turnos Totales</div></div>
     <div class="metric-item"><div class="metric-val" style="color:var(--ok)">${m.turns.success}</div><div class="metric-lbl">Éxitos</div></div>
-    <div class="metric-item"><div class="metric-val" style="color:${m.turns.failed > 0 ? "var(--bad)" : "var(--mute)"}">${m.turns.failed}</div><div class="metric-lbl">Fallos</div></div>
-    <div class="metric-item"><div class="metric-val" style="color:var(--warn)">${m.turns.reasoning_turns}</div><div class="metric-lbl">Con Pensamiento</div></div>
+    <div class="metric-item"><div class="metric-val" style="color:${m.turns.failed > 0 ? "var(--bad)" : "var(--mute)"}">${m.turns.failed}` +
+    `</div><div class="metric-lbl">Fallos</div></div>
+    <div class="metric-item"><div class="metric-val" style="color:var(--warn)">${m.turns.reasoning_turns}</div><div class="metric-lbl">Con Pensamiento</div>` +
+    `</div>
     <div class="metric-item"><div class="metric-val">${m.latency_ms.avg} ms</div><div class="metric-lbl">Latencia Media</div></div>
-    <div class="metric-item"><div class="metric-val">${m.tokens.total_tokens_estimated.toLocaleString()}</div><div class="metric-lbl">Tokens Estimados</div></div>
-    <div class="metric-item"><div class="metric-val">${m.tokens.reasoning_tokens_estimated.toLocaleString()}</div><div class="metric-lbl">Tokens Pensamiento</div></div>
+    <div class="metric-item"><div class="metric-val">${m.tokens.total_tokens_estimated.toLocaleString()}</div><div class="metric-lbl">Tokens Estimados</div>` +
+    `</div>
+    <div class="metric-item"><div class="metric-val">${m.tokens.reasoning_tokens_estimated.toLocaleString()}</div><div class="metric-lbl">` +
+    `Tokens Pensamiento</div></div>
     <div class="metric-item"><div class="metric-val">${uptime}</div><div class="metric-lbl">Uptime (${rssMb} MB RSS)</div></div>
-  </div>`;
+  </div>`);
 }
 
 function visibleBrowserCard(v?: PanelState["visibleSession"], tunnelReady?: boolean): string {
   if (!v) {
-    return `<section class="card">
+    return (`<section class="card">
       <h3>CHROME VISIBLE &amp; BROKER NATIVO <span class="muted small">· ejecución bidireccional en sandbox</span></h3>
-      <p class="muted small">Sin navegador visible activo en este momento. Lanza uno con <code>bun run scripts/start-visible-browser.ts</code> o mediante <code>isymcp</code> para operar ChatGPT a mano.</p>
-    </section>`;
+      <p class="muted small">Sin navegador visible activo en este momento. Lanza uno con <code>bun run scripts/start-visible-browser.ts</code>` +
+      ` o mediante <code>isymcp</code> para operar ChatGPT a mano.</p>
+    </section>`);
   }
-  return `<section class="card">
+  return (`<section class="card">
     <h3>CHROME VISIBLE &amp; BROKER NATIVO <span class="muted small">· ejecución bidireccional en sandbox</span></h3>
     <div class="metrics-grid">
       <div class="metric-item"><div class="metric-val" style="color:var(--ok)">Visible</div><div class="metric-lbl">Modo Host</div></div>
@@ -278,14 +291,16 @@ function visibleBrowserCard(v?: PanelState["visibleSession"], tunnelReady?: bool
       <div class="metric-item"><div class="metric-val"><code>${escapeHtml(v.launchId.slice(0, 8))}…</code></div><div class="metric-lbl">Launch ID</div></div>
     </div>
     <p class="small" style="margin-top:10px">
-      <b>Conector:</b> <code>@Codex ISyMCP</code> · <b>URL activa:</b> <a href="${escapeHtml(v.url)}" target="_blank" rel="noreferrer">${escapeHtml(v.url.replace(/^https?:\/\//, ""))} ↗</a><br>
-      <b>Túnel MCP:</b> <span class="pill tone-${tunnelReady ? "ok" : "warn"}">${tunnelReady ? "conectado a ChatGPT" : "detenido"}</span> · <b>Sandbox:</b> <code>${escapeHtml(sandboxLabel({ writable: false }))}</code>
+      <b>Conector:</b> <code>@Codex ISyMCP</code> · <b>URL activa:</b> <a href="${escapeHtml(v.url)}" target="_blank" rel="noreferrer">` +
+    `${escapeHtml(v.url.replace(/^https?:\/\//, ""))} ↗</a><br>
+      <b>Túnel MCP:</b> <span class="pill tone-${tunnelReady ? "ok" : "warn"}">${tunnelReady ? "conectado a ChatGPT" : "detenido"}` +
+    `</span> · <b>Sandbox:</b> <code>${escapeHtml(sandboxLabel({ writable: false }))}</code>
     </p>
-  </section>`;
+  </section>`);
 }
 
 function complianceCard(): string {
-  return `<section class="card">
+  return (`<section class="card">
     <h3>COMPLIANCE OPENAI &amp; SEGURIDAD DE CUENTA (P0) <span class="muted small">· gobernanza y protección de cuenta</span></h3>
     <div style="border-left:3px solid var(--ok);padding:8px 12px;background:color-mix(in srgb,var(--ok) 6%,transparent);border-radius:0 10px 10px 0;">
       <div style="font-weight:600;font-family:var(--mono);color:var(--ok);font-size:12px;">POLÍTICA DE SEGURIDAD P0 — FAIL-CLOSED ACTIVO</div>
@@ -293,14 +308,18 @@ function complianceCard(): string {
         <b>Principio rector:</b> La conservación de la cuenta de OpenAI del propietario tiene prioridad sobre cualquier funcionalidad de ISyMCP.
       </p>
       <ul class="small" style="margin:8px 0 0;padding-left:18px;color:var(--mute);">
-        <li><b>Interacción humana en Chrome visible:</b> <span style="color:var(--ok)">PERMITIDO (ALLOW)</span> — el humano conversa en ChatGPT y autoriza herramientas en su sandbox.</li>
-        <li><b>Automatización de UI web desatendida / Scraping:</b> <span style="color:var(--bad)">PROHIBIDO (DENY)</span> — vetado por Términos de Uso de OpenAI §2(c)(iii).</li>
-        <li><b>Bloqueos de seguridad de OpenAI:</b> <span style="color:var(--warn)">STOP INMEDIATO</span> — ante alertas del clasificador de seguridad, se prohíbe terminantemente evadir o conmutar herramientas.</li>
-        <li><b>Codex CLI (Proveedor <code>isymcp_web</code>):</b> <span style="color:var(--ok)">SOPORTADO OFICIALMENTE</span> — integración local en <code>~/.codex/config.toml</code>.</li>
+        <li><b>Interacción humana en Chrome visible:</b> <span style="color:var(--ok)">PERMITIDO (ALLOW)</span> — el humano conversa en ChatGPT y autoriza ` +
+    `herramientas en su sandbox.</li>
+        <li><b>Automatización de UI web desatendida / Scraping:</b> <span style="color:var(--bad)">PROHIBIDO (DENY)</span>` +
+    ` — vetado por Términos de Uso de OpenAI §2(c)(iii).</li>
+        <li><b>Bloqueos de seguridad de OpenAI:</b> <span style="color:var(--warn)">STOP INMEDIATO</span> — ante alertas del clasificador de seguridad,` +
+    ` se prohíbe terminantemente evadir o conmutar herramientas.</li>
+        <li><b>Codex CLI (Proveedor <code>isymcp_web</code>):</b> <span style="color:var(--ok)">SOPORTADO OFICIALMENTE</span> — integración local en <code>` +
+    `~/.codex/config.toml</code>.</li>
       </ul>
       <p class="small muted" style="margin-top:8px;">Auditoría completa en <code>docs/compliance/FINAL_VERDICT.md</code>.</p>
     </div>
-  </section>`;
+  </section>`);
 }
 
 /** El <main> del panel: lo re-pide el navegador cada pocos segundos. */
@@ -331,7 +350,8 @@ export function renderMain(state: PanelState): string {
     tile({
       title: "MCP STDIO", tone: state.mcp === "up" || state.tunnel === "ready" ? "ok" : "bad",
       state: state.tunnel === "ready" ? "túnel listo" : state.mcp === "up" ? "escuchando" : "caido",
-      detail: state.activeBroker ? `Codex ISyMCP · broker activo (${sandboxLabel({ writable: false })})` : `Codex ISyMCP · sandbox ${sandboxLabel({ writable: false })}`,
+      detail: state.activeBroker ? `Codex ISyMCP · broker activo (${sandboxLabel({ writable: false })})` : `Codex ISyMCP · sandbox ${
+        sandboxLabel({ writable: false })}`,
     }),
     tile({
       title: "BROWSER", tone: state.visibleSession ? "ok" : state.browser === "ok" ? "ok" : "bad",
@@ -343,17 +363,20 @@ export function renderMain(state: PanelState): string {
   ].join("\n");
 
   const conversation = state.conversation
-    ? `<a class="conv" href="${escapeHtml(state.conversation)}" target="_blank" rel="noreferrer">${escapeHtml(state.conversation.replace(/^https?:\/\//, ""))}</a>`
+    ? `<a class="conv" href="${escapeHtml(state.conversation)}" target="_blank" rel="noreferrer">${escapeHtml(state.conversation.replace(/^https?:\/\//,
+      ""))}</a>`
     : `<p class="muted">sin conversacion todavia — el primer turno la guarda</p>`;
 
   const soak = state.lastSoak;
   const soakBody = soak
-    ? `<div class="score"><span class="big">${soak.ok}</span><span class="of">/ ${soak.n}</span>
-         <span class="pill tone-${soak.ok === soak.n ? "ok" : soak.ok >= soak.n * 0.9 ? "warn" : "bad"}">${soak.ok === soak.n ? "limpio" : `${soak.n - soak.ok} fallo${soak.n - soak.ok === 1 ? "" : "s"}`}</span></div>
+    ? (`<div class="score"><span class="big">${soak.ok}</span><span class="of">/ ${soak.n}</span>
+         <span class="pill tone-${soak.ok === soak.n ? "ok" : soak.ok >= soak.n * 0.9 ? "warn" : "bad"}` +
+      `">${soak.ok === soak.n ? "limpio" : `${soak.n - soak.ok} fallo${soak.n - soak.ok === 1 ? "" : "s"}`}</span></div>
        <div class="bar"><span style="width:${soak.n ? Math.round((soak.ok / soak.n) * 100) : 0}%"></span></div>
        <ol class="turns">${soak.turns.slice(0, 100).map((t) =>
-         `<li class="${t.ok ? "t-ok" : "t-bad"}" title="${escapeHtml(`${t.name}${t.ok ? "" : ` — ${t.detail}`}`)}"><span>${escapeHtml(t.name)}</span></li>`).join("")}</ol>
-       <p class="muted small">${escapeHtml(soak.file)}${soak.ts ? ` · ${escapeHtml(soak.ts.replace("T", " ").slice(0, 16))}` : ""}</p>`
+         `<li class="${t.ok ? "t-ok" : "t-bad"}" title="${escapeHtml(`${t.name}${t.ok ? "" : ` — ${t.detail}`}`)}"><span>${
+           escapeHtml(t.name)}</span></li>`).join("")}</ol>
+       <p class="muted small">${escapeHtml(soak.file)}${soak.ts ? ` · ${escapeHtml(soak.ts.replace("T", " ").slice(0, 16))}` : ""}</p>`)
     : `<p class="muted">sin pruebas aun — <code>bun run scripts/soak-tools.ts</code></p>`;
 
   const sessionRows = state.sessions.length
@@ -372,7 +395,7 @@ export function renderMain(state: PanelState): string {
     ? state.lastErrors.map((e) => `<div class="logline">${escapeHtml(e.slice(0, 220))}</div>`).join("")
     : `<div class="logline muted">sin errores recientes ✓</div>`;
 
-  return `<main id="main" data-ts="${escapeHtml(state.ts)}">
+  return (`<main id="main" data-ts="${escapeHtml(state.ts)}">
 <div class="topline">${health}<span class="muted small">actualizado ${escapeHtml(state.ts.slice(11, 19))} UTC</span></div>
 <div class="tiles">${tiles}</div>
 <div class="grid">
@@ -380,7 +403,9 @@ export function renderMain(state: PanelState): string {
     <h3>ULTIMA PRUEBA</h3>
     ${soakBody}
     ${canaryLine(state.canary ?? null, now)}
-    <p class="small muted">${state.canaryScheduled === true ? `Programado: todos los días 09:00 (${process.platform === "win32" ? "Task Scheduler" : "systemd"}).` : state.canaryScheduled === false ? "Sin programar · <code>isymcp canary schedule --apply</code>" : ""}</p>
+    <p class="small muted">${state.canaryScheduled === true ? (`Programado: todos los días 09:00 ` +
+      `(${process.platform === "win32" ? "Task Scheduler" : "systemd"}).`) : state.canaryScheduled === false ?
+        "Sin programar · <code>isymcp canary schedule --apply</code>" : ""}</p>
     <div class="actions">${button("canary-run", "Correr canario", "go")}</div>
   </section>
   <section class="card">
@@ -394,8 +419,10 @@ export function renderMain(state: PanelState): string {
 ${visibleBrowserCard(state.visibleSession, state.tunnel === "ready")}
 <section class="card">
   <h3>NAVEGADOR NATIVO DE CODEX <span class="pill tone-warn">blocked</span></h3>
-  <p class="small">La conexión E2E con la pestaña integrada está sin demostrar. Desde Codex falta vincular el propietario al broker; desde panel o CLI falta verificar el control autónomo de la pestaña.</p>
-  <p class="small muted">Diagnóstico: <code>isymcp native-browser probe --json</code>. La selección <code>--browser native</code> devuelve el bloqueo sin enviar el mensaje a otro navegador.</p>
+  <p class="small">La conexión E2E con la pestaña integrada está sin demostrar. Desde Codex falta vincular el propietario al broker;` +
+    ` desde panel o CLI falta verificar el control autónomo de la pestaña.</p>
+  <p class="small muted">Diagnóstico: <code>isymcp native-browser probe --json</code>. La selección <code>--browser native</code>` +
+    ` devuelve el bloqueo sin enviar el mensaje a otro navegador.</p>
 </section>
 ${complianceCard()}
 <section class="card">
@@ -410,15 +437,16 @@ ${complianceCard()}
   <h3>ULTIMOS ERRORES <span class="muted small">· ultimas 5 lineas FAILED de server.log (pueden ser viejas)</span></h3>
   ${errors}
 </section>
-</main>`;
+</main>`);
 }
 
-const STYLE = `
+const STYLE = (`
 :root{--bg:#090b0a;--panel:#101412;--line:#1d2420;--ink:#d9e4dc;--mute:#6f8076;--ok:#7cff9b;--warn:#ffcc66;--bad:#ff6b6b;--idle:#5b6b62;
 --mono:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,monospace;--sans:Inter,"Segoe UI",system-ui,sans-serif}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans);
-background-image:linear-gradient(rgba(124,255,155,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(124,255,155,.035) 1px,transparent 1px);background-size:28px 28px}
+background-image:linear-gradient(rgba(124,255,155,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(124,255,155,.035) 1px,transparent 1px);` +
+  `background-size:28px 28px}
 .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 48px}
 .brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
 .brand h1{margin:0;font:700 26px/1 var(--mono);letter-spacing:.12em;color:var(--ok);text-shadow:0 0 18px rgba(124,255,155,.35)}
@@ -450,10 +478,12 @@ background-image:linear-gradient(rgba(124,255,155,.035) 1px,transparent 1px),lin
 .log{margin-top:14px}
 .logline{font:12px/1.6 var(--mono);color:#ffb3b3;border-left:2px solid var(--bad);padding:2px 0 2px 10px;margin:4px 0;word-break:break-all}
 .logline.muted{color:var(--mute);border-color:var(--line)}
-.pill{display:inline-block;padding:3px 10px;border-radius:999px;font:600 11px var(--mono);letter-spacing:.04em;color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);border:1px solid color-mix(in srgb,var(--c) 35%,transparent)}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;font:600 11px var(--mono);letter-spacing:.04em;color:var(--c);` +
+  `background:color-mix(in srgb,var(--c) 12%,transparent);border:1px solid color-mix(in srgb,var(--c) 35%,transparent)}
 .muted{color:var(--mute)}.small{font-size:11px}
 code{font:12px var(--mono);color:#b9c9bf;background:#0b0f0d;border:1px solid var(--line);border-radius:6px;padding:1px 6px}
-.conv{display:block;font:12px var(--mono);color:var(--ok);word-break:break-all;text-decoration:none;padding:10px 12px;border:1px dashed var(--line);border-radius:10px}
+.conv{display:block;font:12px var(--mono);color:var(--ok);word-break:break-all;text-decoration:none;padding:10px 12px;border:1px dashed var(--line);` +
+  `border-radius:10px}
 .conv:hover{border-color:var(--ok)}
 .score{display:flex;align-items:baseline;gap:10px}
 .score .big{font:700 46px/1 var(--mono);color:var(--ok)}
@@ -461,10 +491,12 @@ code{font:12px var(--mono);color:#b9c9bf;background:#0b0f0d;border:1px solid var
 .bar{height:6px;border-radius:6px;background:#1a211d;margin:12px 0 14px;overflow:hidden}
 .bar span{display:block;height:100%;background:linear-gradient(90deg,var(--ok),#3ddc84)}
 .turns{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px}
-.turns li{font:11px var(--mono);padding:6px 8px;border-radius:8px;border:1px solid var(--line);display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden}
+.turns li{font:11px var(--mono);padding:6px 8px;border-radius:8px;border:1px solid var(--line);display:flex;gap:6px;align-items:center;white-space:nowrap;` +
+  `overflow:hidden}
 .turns li span{overflow:hidden;text-overflow:ellipsis}
 .turns li::before{content:"";flex:none;width:7px;height:7px;border-radius:50%}
-.t-ok::before{background:var(--ok)}.t-bad{border-color:color-mix(in srgb,var(--bad) 50%,transparent)!important;color:#ffb3b3}.t-bad::before{background:var(--bad)}
+.t-ok::before{background:var(--ok)}.t-bad{border-color:color-mix(in srgb,var(--bad) 50%,transparent)!important;color:#ffb3b3}` +
+  `.t-bad::before{background:var(--bad)}
 .sessions{width:100%;border-collapse:collapse}
 .tasks{width:100%;border-collapse:collapse}
 .tasks td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:middle;white-space:nowrap}
@@ -477,65 +509,84 @@ code{font:12px var(--mono);color:#b9c9bf;background:#0b0f0d;border:1px solid var
 .badge{font:700 10px var(--mono);padding:2px 7px;border-radius:6px;letter-spacing:.08em}
 .badge.rw{color:#1b0f00;background:var(--warn)}.badge.ro{color:#04140a;background:var(--ok)}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
-.btn{font:600 12px var(--mono);letter-spacing:.04em;color:var(--ink);background:#151b18;border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer;transition:border-color .15s,transform .05s}
+.btn{font:600 12px var(--mono);letter-spacing:.04em;color:var(--ink);background:#151b18;border:1px solid var(--line);border-radius:9px;padding:7px 12px;` +
+  `cursor:pointer;transition:border-color .15s,transform .05s}
 .btn:hover{border-color:var(--mute)}.btn:active{transform:translateY(1px)}
 .btn-go:hover{border-color:var(--ok);color:var(--ok)}.btn-stop:hover{border-color:var(--bad);color:var(--bad)}
 .btn[disabled]{opacity:.5;cursor:progress}
 .toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:9;max-width:min(440px,calc(100vw - 36px))}
-.toast{background:#121815;border:1px solid var(--line);border-left:3px solid var(--c);border-radius:10px;padding:10px 12px;font:12px/1.5 var(--mono);white-space:pre-wrap;box-shadow:0 10px 30px rgba(0,0,0,.45);animation:in .18s ease-out}
+.toast{background:#121815;border:1px solid var(--line);border-left:3px solid var(--c);border-radius:10px;padding:10px 12px;font:12px/1.5 var(--mono);` +
+  `white-space:pre-wrap;box-shadow:0 10px 30px rgba(0,0,0,.45);animation:in .18s ease-out}
 @keyframes in{from{opacity:0;transform:translateY(6px)}}
 footer{margin-top:22px;color:var(--mute);font:11px var(--mono);text-align:center}
-`;
+`);
 
-const SCRIPT = `
+const SCRIPT = (`
 const toasts=document.querySelector('.toasts');
-function toast(text,tone){const el=document.createElement('div');el.className='toast tone-'+tone;el.textContent=text;toasts.appendChild(el);setTimeout(()=>el.remove(),7000);}
-async function refresh(){const live=document.querySelector('.live');try{const r=await fetch('/fragment',{cache:'no-store'});if(!r.ok)throw 0;const html=await r.text();const tpl=document.createElement('template');tpl.innerHTML=html.trim();document.getElementById('main').replaceWith(tpl.content.firstElementChild);live.classList.remove('stale');live.lastChild.textContent=' en vivo';}catch{live.classList.add('stale');live.lastChild.textContent=' sin conexion';}}
-document.addEventListener('click',async(ev)=>{const b=ev.target.closest('[data-action]');if(!b)return;const a=b.dataset.action;b.disabled=true;const old=b.textContent;b.textContent='…';
-try{const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:a})});const j=await r.json();toast((j.ok?'✓ ':'✗ ')+a+'\\n'+(j.out||'').slice(-600),j.ok?'ok':'bad');}
+function toast(text,tone){const el=document.createElement('div');el.className='toast tone-'+tone;el.textContent=text;toasts.appendChild(el);` +
+  `setTimeout(()=>el.remove(),7000);}
+async function refresh(){const live=document.querySelector('.live');try{const r=await fetch('/fragment',{cache:'no-store'});if(!r.ok)throw 0;` +
+  `const html=await r.text();const tpl=document.createElement('template');tpl.innerHTML=html.trim();document.getElementById('main').replaceWith(tpl.content.f` +
+  `irstElementChild);live.classList.remove('stale');live.lastChild.textContent=' en vivo';}catch{live.classList.add('stale');` +
+  `live.lastChild.textContent=' sin conexion';}}
+document.addEventListener('click',async(ev)=>{const b=ev.target.closest('[data-action]');if(!b)return;const a=b.dataset.action;b.disabled=true;` +
+  `const old=b.textContent;b.textContent='…';
+try{const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:a})});const j=await r.json();` +
+  `toast((j.ok?'✓ ':'✗ ')+a+'\\n'+(j.out||'').slice(-600),j.ok?'ok':'bad');}
 catch(e){toast('✗ '+a+'\\n'+e,'bad');}finally{b.disabled=false;b.textContent=old;refresh();}});
 setInterval(()=>{if(!document.body.classList.contains('tab-chat'))refresh();},4000);
-`;
+`);
 
 // Tarjeta HARNESSES (pestana Estado): detectar -> plan (comandos exactos) ->
 // confirmar -> aplicar -> resultado verificado por la propia herramienta.
-const HARNESS_SCRIPT = `
+const HARNESS_SCRIPT = (`
 const H={list:[]};
 const hEl=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;};
-async function hApi(path,body){const r=await fetch(path,body===undefined?{}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});let j=null;try{j=await r.json()}catch{}return {ok:r.ok,json:j};}
+async function hApi(path,body){const r=await fetch(path,body===undefined?{}:{method:'POST',headers:{'content-type':'application/json'}` +
+  `,body:JSON.stringify(body)});let j=null;try{j=await r.json()}catch{}return {ok:r.ok,json:j};}
 function hSelected(){return Array.from(document.querySelectorAll('.hrow input:checked')).map(i=>i.value);}
 function hRender(){const box=document.getElementById('harness-list');box.replaceChildren();box.classList.remove('muted');
-  for(const h of H.list){const row=hEl('label','hrow');const cb=hEl('input');cb.type='checkbox';cb.value=h.id;cb.disabled=!h.present||!h.supported;row.appendChild(cb);
+  for(const h of H.list){const row=hEl('label','hrow');const cb=hEl('input');cb.type='checkbox';cb.value=h.id;cb.disabled=!h.present||!h.supported;` +
+  `row.appendChild(cb);
     row.appendChild(hEl('span','hid',h.id));row.appendChild(hEl('span','muted small',h.label));
     const tone=!h.present?'idle':!h.supported?'idle':h.installed===true?'ok':h.installed===false?'warn':'idle';
-    const txt=!h.present?'no instalado':!h.supported?'detectado · aún no soportado':h.installed===true?'isymcp-chatgpt ✓':h.installed===false?'sin isymcp-chatgpt':'estado desconocido';
-    const st=hEl('span','hst');const pill=hEl('span','pill tone-'+tone,txt);if(h.pending)pill.title=h.pending;st.appendChild(pill);row.appendChild(st);box.appendChild(row);}
-  const any=H.list.some(h=>h.present&&h.supported);document.getElementById('harness-plan-install').disabled=!any;document.getElementById('harness-plan-remove').disabled=!any;}
-async function hDetect(){const b=document.getElementById('harness-detect');b.disabled=true;b.textContent='detectando…';const r=await hApi('/api/harness');b.disabled=false;b.textContent='Detectar';
+    const txt=!h.present?'no instalado':!h.supported?'detectado · aún no soportado':h.installed===true?'isymcp-chatgpt ✓':h.installed===false?'sin ` +
+  `isymcp-chatgpt':'estado desconocido';
+    const st=hEl('span','hst');const pill=hEl('span','pill tone-'+tone,txt);if(h.pending)pill.title=h.pending;st.appendChild(pill);row.appendChild(st);` +
+  `box.appendChild(row);}
+  const any=H.list.some(h=>h.present&&h.supported);document.getElementById('harness-plan-install').disabled=!any;document.getElementById('harness-plan-remove` +
+  `').disabled=!any;}
+async function hDetect(){const b=document.getElementById('harness-detect');b.disabled=true;b.textContent='detectando…';const r=await hApi('/api/harness');` +
+  `b.disabled=false;b.textContent='Detectar';
   if(r.ok){H.list=r.json.harnesses;hRender();}else toast('✗ no se pudo detectar','bad');}
-async function hPlan(action){const ids=hSelected();const box=document.getElementById('harness-plan');if(!ids.length){toast('Marca al menos un harness','warn');return;}
+async function hPlan(action){const ids=hSelected();const box=document.getElementById('harness-plan');if(!ids.length){toast('Marca al menos un harness',` +
+  `'warn');return;}
   const r=await hApi('/api/harness/plan',{action,ids});if(!r.ok){toast('✗ '+((r.json&&r.json.error&&r.json.error.message)||'error'),'bad');return;}
-  box.replaceChildren();box.className='planbox';box.hidden=false;box.appendChild(hEl('div','',(action==='install'?'Se instalará':'Se quitará')+' isymcp-chatgpt con estos comandos exactos (sin shell):'));
+  box.replaceChildren();box.className='planbox';box.hidden=false;box.appendChild(hEl('div','',(action==='install'?'Se instalará':'Se quitará')+' ` +
+  `isymcp-chatgpt con estos comandos exactos (sin shell):'));
   for(const s of r.json.steps)box.appendChild(hEl('pre','',s.id+': '+(s.argv?s.argv.join(' '):'(nada) '+s.reason)));
   const runnable=r.json.steps.filter(s=>s.argv).map(s=>s.id);const act=hEl('div','actions');
-  const ok=hEl('button','btn '+(action==='install'?'btn-go':'btn-stop'),runnable.length?'Confirmar y aplicar':'Nada que aplicar');ok.type='button';ok.disabled=!runnable.length;
+  const ok=hEl('button','btn '+(action==='install'?'btn-go':'btn-stop'),runnable.length?'Confirmar y aplicar':'Nada que aplicar');ok.type='button';` +
+  `ok.disabled=!runnable.length;
   const cancel=hEl('button','btn','Cancelar');cancel.type='button';cancel.onclick=()=>{box.hidden=true;};
   ok.onclick=async()=>{ok.disabled=true;ok.textContent='aplicando…';const a=await hApi('/api/harness/apply',{action,ids:runnable,confirm:true});
     box.replaceChildren();if(!a.ok){box.appendChild(hEl('div','',(a.json&&a.json.error&&a.json.error.message)||'error'));return;}
-    for(const x of a.json.results)box.appendChild(hEl('pre','',(x.ran?(x.ok?'✓ ':'✗ '):'– ')+x.id+(x.ran?' · verificado='+x.verified:'')+' · '+x.detail));hDetect();};
+    for(const x of a.json.results)box.appendChild(hEl('pre','',(x.ran?(x.ok?'✓ ':'✗ '):'– ')+x.id+(x.ran?' · verificado='+x.verified:'')+' · '+x.detail));` +
+  `hDetect();};
   act.appendChild(ok);act.appendChild(cancel);box.appendChild(act);}
 document.getElementById('harness-detect').onclick=hDetect;
 document.getElementById('harness-plan-install').onclick=()=>hPlan('install');
 document.getElementById('harness-plan-remove').onclick=()=>hPlan('uninstall');
-`;
+`);
 
-const SHELL_STYLE = `
+const SHELL_STYLE = (`
 .harness{margin-top:14px}
 .hrow{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font:13px var(--sans)}
 .hrow input{accent-color:#7cff9b}.hrow .hid{font:600 12px var(--mono);min-width:90px}.hrow .hst{margin-left:auto;text-align:right}
 .planbox{margin-top:12px;border:1px dashed var(--line);border-radius:10px;padding:12px}
 .planbox pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px var(--mono);margin:6px 0;color:#cfe3d5}
-.top{position:sticky;top:0;z-index:6;height:57px;display:flex;align-items:center;gap:14px;padding:0 16px;background:rgba(9,11,10,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.top{position:sticky;top:0;z-index:6;height:57px;display:flex;align-items:center;gap:14px;padding:0 16px;background:rgba(9,11,10,.92);` +
+  `backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
 .top .logo{font:700 16px var(--mono);letter-spacing:.12em;color:var(--ok)}
 .tabs{display:flex;gap:4px;margin-left:8px}
 .tabs a{font:600 13px var(--sans);color:var(--mute);text-decoration:none;padding:7px 12px;border-radius:8px}
@@ -545,10 +596,10 @@ const SHELL_STYLE = `
 body.tab-chat{overflow:hidden}
 body:not(.tab-chat) #view-chat,body.tab-chat #view-estado{display:none}
 @media (max-width:520px){.top{gap:8px;padding:0 10px}.top .logo{font-size:14px}.tabs{margin-left:0}.tabs a{padding:6px 8px}.live span.lbl{display:none}}
-`;
+`);
 
 export function renderPanel(state: PanelState): string {
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return (`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ISyMCP</title><style>${STYLE}${SHELL_STYLE}${CHAT_STYLE}</style></head>
 <body class="tab-chat">
 <header class="top">
@@ -562,9 +613,12 @@ export function renderPanel(state: PanelState): string {
 ${renderMain(state)}
 <section class="card harness" id="harness-card">
   <h3>HARNESSES · MCP isymcp-chatgpt</h3>
-  <p class="muted small">Instala en tus otras CLIs/TUIs de agentes (Claude Code, Codex, Qwen, Gemini, Grok…) la herramienta <code>chatgpt_ask</code>: consultan a tu ChatGPT web por el bridge. Nada se escribe sin tu confirmación; después se verifica con la propia herramienta.</p>
+  <p class="muted small">Instala en tus otras CLIs/TUIs de agentes (Claude Code, Codex, Qwen, Gemini, Grok…) la herramienta <code>chatgpt_ask</code>` +
+    `: consultan a tu ChatGPT web por el bridge. Nada se escribe sin tu confirmación; después se verifica con la propia herramienta.</p>
   <div id="harness-list" class="muted small">Presiona «Detectar».</div>
-  <div class="actions"><button class="btn" id="harness-detect" type="button">Detectar</button><button class="btn btn-go" id="harness-plan-install" type="button" disabled>Instalar seleccionados…</button><button class="btn btn-stop" id="harness-plan-remove" type="button" disabled>Quitar seleccionados…</button></div>
+  <div class="actions"><button class="btn" id="harness-detect" type="button">Detectar</button><button class="btn btn-go" id="harness-plan-install" ` +
+    `type="button" disabled>Instalar seleccionados…</button><button class="btn btn-stop" id="harness-plan-remove" type="button" disabled>` +
+    `Quitar seleccionados…</button></div>
   <div id="harness-plan" hidden></div>
 </section>
 <footer>127.0.0.1 only · Host/Origin protegidos · <code>isymcp panel</code></footer>
@@ -575,7 +629,7 @@ function showTab(){const t=location.hash.startsWith('#estado')?'estado':'chat';d
 document.querySelectorAll('.tabs a').forEach(a=>a.classList.toggle('on',a.dataset.tab===t));if(t==='estado')refresh();}
 window.addEventListener('hashchange',showTab);showTab();
 ${CHAT_SCRIPT}
-${HARNESS_SCRIPT}</script></body></html>`;
+${HARNESS_SCRIPT}</script></body></html>`);
 }
 
 const ACTIONS: Record<string, string[]> = {
@@ -618,7 +672,8 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       }
       if (url.pathname === "/assets/openai-white-monoblossom.png" && req.method === "GET") {
         try {
-          return new Response(readFileSync(BLOSSOM_ASSET), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+          return new Response(readFileSync(BLOSSOM_ASSET), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400",
+            "x-content-type-options": "nosniff" } });
         } catch {
           return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
         }
@@ -713,7 +768,8 @@ export async function handleChatApi(req: Request, url: URL, bridgePort: string):
     const fp = Object.hasOwn(body, "session_fp") ? (typeof body.session_fp === "string" ? body.session_fp : null) : chat.session_fp;
     const session = fp ? listUserSessions().find((x) => x.fp === fp) : undefined;
     if (fp && !session) return apiError(400, "tools_session_unknown", "elige una sesion existente");
-    if (body.tools_enabled && session && isExpired(session)) return apiError(400, "tools_session_expired", "esa sesion caduco; crea otra con isymcp session mint");
+    if (body.tools_enabled && session && isExpired(session)) return apiError(400, "tools_session_expired",
+      "esa sesion caduco; crea otra con isymcp session mint");
     if (body.tools_enabled && !session) return apiError(400, "tools_session_unknown", "elige una sesion existente");
     chat.tools_enabled = body.tools_enabled;
     chat.session_fp = fp;

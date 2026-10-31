@@ -249,7 +249,8 @@ async function runContextPullFlow(web: ChatWebRequest, config: AppConfig): Promi
   if (readFrom > written.total) readFrom = 0;
   const bridgeTool: ChatTool = {
     name: BRIDGE_READ_TOOL,
-    description: "Lee el archivo de contexto local de esta conversacion (solo lectura; lo ejecuta el puente, no la TUI). Devuelve lineas con offset/next/total.",
+    description:
+      "Lee el archivo de contexto local de esta conversacion (solo lectura; lo ejecuta el puente, no la TUI). Devuelve lineas con offset/next/total.",
     parameters: { type: "object", properties: { offset: { type: "integer" }, limit: { type: "integer" } } },
   };
   const allTools = [bridgeTool, ...web.tools];
@@ -292,7 +293,8 @@ async function runContextPullFlow(web: ChatWebRequest, config: AppConfig): Promi
     const trimmed = reply.text.trim();
     if (/^ack[.!]?$/i.test(trimmed) && ackRetries < 2) {
       ackRetries++;
-      prompt = `Necesito tu respuesta. Si te falta contexto, usa ${BRIDGE_READ_TOOL} desde la linea ${pulled} de ${written.total}; si ya lo tienes, responde al mensaje del usuario: ${askTail}`;
+      prompt = `Necesito tu respuesta. Si te falta contexto, usa ${BRIDGE_READ_TOOL} desde la linea ${pulled} de ${written.
+        total}; si ya lo tienes, responde al mensaje del usuario: ${askTail}`;
       continue;
     }
     contextReadState.set(web.key, Math.max(contextReadState.get(web.key) ?? 0, pulled));
@@ -396,7 +398,8 @@ export async function handleChatCompletions(req: Request, config: AppConfig): Pr
     const { type, status } = classifyWebError(message);
     recordTurn({ durationMs, ok: false, errorType: type });
     console.error(
-      `[codex-web-http] chat turn FAILED: ${type} context=${config.contextMode} tools=${web.tools.length} deadline_ms=${config.webTurnDeadlineMs} :: ${message}`,
+      `[codex-web-http] chat turn FAILED: ${type} context=${config.contextMode} tools=${web.tools.length} deadline_ms=${config.webTurnDeadlineMs} :: ${
+        message}`,
     );
     return errorJson(status, type, message);
   }

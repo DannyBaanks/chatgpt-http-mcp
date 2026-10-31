@@ -52,7 +52,8 @@ export const RESERVED_IDENTITIES = new Set(["danny", "human", "admin", "root"]);
 const FORBIDDEN_FLAG = /danger|skip-permissions|bypass|yolo|^--auto$|^--full-auto$|^--allow-all|^-y$|^never$/i;
 
 /** Variables que la consola hereda por defecto (todo lo demas se borra con env -i). */
-const DEFAULT_PASS_ENV = ["HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "LC_ALL", "TERM", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY"];
+const DEFAULT_PASS_ENV = ["HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "LC_ALL", "TERM", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY",
+  "WAYLAND_DISPLAY"];
 /** Nunca pasan a la consola, aunque el usuario las pida: son credenciales del bridge o de APIs. */
 const SECRET_ENV = /^CODEX_WEB_HTTP_|TOKEN|SECRET|PASSWORD|API_KEY|^OPENAI_|^ANTHROPIC_|COOKIE/i;
 
@@ -152,7 +153,8 @@ export function loadTableroConfig(path = tableroConfigPath()): TableroConfig {
   const launchers: Record<string, Launcher> = {};
   for (const [name, l] of Object.entries(launchersRaw)) launchers[name] = checkLauncher(name, l, allowedRoots);
   const extraEnv = raw.passEnv === undefined ? [] : raw.passEnv;
-  if (!Array.isArray(extraEnv) || !extraEnv.every((v) => typeof v === "string" && /^[A-Z_][A-Z0-9_]*$/.test(v))) invalid("passEnv debe ser lista de nombres de variable");
+  if (!Array.isArray(extraEnv) || !extraEnv.every((v) => typeof v === "string" && /^[A-Z_][A-Z0-9_]*$/.test(v))) invalid(
+    "passEnv debe ser lista de nombres de variable");
   const secret = (extraEnv as string[]).find((v) => SECRET_ENV.test(v));
   if (secret) invalid(`passEnv no puede incluir credenciales: ${secret}`);
   return {

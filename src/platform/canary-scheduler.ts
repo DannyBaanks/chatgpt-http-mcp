@@ -44,7 +44,8 @@ export function installWindowsCanaryTask(options: { home: string; bunPath: strin
 
 export function removeWindowsCanaryTask(home: string): void {
   const result = run(["schtasks.exe", "/Delete", "/TN", WINDOWS_TASK_NAME, "/F"]);
-  if (result.exitCode !== 0 && queryWindowsCanaryTask()?.exists !== false) throw Error(`schtasks /Delete fallo: ${result.stderr.trim() || result.stdout.trim()}`);
+  if (result.exitCode !== 0 && queryWindowsCanaryTask()?.exists !== false) throw Error(`schtasks /Delete fallo: ${result.stderr.trim() ||
+    result.stdout.trim()}`);
   const scriptPath = windowsCanaryScriptPath(home);
   if (existsSync(scriptPath)) rmSync(scriptPath);
 }

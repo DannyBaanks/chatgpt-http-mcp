@@ -9,10 +9,15 @@ export interface SubmissionReceipt {url:string;userMessageId:string;requestId:st
 const inflight=new Map<string,{signature:string;promise:Promise<SubmissionReceipt>}>();
 const hash=(text:string)=>createHash('sha256').update(text).digest('hex');
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
-function privateFile(path:string){if(process.platform==='win32')ensurePrivatePath(path,false);else{const stat=lstatSync(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid?.()||(stat.mode&0o077))throw Error('visible_submission_file_not_private');}return JSON.parse(readFileSync(path,'utf8'));}
+function privateFile(path:string){if(process.platform==='win32')ensurePrivatePath(path,false);else{const stat=lstatSync(path);if(!stat.isFile()||
+  stat.isSymbolicLink()||stat.uid!==process.getuid?.()||(stat.mode&0o077))throw Error('visible_submission_file_not_private');
+  }return JSON.parse(readFileSync(path,'utf8'));}
 export function submitOnce(directory:string,port:BrowserDriverPort,request:SubmissionRequest):Promise<SubmissionReceipt>{
- if(!isAbsolute(directory)||!uuid.test(request.requestId)||!request.prompt.trim()||!request.connectorId.trim()||!request.model.trim()||!request.effort.trim())return Promise.reject(Error('visible_submission_invalid'));
- if(process.platform==='win32'){try{ensurePrivatePath(directory,true);}catch{return Promise.reject(Error('visible_submission_home_not_private'));}}else{const stat=lstatSync(directory);if(!stat.isDirectory()||stat.isSymbolicLink()||stat.uid!==process.getuid?.()||(stat.mode&0o077))return Promise.reject(Error('visible_submission_home_not_private'));}
+ if(!isAbsolute(directory)||!uuid.test(request.requestId)||!request.prompt.trim()||!request.connectorId.trim()||!request.model.trim()||
+   !request.effort.trim())return Promise.reject(Error('visible_submission_invalid'));
+ if(process.platform==='win32'){try{ensurePrivatePath(directory,true);}catch{return Promise.reject(Error('visible_submission_home_not_private'));
+   }}else{const stat=lstatSync(directory);if(!stat.isDirectory()||stat.isSymbolicLink()||stat.uid!==process.getuid?.()||
+   (stat.mode&0o077))return Promise.reject(Error('visible_submission_home_not_private'));}
  const key=join(directory,request.requestId),signature=hash(JSON.stringify(request)),prior=inflight.get(key);
  if(prior)return prior.signature===signature?prior.promise:Promise.reject(Error('visible_submission_arguments_changed'));
  const promise=(async()=>{
@@ -55,7 +60,8 @@ export function prepareVisibleProfile(options:{profileDir:string;launchId:string
  const marker=join(options.profileDir,'isymcp-visible-profile.json');
  if(existed&&!existsSync(marker))throw Error('visible_profile_unowned');
  if(existsSync(marker)){if(privateFile(marker).launchId!==options.launchId)throw Error('visible_profile_owner_mismatch');}
- else {writeFileSync(marker,JSON.stringify({version:'isymcp-visible-profile/1',launchId:options.launchId}),{mode:0o600,flag:'wx'});securePrivatePath(marker,false);}
+ else {writeFileSync(marker,JSON.stringify({version:'isymcp-visible-profile/1',launchId:options.launchId}),{mode:0o600,flag:'wx'});securePrivatePath(marker,
+   false);}
 }
 export async function openVisibleBrowser(options:{profileDir:string;launchId:string}):Promise<{page:Page;context:BrowserContext;close():Promise<void>}>{
  prepareVisibleProfile(options);
@@ -64,7 +70,8 @@ export async function openVisibleBrowser(options:{profileDir:string;launchId:str
 }
 async function assertHumanChallengeCleared(page:Page){
  const state=await page.evaluate(()=>({title:document.title,text:document.body?.innerText??''}));
- if(state&&(/just a moment|verify you are human|verifying/i.test(state.title)||/verify you are human|checking your browser|verifying you are human/i.test(state.text)))
+ if(state&&(/just a moment|verify you are human|verifying/i.test(state.title)||/verify you are human|checking your browser|verifying you are human/i.test(state.
+   text)))
   throw Error('visible_challenge_requires_human');
 }
 export function pageDriver(page:Page):BrowserDriverPort {
@@ -96,9 +103,11 @@ export function pageDriver(page:Page):BrowserDriverPort {
     effort=({Media:'medium',Medium:'medium',Alta:'high',High:'high',Baja:'low',Low:'low'} as Record<string,string>)[label]??'unknown';
    }
    finally{await menu.press('Escape');}
-   const messages=await page.evaluate(()=>Array.from(document.querySelectorAll('[data-turn-key]')).map(el=>({messageId:el.getAttribute('data-turn-key')??'',text:el.textContent??''})));
+   const messages=await page.evaluate(()=>Array.from(document.querySelectorAll('[data-turn-key]')).map(el=>({messageId:el.getAttribute('data-turn-key')??'',
+     text:el.textContent??''})));
    return {url:page.url(),connectorId:connector?.replace(/^app:\/\//,'')??'',model,effort,messages};
   },
-  async send(){await assertHumanChallengeCleared(page);await page.getByRole('button',{name:/^(Enviar|Send)$/}).click();await page.waitForURL(/https:\/\/chatgpt\.com\/c\/[a-zA-Z0-9-]+/,{timeout:10000});},
+  async send(){await assertHumanChallengeCleared(page);await page.getByRole('button',{name:/^(Enviar|Send)$/}).click();await page.waitForURL(
+    /https:\/\/chatgpt\.com\/c\/[a-zA-Z0-9-]+/,{timeout:10000});},
  };
 }

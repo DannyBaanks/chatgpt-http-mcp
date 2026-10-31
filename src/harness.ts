@@ -338,7 +338,8 @@ export async function apply(action: HarnessAction, ids: string[], approved: bool
       results.push({ id: step.id, ran: false, ok: true, verified: null, detail: step.reason });
       continue;
     }
-    if (step.reason.startsWith("ya tiene") || step.reason.startsWith("no lo tiene") || step.reason.startsWith("no esta instalado") || step.reason.startsWith("aun no soportado") || step.reason.startsWith("harness desconocido")) {
+    if (step.reason.startsWith("ya tiene") || step.reason.startsWith("no lo tiene") || step.reason.startsWith("no esta instalado") ||
+      step.reason.startsWith("aun no soportado") || step.reason.startsWith("harness desconocido")) {
       results.push({ id: step.id, ran: false, ok: true, verified: null, detail: step.reason });
       continue;
     }

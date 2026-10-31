@@ -18,7 +18,8 @@ export type ExplainRunner = (prompt: string) => Promise<string>;
 /** Prompt compacto y saneado: solo el estado del entorno y el remedio. */
 export function buildExplainPrompt(report: DoctorReport): string {
   const parts: string[] = [
-    "Eres un asistente de diagnostico local. Explica en espanol, en 3 frases como maximo, el fallo y el siguiente paso. No propongas ejecutar comandos destructivos.",
+    ("Eres un asistente de diagnostico local. Explica en espanol, en 3 frases como maximo, el fallo y el siguiente paso. No propongas ejecutar comandos " +
+      "destructivos."),
     `version: ${report.version}`,
     `ok: ${report.ok}`,
     `fallas: ${report.errors.length ? report.errors.map((c) => c.id).join(", ") : "ninguna"}`,

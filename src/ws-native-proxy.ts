@@ -86,7 +86,8 @@ export class NativeWsProxy {
     };
     upstream.onerror = () => {
       if (this.closed) return;
-      try { this.client.send(JSON.stringify({ type: "error", error: { type: "upstream_ws_error", message: "no se pudo hablar con el upstream de Codex por WebSocket" } })); } catch { /* */ }
+      try { this.client.send(JSON.stringify({ type: "error", error: { type: "upstream_ws_error", message:
+        "no se pudo hablar con el upstream de Codex por WebSocket" } })); } catch { /* */ }
     };
   }
 }

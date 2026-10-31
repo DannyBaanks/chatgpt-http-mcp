@@ -10,7 +10,8 @@
 // Regla de secretos: el token completo solo se muestra al crearlo. En
 // receipts, listados y logs se usa siempre el fingerprint sha256[:12].
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync,
+  writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter as pathDelimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { buildCodexWindowsSandboxPlan, cleanupCodexWindowsSandboxPath, findCodexWindowsCli } from "./platform/codex-windows-sandbox";

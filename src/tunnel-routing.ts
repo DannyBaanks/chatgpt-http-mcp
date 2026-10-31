@@ -19,5 +19,6 @@ export function assertExclusiveTunnel(inventory: unknown, alias: string, tunnelI
   const id = tunnelId ?? own?.tunnel_id;
   if (typeof id !== "string" || !/^tunnel_[a-f0-9]{32}$/.test(id)) throw new Error("tunnel_identity_missing");
   const foreign = rows.filter(row => row?.alias !== alias && row?.tunnel_id === id);
-  if (foreign.length) throw new Error(`tunnel_identity_shared: ${alias} shares its tunnel with ${foreign.map(row => String(row.alias)).join(", ")}; configure a separate tunnel`);
+  if (foreign.length) throw new Error(`tunnel_identity_shared: ${alias} shares its tunnel with ${foreign.map(row => String(row.alias)).join(
+    ", ")}; configure a separate tunnel`);
 }

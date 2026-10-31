@@ -102,7 +102,8 @@ async function prepareSource(
  const audio=manifest.artifacts.find(item=>item.kind==='audio_scan');
  let segmentCount=0;
  if(audio) {
-  try { segmentCount=Number(JSON.parse(new MediaPreparationStore(catalog.home).readArtifact(asset.id,manifest.generation_id,audio.id).toString()).total_segments)||0; }
+  try { segmentCount=Number(JSON.parse(new MediaPreparationStore(catalog.home).readArtifact(asset.id,manifest.generation_id,
+    audio.id).toString()).total_segments)||0; }
   catch { throw new MediaFailure('media_prepare_failed','Prepared audio result could not be verified'); }
  }
  return {asset,manifest,segmentCount,sheetCount:manifest.artifacts.filter(item=>item.kind==='contact_sheet').length};

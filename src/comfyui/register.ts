@@ -37,19 +37,25 @@ export function registerComfyTools(server: McpServer, service = new ComfyService
   }, traced(service, 'comfyui_status'));
 
   server.registerTool('comfyui_workflows', {
-    description: 'Lista los workflows API registrados explícitamente con isymcp comfy workflow add. Devuelve IDs, hashes y nombres de entradas configurables; no enumera archivos del disco.',
+    description:
+      ('Lista los workflows API registrados explícitamente con isymcp comfy workflow add. Devuelve IDs, hashes y nombres de entradas configurables;' +
+        ' no enumera archivos del disco.'),
     inputSchema: {},
     annotations: readOnly,
   }, traced(service, 'comfyui_workflows'));
 
   server.registerTool('comfyui_generate', {
-    description: 'Genera imágenes solo cuando el usuario lo pide. El workflow debe estar registrado y cada entrada se valida contra su configuración local. Devuelve job_id; consulta comfyui_job_status hasta que termine y luego creative_asset_get para ver la imagen.',
+    description:
+      ('Genera imágenes solo cuando el usuario lo pide. El workflow debe estar registrado y cada entrada se valida contra su configuración local. Devuelve ' +
+        'job_id; consulta comfyui_job_status hasta que termine y luego creative_asset_get para ver la imagen.'),
     inputSchema: { workflow_id: workflowId, inputs: z.record(z.string(), z.unknown()).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   }, traced(service, 'comfyui_generate'));
 
   server.registerTool('comfyui_job_status', {
-    description: 'Consulta el estado de una generación local. wait_seconds puede esperar hasta 10 segundos por WebSocket; al completar devuelve IDs y hashes de artefactos.',
+    description:
+      ('Consulta el estado de una generación local. wait_seconds puede esperar hasta 10 segundos por WebSocket; al completar devuelve IDs y hashes de ' +
+        'artefactos.'),
     inputSchema: { job_id: jobId, wait_seconds: z.number().int().min(0).max(10).optional() },
     annotations: readOnly,
   }, traced(service, 'comfyui_job_status'));

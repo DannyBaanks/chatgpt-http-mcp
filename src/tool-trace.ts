@@ -81,7 +81,11 @@ export interface ToolCard {
   error?: string;
 }
 
-const LABELED_CREDENTIAL = /(["']?)([A-Za-z0-9_.-]*(?:token|secret|password|credential|authorization|api[_-]?key|private[_-]?key|client[_-]?key)[A-Za-z0-9_.-]*)\1\s*[:=]\s*(?:Bearer\s+)?(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/gi;
+const LABELED_CREDENTIAL = new RegExp(
+  String.raw`(["']?)([A-Za-z0-9_.-]*(?:token|secret|password|credential|authorization|api[_-]?key|private[_-]?key|client[_-]?key)[A-Za-z0-9_.-]*)` +
+    String.raw`\1\s*[:=]\s*(?:Bearer\s+)?(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)`,
+  "gi",
+);
 const BEARER_CREDENTIAL = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 const JWT_CREDENTIAL = /\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b/g;
 const OUTPUT_FIELD = /^(?:stdout|stderr)$/i;

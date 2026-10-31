@@ -87,9 +87,11 @@ function parseBundle(value: unknown): WorkflowBundle {
       ...(raw.options === undefined ? {} : { options: raw.options }),
     };
     if (binding.required !== undefined && typeof binding.required !== 'boolean') throw Error(`Workflow required flag must be boolean: ${name}`);
-    for (const bound of [binding.min, binding.max]) if (bound !== undefined && (typeof bound !== 'number' || !Number.isFinite(bound))) throw Error(`Workflow input range must be finite: ${name}`);
+    for (const bound of [binding.min, binding.max]) if (bound !== undefined && (typeof bound !== 'number' || !Number.isFinite(bound))) throw Error(
+      `Workflow input range must be finite: ${name}`);
     if (binding.min !== undefined && binding.max !== undefined && binding.min > binding.max) throw Error(`Workflow input range is inverted: ${name}`);
-    if (binding.type === 'enum' && (!Array.isArray(binding.options) || binding.options.length < 1 || binding.options.length > 100 || binding.options.some((item) => typeof item !== 'string'))) {
+    if (binding.type === 'enum' && (!Array.isArray(binding.options) || binding.options.length < 1 || binding.options.length > 100 ||
+      binding.options.some((item) => typeof item !== 'string'))) {
       throw Error(`Workflow enum requires 1 to 100 string options: ${name}`);
     }
     if (binding.type !== 'enum' && binding.options !== undefined) throw Error(`Workflow options are only valid for enum inputs: ${name}`);
@@ -163,7 +165,8 @@ export class ComfyWorkflowCatalog {
   }
 
   list(): Array<{ id: string; name: string; sha256: string; inputs: string[] }> {
-    return readFileSyncList(this.workflowsHome).map((record) => ({ id: record.id, name: record.name, sha256: record.sha256, inputs: Object.keys(record.bundle.inputs) }));
+    return readFileSyncList(this.workflowsHome).map((record) => ({ id: record.id, name: record.name, sha256: record.sha256,
+      inputs: Object.keys(record.bundle.inputs) }));
   }
 }
 

@@ -252,7 +252,8 @@ async function askChatGPT(message: string, fresh = false): Promise<boolean> {
       signal: AbortSignal.timeout(15 * 60_000),
     });
     const body = (await res.json().catch(() => null)) as
-      | { ok?: boolean; reply?: { text?: string; meta?: { kind?: string; detail?: string } }; chat?: { conversation_url?: string | null }; error?: { type?: string; message?: string } }
+      | { ok?: boolean; reply?: { text?: string; meta?: { kind?: string; detail?: string } }; chat?: { conversation_url?: string | null }; error?: { type?
+        : string; message?: string } }
       | null;
     clearInterval(poll);
     if (shown && tty) process.stderr.write(`\n${paint("2", "── respuesta final ──")}\n`);
@@ -320,7 +321,8 @@ async function settingsSync(): Promise<void> {
   await ask("Enter cuando termines (guarda y cierra la ventana)… ");
   const done = await bridgeJson("/isymcp/settings/finish", "POST");
   const last = done.body?.last as { saved?: boolean; reason?: string } | null | undefined;
-  console.log(last ? `${last.saved ? "✓ guardado" : "✗ no guardado"}: ${last.reason ?? ""}` : "ventana cerrada; el resultado aparece en unos segundos (isymcp → Ajustes → Verificar)");
+  console.log(last ? `${last.saved ? "✓ guardado" : "✗ no guardado"}: ${last.reason ?? ""}` :
+    "ventana cerrada; el resultado aparece en unos segundos (isymcp → Ajustes → Verificar)");
 }
 
 // ── Confirmaciones del menu ────────────────────────────────────────────────
@@ -439,7 +441,8 @@ function codexSession(sub: string, rest: string[]): void {
     console.log("  COMANDO: @CODEX ISYMCP");
     console.log(`  turn_token: ${record.token}`);
     console.log("  Primero llama codex_turn_start y lee bootstrap.content.");
-    console.log(record.request ? "  Ejecuta la tarea local verificada de request.content y devuelve evidencia real." : "  Solicitud: <escribe aquí tu tarea autorizada>.");
+    console.log(record.request ? "  Ejecuta la tarea local verificada de request.content y devuelve evidencia real." :
+      "  Solicitud: <escribe aquí tu tarea autorizada>.");
     return;
   }
   if (sub === "list") {
@@ -905,7 +908,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   const configPath = flag("--config", rest) ?? join(homedir(), ".config", "opencode", "opencode.json");
   if (!sub || sub === "list") {
     for (const tui of detectTuis(homedir())) {
-      console.log(`${tui.present ? "presente " : "ausente  "}${tui.installable ? "[instalable]" : "            "} ${tui.id} (${tui.label}) ${tui.bin ?? tui.configDir}`);
+      console.log(`${tui.present ? "presente " : "ausente  "}${tui.installable ? "[instalable]" : "            "} ${tui.id} (${tui.label}) ${
+        tui.bin ?? tui.configDir}`);
     }
   } else if (sub === "install") {
     const which = flag("--tui", rest) ?? "opencode";
@@ -1035,7 +1039,8 @@ async function metricsCommand(sub?: string, rest: string[] = []): Promise<void> 
     console.log(`ISyMCP Telemetría en Vivo (Uptime: ${m.uptimeSeconds}s)`);
     console.log(`  Turnos:       ${m.turns.total} total (${m.turns.success} ok, ${m.turns.failed} err, ${m.turns.reasoning_turns} con pensamiento)`);
     console.log(`  Latencia:     avg ${m.latency_ms.avg} ms · min ${m.latency_ms.min} ms · max ${m.latency_ms.max} ms`);
-    console.log(`  Tokens est.:  ${m.tokens.total_tokens_estimated.toLocaleString()} total (${m.tokens.prompt_tokens_estimated} prompt, ${m.tokens.completion_tokens_estimated} compl, ${m.tokens.reasoning_tokens_estimated} reasoning)`);
+    console.log(`  Tokens est.:  ${m.tokens.total_tokens_estimated.toLocaleString()} total (${m.tokens.prompt_tokens_estimated} prompt, ${
+      m.tokens.completion_tokens_estimated} compl, ${m.tokens.reasoning_tokens_estimated} reasoning)`);
     console.log(`  Memoria:      ${(m.memory.rss_bytes / (1024 * 1024)).toFixed(1)} MB RSS · ${(m.memory.heap_used_bytes / (1024 * 1024)).toFixed(1)} MB Heap`);
     if (Object.keys(m.errors_by_type).length > 0) {
       console.log(`  Errores:      ${Object.entries(m.errors_by_type).map(([k, v]) => `${k}=${v}`).join(", ")}`);
@@ -1078,7 +1083,8 @@ async function harnessCommand(sub: string, rest: string[]): Promise<void> {
     const statuses = await detect();
     if (json) { console.log(JSON.stringify(statuses, null, 2)); return; }
     for (const s of statuses) {
-      const state = !s.present ? "no instalado" : !s.supported ? `detectado · ${s.pending}` : s.installed === true ? "isymcp-chatgpt ✓" : s.installed === false ? "sin isymcp-chatgpt" : "estado desconocido";
+      const state = !s.present ? "no instalado" : !s.supported ? `detectado · ${s.pending}` : s.installed === true ? "isymcp-chatgpt ✓" : s.
+        installed === false ? "sin isymcp-chatgpt" : "estado desconocido";
       console.log(`  ${s.present ? "●" : "·"} ${s.id.padEnd(9)} ${state}`);
     }
     return;
@@ -1134,14 +1140,17 @@ async function canaryCommand(sub: string, rest: string[]): Promise<void> {
   const unitDir = join(homedir(), ".config", "systemd", "user");
   const launcher = join(home, "bin", process.platform === "win32" ? "isymcp-canary.ps1" : "isymcp-canary");
   const service = `[Unit]\nDescription=ISyMCP canario (captura de chatgpt.com)\n\n[Service]\nType=oneshot\nExecStart=${launcher}\n`;
-  const timer = `[Unit]\nDescription=ISyMCP canario diario\n\n[Timer]\nOnCalendar=*-*-* 09:00:00\nPersistent=true\nRandomizedDelaySec=10m\n\n[Install]\nWantedBy=timers.target\n`;
+  const timer =
+    (`[Unit]\nDescription=ISyMCP canario diario\n\n[Timer]\nOnCalendar=*-*-* 09:00:00\nPersistent=true\nRandomizedDelaySec=10m\n\n[Install]\nWantedBy=timers.` +
+      `target\n`);
   const windows = process.platform === "win32";
   const steps = windows
     ? sub === "schedule"
       ? [`escribir ${launcher} con ACL privada`, `crear tarea diaria de Windows a las 09:00 (solo cuando el usuario inicio sesion)`]
       : [`eliminar tarea de Windows "ISyMCP Canary"`, `borrar ${launcher}`]
     : sub === "schedule"
-      ? [`escribir ${launcher} (lanzador sin espacios)`, `escribir ${join(unitDir, "isymcp-canary.service")}`, `escribir ${join(unitDir, "isymcp-canary.timer")} (diario 09:00, Persistent)`, "systemctl --user daemon-reload", "systemctl --user enable --now isymcp-canary.timer"]
+      ? [`escribir ${launcher} (lanzador sin espacios)`, `escribir ${join(unitDir, "isymcp-canary.service")}`, `escribir ${join(unitDir,
+        "isymcp-canary.timer")} (diario 09:00, Persistent)`, "systemctl --user daemon-reload", "systemctl --user enable --now isymcp-canary.timer"]
       : ["systemctl --user disable --now isymcp-canary.timer", `borrar ${join(unitDir, "isymcp-canary.service")} y .timer`, "systemctl --user daemon-reload"];
   if (!rest.includes("--apply")) {
     console.log(`PLAN (${sub}) — no se toco nada. Repite con --apply:`);
@@ -1156,11 +1165,13 @@ async function canaryCommand(sub: string, rest: string[]): Promise<void> {
     return;
   }
   const { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
-  const sh = (argv: string[]) => { const p = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" }); if (p.exitCode !== 0) throw new Error(`${argv.join(" ")}: ${p.stderr.toString().trim()}`); };
+  const sh = (argv: string[]) => { const p = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" }); if (p.exitCode !== 0) throw new Error(`${
+    argv.join(" ")}: ${p.stderr.toString().trim()}`); };
   if (sub === "schedule") {
     mkdirSync(join(launcher, ".."), { recursive: true });
     const script = join(import.meta.dir, "isymcp.ts");
-    writeFileSync(launcher, `#!/usr/bin/env bash\n# generado por isymcp canary schedule\nexec ${JSON.stringify(process.execPath)} run '${script.replace(/'/g, `'\\''`)}' canary run\n`, { mode: 0o700 });
+    writeFileSync(launcher, `#!/usr/bin/env bash\n# generado por isymcp canary schedule\nexec ${JSON.stringify(process.execPath)} run '${script.replace(/'/g,
+      `'\\''`)}' canary run\n`, { mode: 0o700 });
     chmodSync(launcher, 0o700);
     mkdirSync(unitDir, { recursive: true });
     writeFileSync(join(unitDir, "isymcp-canary.service"), service);

@@ -12,7 +12,8 @@ import { MEDIA_ERROR_CODES, classifyMediaError, type MediaErrorCode } from './er
 function mediaFailure(code: MediaErrorCode, message?: string, detail?: string) {
   return {
     isError: true as const,
-    content: [{ type: 'text' as const, text: JSON.stringify({ error_code: code, message: message ?? MEDIA_ERROR_CODES[code], ...(detail ? { detail_sanitized: detail } : {}) }) }],
+    content: [{ type: 'text' as const, text: JSON.stringify({ error_code: code, message: message ?? MEDIA_ERROR_CODES[code], ...(detail ?
+      { detail_sanitized: detail } : {}) }) }],
   };
 }
 export class MediaService {
@@ -21,12 +22,14 @@ export class MediaService {
  constructor(public catalog=new MediaCatalog()){this.importer=new MediaImporter(catalog);}
  async call(name:string,args:any):Promise<{isError?:boolean;content:Array<{type:string;text?:string;mimeType?:string;data?:string}>}> {
    if(name==='media_import_status') {
-    try {const result=await this.importer.status(args.job_id,args.wait_seconds??0);return {isError:result.state==='failed',content:[{type:'text' as const,text:JSON.stringify(result)}]};}
+    try {const result=await this.importer.status(args.job_id,args.wait_seconds??0);return {isError:result.state==='failed',content:[{type:'text' as const,
+      text:JSON.stringify(result)}]};}
     catch(error){return mediaFailure('media_unknown', String(error instanceof Error?error.message:error));}
    }
    if(name==='media_import') {
     try {if(this.busy)return mediaFailure('media_busy');return {content:[{type:'text' as const,text:JSON.stringify(this.importer.start(args.url))}]};}
-    catch(error){if(error instanceof Error&&/busy/i.test(error.message))return mediaFailure('media_busy');const classified=classifyMediaError(error);return mediaFailure(classified.code,classified.message,classified.detail_sanitized);}
+    catch(error){if(error instanceof Error&&/busy/i.test(error.message))return mediaFailure('media_busy');const classified=classifyMediaError(error);
+      return mediaFailure(classified.code,classified.message,classified.detail_sanitized);}
    }
    if(name==='media_list') {
     try {
@@ -41,22 +44,35 @@ export class MediaService {
    if(this.busy||this.importer.active) return mediaFailure('media_busy');
    this.busy=true;
    try {
-    if(!['media_info','audio_analyze','audio_segments','audio_scan','video_frame','video_contact_sheet'].includes(name)) {this.busy=false;throw Error('Unknown media tool');}
+    if(!['media_info','audio_analyze','audio_segments','audio_scan','video_frame','video_contact_sheet'].includes(name)) {this.busy=false;
+      throw Error('Unknown media tool');}
    return await withinDeadline(()=>this.catalog.snapshot(args.asset_id,async(asset,path)=>{
     let result:any,images:any[]=[],window:any;
-    window=['audio_analyze','audio_segments','video_contact_sheet'].includes(name)?{start_seconds:args.start_seconds,end_seconds:args.end_seconds}:name==='video_frame'?{timestamp_seconds:args.timestamp_seconds}:undefined;
+    window=['audio_analyze','audio_segments','video_contact_sheet'].includes(name)?{start_seconds:args.start_seconds,end_seconds:args.
+      end_seconds}:name==='video_frame'?{timestamp_seconds:args.timestamp_seconds}:undefined;
     if(name==='media_info') result=await probe(path);
-    else if(name==='audio_analyze') {const audio=await analyzeAudio(path,args.start_seconds,args.end_seconds,args.channel??'mix');result=audio.statistics;images=audio.images;}
-    else if(name==='audio_segments') result=await audioSegments(path,args.start_seconds,args.end_seconds,{thresholdDbfs:args.threshold_dbfs??-32,mergeGapSeconds:args.merge_gap_seconds??0.1,minSegmentSeconds:args.min_segment_seconds??0.12});
-    else if(name==='audio_scan') {result=await audioScan(path,args.start_seconds??0,args.end_seconds,args.chunk_seconds??120,{thresholdDbfs:args.threshold_dbfs??-32,mergeGapSeconds:args.merge_gap_seconds??0.1,minSegmentSeconds:args.min_segment_seconds??0.12});window=result.window;}
-    else if(name==='video_contact_sheet'){const sheet=await contactSheet(path,args.start_seconds,args.end_seconds,args.columns??4);result=sheet.metadata;images=[sheet.image];}
+    else if(name==='audio_analyze') {const audio=await analyzeAudio(path,args.start_seconds,args.end_seconds,args.channel??'mix');result=audio.statistics;
+      images=audio.images;}
+    else if(name==='audio_segments') result=await audioSegments(path,args.start_seconds,args.end_seconds,{thresholdDbfs:args.threshold_dbfs??-32,
+      mergeGapSeconds:args.merge_gap_seconds??0.1,minSegmentSeconds:args.min_segment_seconds??0.12});
+    else if(name==='audio_scan') {result=await audioScan(path,args.start_seconds??0,args.end_seconds,args.chunk_seconds??120,
+      {thresholdDbfs:args.threshold_dbfs??-32,mergeGapSeconds:args.merge_gap_seconds??0.1,minSegmentSeconds:args.min_segment_seconds??0.12});
+      window=result.window;}
+    else if(name==='video_contact_sheet'){const sheet=await contactSheet(path,args.start_seconds,args.end_seconds,args.columns??4);result=sheet.metadata;
+      images=[sheet.image];}
     else {
      const info=await probe(path); if(!info.streams.some(s=>s.codec_type==='video')) throw Error('Media has no video stream');
-     const t=args.timestamp_seconds; windowRange(t,t+0.000001,info.duration_seconds); if(t>=info.duration_seconds) throw Error('Timestamp must precede end of video');
+     const t=args.timestamp_seconds; windowRange(t,t+0.000001,info.duration_seconds); if(t>=info.duration_seconds) throw Error(
+       'Timestamp must precede end of video');
      images=[await videoFrame(path,t)];result={width_limit:640};
     }
-    const method=name==='media_info'?'ffprobe source container and stream metadata':name==='video_frame'?'Video Vision extract_frame_at':name==='video_contact_sheet'?'FFmpeg contact sheet; labelled sample times; aspect ratio preserved':name==='audio_segments'?'FFmpeg RMS activity segmentation; mono 16 kHz':name==='audio_scan'?'FFmpeg full-window audio activity scan in chunks of at most 120 seconds':`FFmpeg/ffprobe; audio ${args.channel&&args.channel!=='mix'?`channel ${args.channel}`:'mono mix'} at 16 kHz`;
-    return {content:[{type:'text' as const,text:JSON.stringify({asset_id:asset.id,sha256:asset.sha256,source_url:asset.sourceUrl,window,method,version:'isymcp-media/1',result,limitations:name==='audio_analyze'?'Waveform and spectrum are acoustic measurements, not native listening or sound identification.':undefined})},...images]};
+    const method=name==='media_info'?'ffprobe source container and stream metadata':name==='video_frame'?'Video Vision extract_frame_at':name===
+      'video_contact_sheet'?'FFmpeg contact sheet; labelled sample times; aspect ratio preserved':name==='audio_segments'?
+      'FFmpeg RMS activity segmentation; mono 16 kHz':name==='audio_scan'?'FFmpeg full-window audio activity scan in chunks of at most 120 seconds':
+      `FFmpeg/ffprobe; audio ${args.channel&&args.channel!=='mix'?`channel ${args.channel}`:'mono mix'} at 16 kHz`;
+    return {content:[{type:'text' as const,text:JSON.stringify({asset_id:asset.id,sha256:asset.sha256,source_url:asset.sourceUrl,window,method,
+      version:'isymcp-media/1',result,limitations:name==='audio_analyze'?
+      'Waveform and spectrum are acoustic measurements, not native listening or sound identification.':undefined})},...images]};
    }),name==='audio_scan'?300000:60000,()=>{this.busy=false;});
   } catch(error) {
    const raw=String(error instanceof Error?error.message:error).replaceAll(this.catalog.home,'[media-state]');
@@ -101,8 +117,10 @@ export class MediaService {
    return {content:[{type:'text' as const,text:JSON.stringify(result)},...images]};
   } catch(error) {
    const raw=String(error instanceof Error?error.message:'Media lookup failed');
-   const safeErrors=new Set(['Invalid YouTube URL','Use a public HTTPS YouTube video URL','Only individual YouTube videos and Shorts are supported','Invalid sheet_index','sheet_index is out of range','Asset revoked','Asset changed: register again']);
-   const code:MediaErrorCode=raw==='Invalid YouTube URL'||raw==='Use a public HTTPS YouTube video URL'||raw==='Only individual YouTube videos and Shorts are supported'?'media_invalid_url'
+   const safeErrors=new Set(['Invalid YouTube URL','Use a public HTTPS YouTube video URL','Only individual YouTube videos and Shorts are supported',
+     'Invalid sheet_index','sheet_index is out of range','Asset revoked','Asset changed: register again']);
+   const code:MediaErrorCode=raw==='Invalid YouTube URL'||raw==='Use a public HTTPS YouTube video URL'||raw===
+     'Only individual YouTube videos and Shorts are supported'?'media_invalid_url'
     :raw==='Invalid sheet_index'||raw==='sheet_index is out of range'?'media_invalid_request'
     :raw==='Asset revoked'||raw==='Asset changed: register again'||/mismatch/i.test(raw)?'media_asset_changed':'media_lookup_failed';
    return mediaFailure(code, safeErrors.has(raw)?raw:undefined);
