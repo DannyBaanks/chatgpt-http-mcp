@@ -117,7 +117,7 @@ beforeAll(() => {
     capabilities: { solAvailable: true, proAvailable: false },
     timeoutMs: 200,
   } as AppConfig;
-  server = startServer(config);
+  server = startServer(config, { requireToken: false });
 });
 
 afterAll(() => {

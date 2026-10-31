@@ -66,7 +66,7 @@ beforeAll(() => {
     },
   });
   base = `http://127.0.0.1:${mock.port}/backend-api/codex`;
-  server = startServer(testConfig(base));
+  server = startServer(testConfig(base), { requireToken: false });
 });
 
 afterAll(() => {
@@ -139,7 +139,7 @@ test("rutas y metodos invalidos fallan con JSON nombrado", async () => {
 
 test("upstream inalcanzable devuelve 502 nombrado, no excepcion", async () => {
   const dead: AppConfig = testConfig("http://127.0.0.1:1/backend-api/codex");
-  const handler = createHandler(dead);
+  const handler = createHandler(dead, { requireToken: false });
   const res = await handler(
     new Request("http://127.0.0.1/v1/models", { headers: { authorization: "Bearer x" } }),
   );

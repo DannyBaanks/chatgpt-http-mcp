@@ -57,7 +57,7 @@ describe("websocket de Codex", () => {
 test("real WebSocket uses task identity preflight instead of the default session", async () => {
   const { startServer } = await import("../src/server");
   const { loadConfig } = await import("../src/config");
-  const server = startServer(loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on" }));
+  const server = startServer(loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on" }), { requireToken: false });
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}/v1/responses`);
   let timer: ReturnType<typeof setTimeout>;
   try {
@@ -74,7 +74,7 @@ test("real WebSocket uses task identity preflight instead of the default session
 test("Web compaction is rejected before native forwarding", async () => {
   const { createHandler } = await import("../src/server");
   const { loadConfig } = await import("../src/config");
-  const response = await createHandler(loadConfig())(new Request("http://127.0.0.1/v1/responses/compact", {
+  const response = await createHandler(loadConfig(), { requireToken: false })(new Request("http://127.0.0.1/v1/responses/compact", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "chatgpt-web/gpt-5.6-sol", input: "hello" }),
   }));
   expect(response.status).toBe(400);
@@ -87,6 +87,7 @@ test("real WebSocket delivers one JSON event per frame to the client", async () 
   const { buildResponseBody } = await import("../src/web-responses");
   const server = startServer(loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on" }), {
     webResponse: async () => Response.json(buildResponseBody("chatgpt-web/gpt-5.6-sol", "WS_FRAME_CANARY", "")),
+    requireToken: false,
   });
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}/v1/responses`);
   let timer: ReturnType<typeof setTimeout>;

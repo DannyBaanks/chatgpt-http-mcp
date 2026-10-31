@@ -60,8 +60,8 @@ const SCHEMA = "codex-web-http.codex-sessions/1";
 /** Caducidad por defecto de un session token (horas). */
 export const DEFAULT_TTL_HOURS = 24;
 
-export function bridgeHome(): string {
-  return process.env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
+export function bridgeHome(env: Record<string, string | undefined> = process.env): string {
+  return env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
 }
 
 export function registryPath(): string {

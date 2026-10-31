@@ -2,7 +2,7 @@
 // CSRF/DNS rebinding (server + panel), XSS del panel, caducidad y revoke de
 // tokens, symlinks fuera del workspace, candado de turnos web, sanitizado.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config";
@@ -33,7 +33,10 @@ afterAll(() => {
 const chatBody = JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "x" }] });
 
 describe("bridge :8791 — solo clientes locales", () => {
-  const handler = createHandler(loadConfig({ CODEX_WEB_HTTP_WEB_MODELS: "on", CODEX_WEB_HTTP_UPSTREAM: "http://127.0.0.1:9" }));
+  const handler = createHandler(
+    loadConfig({ CODEX_WEB_HTTP_WEB_MODELS: "on", CODEX_WEB_HTTP_UPSTREAM: "http://127.0.0.1:9" }),
+    { requireToken: false },
+  );
   const post = (headers: Record<string, string>) =>
     handler(new Request("http://127.0.0.1:8791/v1/chat/completions", { method: "POST", headers, body: chatBody }));
 
@@ -255,14 +258,32 @@ describe("token del bridge (auditoria 2026-10-07)", () => {
       delete process.env.CODEX_WEB_HTTP_TOKEN;
     }
   });
-  test("sin token configurado no cambia nada", async () => {
+  test("sin variable: token propio 0600, 401 sin cabecera y 200 con el", async () => {
+    delete process.env.CODEX_WEB_HTTP_TOKEN;
     const handler = createHandler(loadConfig(cfg));
-    expect((await handler(new Request("http://127.0.0.1:8791/health"))).status).toBe(200);
+    expect((await handler(new Request("http://127.0.0.1:8791/health"))).status).toBe(401);
+    const token = readFileSync(join(home, "token"), "utf8").trim();
+    expect(token.length).toBeGreaterThanOrEqual(20);
+    const ok = await handler(new Request("http://127.0.0.1:8791/health", { headers: { "x-isymcp-token": token } }));
+    expect(ok.status).toBe(200);
   });
-  test("exposicion no loopback sin token se niega a arrancar", () => {
-    expect(() => assertSafeExposure("0.0.0.0", {})).toThrow(/CODEX_WEB_HTTP_TOKEN/);
-    expect(() => assertSafeExposure("127.0.0.1", { CODEX_WEB_HTTP_ALLOWED_HOSTS: "x.trycloudflare.com" })).toThrow();
-    expect(() => assertSafeExposure("127.0.0.1", {})).not.toThrow();
+  test("cualquier exposicion prepara el token; si no puede, no arranca", () => {
+    const dir = mkdtempSync(join(tmpdir(), "isymcp-exposure-"));
+    try {
+      const env = { CODEX_WEB_HTTP_HOME: dir };
+      expect(() => assertSafeExposure("0.0.0.0", env)).not.toThrow();
+      expect(existsSync(join(dir, "token"))).toBe(true);
+      expect(() => assertSafeExposure("127.0.0.1", { ...env, CODEX_WEB_HTTP_ALLOWED_HOSTS: "x.trycloudflare.com" })).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const file = join(tmpdir(), `isymcp-token-notdir-${process.pid}-${Date.now()}`);
+    writeFileSync(file, "x");
+    try {
+      expect(() => assertSafeExposure("127.0.0.1", { CODEX_WEB_HTTP_HOME: file })).toThrow(/token del bridge/);
+    } finally {
+      rmSync(file, { force: true });
+    }
     expect(() => assertSafeExposure("0.0.0.0", { CODEX_WEB_HTTP_TOKEN: "t" })).not.toThrow();
   });
   test("el panel ignora ALLOWED_HOSTS (solo loopback)", () => {
