@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { assertExclusiveTunnel, configuredTunnelAlias } from "../src/tunnel-routing";
 import { securePrivatePath } from "../src/platform/private-path";
+import { defaultBrokerSocketPath } from "../src/mcp/broker-socket";
 
 function home(): string {
   return process.env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
@@ -76,16 +77,17 @@ function mcpLauncher(): string {
   return launcher;
 }
 
+const brokerSocket = defaultBrokerSocketPath();
 const windowsMcpArgs = [
   process.execPath,
   "run",
   join(import.meta.dir, "..", "src", "mcp", "main.ts"),
   "--contract", "native",
-  "--broker-socket", "\\\\.\\pipe\\codex-web-http-broker",
+  "--broker-socket", brokerSocket,
 ];
 const mcpCommand = argValue("--mcp-command") ?? (process.platform === "win32"
   ? windowsMcpArgs.map(tunnelCommandArg).join(" ")
-  : `${tunnelCommandArg(mcpLauncher())} --contract native --broker-socket /tmp/codex-web-http-broker.sock`);
+  : `${tunnelCommandArg(mcpLauncher())} --contract native --broker-socket ${tunnelCommandArg(brokerSocket)}`);
 
 const proc = Bun.spawnSync([
   binary, "runtimes", "connect",
