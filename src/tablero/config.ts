@@ -100,6 +100,32 @@ function checkFilePrivate(path: string): void {
   if (st.mode & 0o022) invalid(`${path} es escribible por grupo/otros: chmod 600 ${path}`);
 }
 
+/**
+ * Un candidato solo cuenta si IMPRIME su version. En Windows `python3` suele resolver
+ * al App Execution Alias de la Tienda (C:\Users\<tú>\AppData\Local\Microsoft\WindowsApps
+ * \python3.exe): existe, pasa un existsSync, y al ejecutarlo sale con codigo 49 diciendo
+ * "Python was not found". Aceptar esa ruta dejaba Tablero roto sin ningun mensaje propio.
+ */
+function pythonReportsVersion(path: string): boolean {
+  try {
+    const probe = Bun.spawnSync([path, "-c", "import sys; sys.stdout.write(sys.version)"], {
+      stdout: "pipe", stderr: "ignore", timeout: 8_000,
+    });
+    return probe.exitCode === 0 && /\d+\.\d+/.test(probe.stdout.toString());
+  } catch {
+    return false;
+  }
+}
+
+/** Interpreter por defecto: el primero que responde, no el primero que existe. */
+export function detectPython(): string {
+  for (const name of ["python3", "python", "py"]) {
+    const path = Bun.which(name);
+    if (path && pythonReportsVersion(path)) return path;
+  }
+  return "";
+}
+
 function checkLauncher(name: string, raw: unknown, roots: string[]): Launcher {
   if (!/^[a-z][a-z0-9-]{1,30}$/.test(name)) invalid(`nombre de lanzador invalido: ${name}`);
   const l = raw as Partial<Launcher> | null;
@@ -139,7 +165,7 @@ export function loadTableroConfig(path = tableroConfigPath()): TableroConfig {
   if (raw.enabled !== true) throw new TableroConfigError("tablero_disabled", "tablero apagado (enabled != true). Enciendelo con: isymcp tablero on");
   const tableroDir = realDir(String(raw.tableroDir ?? ""), "tableroDir");
   if (!existsSync(join(tableroDir, "tablero.py"))) invalid(`tableroDir no contiene tablero.py: ${tableroDir}`);
-  const python = String(raw.python ?? Bun.which("python3") ?? "");
+  const python = String(raw.python ?? detectPython());
   if (!isAbsolute(python) || !existsSync(python)) invalid(`python debe ser ruta absoluta existente: ${python || "(no encontrado)"}`);
   const identity = String(raw.identity ?? "gpt_mano_derecha");
   if (!/^[a-z][a-z0-9_]{2,40}$/.test(identity) || RESERVED_IDENTITIES.has(identity)) {

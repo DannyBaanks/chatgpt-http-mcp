@@ -308,3 +308,98 @@ media-package publishing depends on coreutils being on `PATH` — which is true 
 workstation only because Git for Windows put `usr\bin` there, and is not a documented
 requirement in *Requirements* above. A native no-replace rename would remove the
 dependency and let both excluded files back into the job.
+
+Updated 2026-11-06: `origin/main` was merged (140 commits, 16 conflicted files, 24 new
+test files). Verified on this host afterwards: **704 pass / 17 skip / 0 fail**, 721 tests
+across 109 files, 293.16 s.
+
+```
+bun test                                            exit 0
+/tmp/isymcp-win-merge3.log  sha256 61f22c2b87c4e89fe7a6b5d4e4a58dac91c6169cd7281d38564630de0cebaf22
+```
+
+Against the 2026-11-05 pre-merge run (555 / 10 / 0, 565 tests, 85 files) no test name
+disappeared and no passing test turned into a skip. Exactly three names left the list, and
+upstream replaced each one in place: two `token del bridge` cases became
+`sin variable: token propio 0600…` and `cualquier exposicion prepara el token…`, and
+`codex_exec con token de turno deja tool.result con turn_id y sin stdout` became
+`codex_tool_inventory conserva el ID de llamada hasta tool.result sin exponerlo en la
+tarjeta` — the same assertion after the correlation moved from `turn_id` to `call_id`.
+
+`bun run typecheck` (`tsc --noEmit`) is exit 0. The merge made it a blocking CI step, and
+it immediately caught two type errors that had never been checked on this branch:
+`tests/cli-e2e.test.ts` inferred a *closed* object type for `isolated().env`, so
+reassigning it with `ISYMCP_TUNNEL_CLIENT_BIN` was rejected; and a `platform:'tiktok'`
+literal widened to `string` against the receipt union in `tests/media-catalog.test.ts`.
+Both are fixed as part of the merge, not after it.
+
+Four things failed that were not conflict-resolution errors but consequences of what
+upstream brought. Each is recorded with the measurement that identified it:
+
+- `DEFAULT_WINDOWS_SANDBOX_IMAGE` moved from `isymcp-sandbox:1.0.0-rc.2` to `1.0.1`
+  (`src/codex-sessions.ts:365`). This host had only rc.2, so `sandboxBackend()` failed
+  closed to `"none"`, `runExec` refused and 18 sandbox tests could not run — the contract
+  behaving exactly as designed, not breaking. Rebuilt with `bun run sandbox:build`
+  (953 MB; rc.2 left in place rather than retagged); the six affected files then pass
+  52/52 in 70.34 s.
+- Tablero (`src/tablero/`) is new, and its default interpreter came from
+  `Bun.which("python3")`. On this host that resolves to the Microsoft Store App Execution
+  Alias: the file exists, so `config.ts` accepted it, and executing it exits 49 saying
+  "Python was not found" — the trap the root contract names. Measured: `python3` exit 49,
+  `…\Python312\python.exe` exit 0 (3.12.10), `…\Launcher\py.exe` exit 0. `detectPython()`
+  now takes the first candidate that actually prints a version, and
+  `tests/tablero.test.ts` uses it instead of `Bun.which("python3")!`. 9 failures, fixed.
+- `tablero launch(dry_run: true)` threw `tablero_tmux_missing` although a dry run spawns
+  nothing: `argv` was built before the early return and building it resolves tmux
+  (`src/tablero/service.ts:273`). `argv` is now built after it. Nothing changes on a host
+  that has tmux, so this is a general defect, not a Windows one — upstream CI always has
+  tmux, which is why nobody saw it. 1 failure, fixed.
+- `tests/bridge-token.test.ts` created a **file** symlink to prove `bridgeToken` refuses
+  one. Windows needs SeCreateSymbolicLinkPrivilege (Developer Mode) for that and fails
+  with EPERM before the guard is reached. A junction is no substitute — directories only —
+  and a hard link is not a symlink, so `bridgeToken` would not refuse it and the
+  assertion would lie. That half is now gated on POSIX, where it runs, with the reason
+  written in the file. 1 failure, documented and gated.
+
+`tests/sandbox-isolation.test.ts` needed a different treatment. Main's new
+`/run del host queda tapado` asserts that `/run` is *empty*, which is the bwrap mechanism:
+`HOST_MASKS = ["/run","/var/run","/var/log"]` puts a tmpfs over each. The Docker backend
+never binds the host `/run` at all — its mount namespace knows only the workspace and
+source-root binds — so the property holds by construction and what the listing shows is
+the image's own `/run/lock`. Measured in both images:
+
+```
+MSYS_NO_PATHCONV=1 docker run --rm --entrypoint sh <image> -c 'ls -A /run; ls -A /var/run'
+isymcp-sandbox:1.0.0-rc.2 -> lock   isymcp-sandbox:1.0.1 -> lock
+```
+
+The content did not change; the test is bwrap-specific and was not scoped, unlike the
+socket test two lines below it, which upstream correctly marked
+`skipIf(backend !== "bwrap")`. It now carries the same scope, so the assertion is not
+weakened to fit a failure and the Docker backend is not given a tmpfs it does not need.
+
+Skips went 10 → 17 and every added name is a capability or a stated design, none silent:
+3 tablero tests gated on `hasTmux`, 2 bwrap-only sandbox tests, and 2 in main's new
+`tests/launcher-shortcut.test.ts`, whose header comment already says the Windows job does
+not execute that file because it drives the helper with POSIX `true`/`false`.
+
+Also 2026-11-06, closing the `NOT_DEMONSTRATED` above: the widened job **has** now run on
+a real GitHub-hosted Windows runner. The PR itself could not trigger it — a `pull_request`
+run is not programmed at all while the PR is `CONFLICTING` (`mergeable: CONFLICTING`,
+`potentialMergeCommit: null`) — so the first observation came from `workflow_dispatch` on a
+probe branch carrying the same job. Both unknowns the image README could not settle came
+back resolved: Chocolatey's FFmpeg does carry `drawtext` and the media tests pass with it,
+and the runner's PATH really lacks `mv` and `sleep`, which is what the two coreutils
+exclusions are for.
+
+```
+windows-host  498 pass / 17 skip / 0 fail   Ran 515 tests across 78 files. [84.18s]
+test (ubuntu) 560 pass /  5 skip / 0 fail   Ran 565 tests across 85 files. [67.24s]
+```
+
+The ubuntu column is the point of widening the Windows one: the port changed 100+ files
+and the Linux suite still said 0 fail, so none of it was Linux regressions dressed up as
+Windows support. The Windows run had 13 more skips than this host's simulation predicted
+and 2 fewer passing tests, consistent with the sandbox cluster gating itself off in the
+absence of a Linux-image-capable daemon — the Moby on `windows-latest` serves Windows
+containers, and `isymcp-sandbox` is a Linux image.
