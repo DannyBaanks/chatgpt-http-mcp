@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const CONTEXT_SLICE_LINES = 200;
 export const CONTEXT_SLICE_MAX_LINES = 400;
@@ -49,7 +49,9 @@ export function writeContextFile(key: string, text: string): { path: string; tot
 export function readContextSlice(requestedPath: string, offset: number, limit: number): ReadSlice {
   const dir = resolve(contextDir());
   const full = resolve(requestedPath);
-  if (full !== dir && !full.startsWith(`${dir}/`)) {
+  // relative() es case-insensitive en win32; startsWith con "/" solo funcionaba en POSIX.
+  const rel = full === dir ? "" : relative(dir, full);
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new Error(`read fuera del contexto: ${requestedPath}`);
   }
   const lines = readFileSync(full, "utf8").split("\n");

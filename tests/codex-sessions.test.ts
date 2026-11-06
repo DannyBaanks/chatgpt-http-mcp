@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync, writeFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expectPrivate } from "./helpers/private-mode";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import {
@@ -49,6 +50,26 @@ describe("codex-sessions registry", () => {
     expect(labels).not.toContain("victim");
   }, 30_000);
 
+  test("un lector concurrente no deshace la publicacion del registro", async () => {
+    mintSession(workspace, { label: "semilla" });
+    const path = registryPath();
+    // El lector abre y cierra el destino en cada lectura, que es exactamente lo que hace
+    // cualquier MCP call sobre codex-sessions.json. En Windows ese handle tan breve le
+    // quita al rename el acceso de borrado que MoveFileEx exige (EPERM: -4048); en POSIX
+    // es inofensivo. La propiedad afirmada es la misma en los dos sistemas: lo minteado
+    // llega a disco. Medido antes del arreglo: 2490 EPERM contra 325 publicaciones.
+    const reader = Bun.spawn([process.execPath, "-e", `const { openSync, closeSync } = await import("node:fs");
+      const p = process.argv.at(-1); const until = Date.now() + 2000;
+      while (Date.now() < until) { try { const fd = openSync(p, "r"); closeSync(fd); } catch { /* entre publicacion y publicacion */ } }`,
+      path], { env: { ...process.env, CODEX_WEB_HTTP_HOME: home }, stdout: "ignore", stderr: "pipe" });
+    for (let i = 0; i < 25; i++) mintSession(workspace, { label: `pub-${i}` });
+    expect(await reader.exited).toBe(0);
+    expect(readSessions().map((s) => s.label).filter((l) => /^pub-\d+$/.test(l))).toHaveLength(25);
+    // El tmp contiene tokens de sesion: no puede quedar ni siquiera cuando el rename
+    // necesito reintentar, o cada choque dejaria capacidades grabadas en el HOME.
+    expect(existsSync(`${path}.tmp-${process.pid}`)).toBe(false);
+  }, 30_000);
+
   test("CLI binds a local task and emits a four-line MCP command without pasting task content", () => {
     const task = "PRIVATE_LOCAL_TASK_ONLY_4_LINES";
     writeFileSync(join(workspace, "TASK.md"), task);
@@ -91,13 +112,24 @@ describe("codex-sessions registry", () => {
 
   test("local requests reject paths outside the workspace, links, binary and oversized content", () => {
     const outside = join(home, "outside.md"); writeFileSync(outside, "secret task");
-    symlinkSync(outside, join(workspace, "linked.md"));
+    // Un symlink de ARCHIVO pide Modo desarrollador en Windows (EPERM); la junction a
+    // un directorio conserva la afirmacion: el enlace esta dentro del workspace y su
+    // destino real esta afuera (src/codex-sessions.ts:149 resuelve por realpath aqui).
+    const win32 = process.platform === "win32";
+    const link = join(workspace, "link");
+    if (win32) symlinkSync(home, link, "junction");
+    else symlinkSync(outside, join(workspace, "linked.md"));
     writeFileSync(join(workspace, "binary.md"), Buffer.from([0xff, 0xfe]));
     writeFileSync(join(workspace, "large.md"), "x".repeat(65537));
-    for (const requestFile of [outside, "../outside.md", "linked.md", "binary.md", "large.md", "missing.md"])
-      expect(() => mintSession(workspace, { requestFile })).toThrow();
-    expect(readSessions()).toHaveLength(0);
-    expect(readSessionRequest(mintSession(workspace))).toBeNull();
+    const escaped = win32 ? join("link", "outside.md") : "linked.md";
+    try {
+      for (const requestFile of [outside, "../outside.md", escaped, "binary.md", "large.md", "missing.md"])
+        expect(() => mintSession(workspace, { requestFile })).toThrow();
+      expect(readSessions()).toHaveLength(0);
+      expect(readSessionRequest(mintSession(workspace))).toBeNull();
+    } finally {
+      if (win32 && existsSync(link)) rmdirSync(link);
+    }
   });
   test("mint crea registro 0600 con token opaco y fingerprint estable", () => {
     const session = mintSession(workspace, { label: "test", writable: false });
@@ -106,8 +138,7 @@ describe("codex-sessions registry", () => {
     expect(session.cwd).toBe(workspace);
     expect(session.writable).toBe(false);
 
-    const mode = statSync(registryPath()).mode & 0o777;
-    expect(mode).toBe(0o600);
+    expectPrivate(registryPath(), false);
 
     const listed = readSessions();
     expect(listed).toHaveLength(1);
@@ -139,12 +170,29 @@ describe("codex-sessions registry", () => {
 });
 
 describe("confinamiento de paths", () => {
+  // node:path decide "escape" con la semantica del host: en Windows una raiz "/ws"
+  // significa "la raiz de la unidad actual", no un workspace. La tabla POSIX queda
+  // intacta y se anade su analogo nativo, incl. el salto de unidad.
+  const win32 = process.platform === "win32";
+  const cases: [string, string | null][] = win32
+    ? [
+        ["sub\\x", "C:\\ws\\sub\\x"],
+        [".", "C:\\ws"],
+        ["..\\x", null],
+        ["D:\\otro\\x", null],
+        ["C:\\Windows\\win.ini", null],
+        ["sub\\..\\..\\x", null],
+      ]
+    : [
+        ["sub/x", "/ws/sub/x"],
+        [".", "/ws"],
+        ["../x", null],
+        ["/etc/passwd", null],
+        ["sub/../../x", null],
+      ];
   test("resolveWithin permite adentro y niega escapes", () => {
-    expect(resolveWithin("/ws", "sub/x")).toBe("/ws/sub/x");
-    expect(resolveWithin("/ws", ".")).toBe("/ws");
-    expect(resolveWithin("/ws", "../x")).toBeNull();
-    expect(resolveWithin("/ws", "/etc/passwd")).toBeNull();
-    expect(resolveWithin("/ws", "sub/../../x")).toBeNull();
+    const root = win32 ? "C:\\ws" : "/ws";
+    for (const [candidate, expected] of cases) expect(resolveWithin(root, candidate)).toBe(expected);
   });
 
   test("patchPaths extrae diff unificado y detecta formato Codex", () => {

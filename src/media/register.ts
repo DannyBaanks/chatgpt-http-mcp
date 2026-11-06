@@ -37,9 +37,9 @@ function traced(service: MediaService, tool: string) {
 export function registerMediaTools(server:McpServer, service=new MediaService()) {
  server.registerTool('media_import',{
   description:
-    ('Descarga un video público de YouTube/Shorts en la PC del usuario y lo registra para análisis local. Solo úsala cuando el usuario solicite ' +
-      'importar/analizar ese enlace. Devuelve job_id rápidamente: consulta media_import_status hasta complete antes de usar asset.id. Sin cookies;' +
-      ' máximo 500 MiB, 30 minutos, plazo 180 segundos.'),
+    ('Descarga un video público individual de YouTube/Shorts o TikTok en la PC del usuario y lo registra para análisis local. Acepta enlaces ' +
+      'TikTok directos y cortos vt.tiktok.com/vm.tiktok.com. Solo úsala cuando el usuario solicite importar/analizar ese enlace. Devuelve job_id ' +
+      'rápidamente: consulta media_import_status hasta complete antes de usar asset.id. Sin cookies; máximo 500 MiB, 30 minutos, plazo 180 segundos.'),
   inputSchema:{url:z.string().url().max(2048)},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
  },traced(service,'media_import'));
  server.registerTool('media_import_status',{

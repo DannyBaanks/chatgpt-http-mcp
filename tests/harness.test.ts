@@ -3,59 +3,51 @@
 // imitan `mcp add/remove/list/get` guardando estado en un archivo, y un bridge
 // falso para chatgpt_ask.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { apply, CATALOG, detect, launcherPath, MCP_NAME, plan } from "../src/harness";
+import { apply, CATALOG, detect, launcherPath, MCP_NAME, plan, resolveExecutable } from "../src/harness";
 import { handleHarnessApi } from "../src/panel";
 import { loadChat } from "../src/chats";
 import { ROOT } from "./helpers/mcp-call";
+import { fakeExecutable, fakePathValue, type Fake } from "./helpers/fake-exec";
 
 let dir: string;
 let bin: string;
 let state: string;
+let log: string;
+const fakes: Record<string, Fake> = {};
 const savedPath = process.env.PATH;
-
-// CLI falso: registra cada invocacion y mantiene la lista de servidores MCP.
-const FAKE = `#!/bin/sh
-echo "$(basename "$0") $*" >> "$FAKE_LOG"
-[ "$1" = "mcp" ] || exit 0
-sub="$2"; shift 2
-name=""; for a in "$@"; do case "$a" in ${MCP_NAME}) name="$a";; esac; done
-st="$FAKE_STATE.$(basename "$0")"
-case "$sub" in
-  add) echo "$name" >> "$st"; echo "Added $name";;
-  remove|unset) [ -f "$st" ] && grep -v "^$name$" "$st" > "$st.tmp"; mv "$st.tmp" "$st" 2>/dev/null; echo "Removed $name";;
-  list) [ -f "$st" ] && cat "$st"; echo "(fin)";;
-  get) [ -f "$st" ] && grep -q "^$name$" "$st" && { echo "$name: stdio"; exit 0; }; echo "No MCP server found"; exit 1;;
-esac
-`;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "isymcp-harness-"));
   bin = join(dir, "bin");
   mkdirSync(bin);
   state = join(dir, "state");
+  log = join(dir, "log");
   for (const name of ["claude", "codex", "qwen", "gemini", "grok", "copilot", "hermes", "openclaw", "pi", "kimi"]) {
-    writeFileSync(join(bin, name), FAKE, { mode: 0o755 });
+    fakes[name] = fakeExecutable({ bin, name, body: { mcp: { log, state: `${state}.${name}`, server: MCP_NAME } } });
   }
-  writeFileSync(join(bin, "noexec"), "#!/bin/sh\n", { mode: 0o644 });
-  process.env.PATH = `${bin}:/usr/bin:/bin`;
-  process.env.FAKE_STATE = state;
-  process.env.FAKE_LOG = join(dir, "log");
+  fakeExecutable({ bin, name: "noexec", executable: false, body: { print: "" } });
+  process.env.PATH = fakePathValue(bin);
   process.env.CODEX_WEB_HTTP_HOME = join(dir, "home");
   process.env.CURSOR_HOME = join(dir, "empty_cursor");
   process.env.OPENCODE_HOME = join(dir, "empty_opencode");
 });
 afterAll(() => {
   process.env.PATH = savedPath;
-  delete process.env.FAKE_STATE; delete process.env.FAKE_LOG; delete process.env.CODEX_WEB_HTTP_HOME;
+  delete process.env.CODEX_WEB_HTTP_HOME;
   delete process.env.CURSOR_HOME; delete process.env.OPENCODE_HOME;
   rmSync(dir, { recursive: true, force: true });
 });
 
 describe("deteccion", () => {
   test("presente segun PATH; soportado solo con estrategia verificada; nada instalado al inicio", async () => {
+    // Guarderia: la mutacion de PATH surtio efecto y "ejecutable" lo decide la
+    // plataforma (bit POSIX / PATHEXT en Windows), no el nombre del archivo.
+    expect(process.env.PATH).toContain(bin);
+    expect(resolveExecutable("claude")).toBe(fakes.claude.path);
+    expect(resolveExecutable("noexec")).toBeNull();
     const all = await detect();
     expect(all.map((s) => s.id)).toEqual(CATALOG.map((d) => d.id));
     const by = Object.fromEntries(all.map((s) => [s.id, s]));
@@ -63,24 +55,32 @@ describe("deteccion", () => {
       expect(by[id]).toMatchObject({ present: true, supported: true, installed: false });
     }
     expect(by.kimi).toMatchObject({ present: true, supported: false, installed: null });
-    expect(by.opencode).toMatchObject({ present: false, supported: true, installed: null });
-    expect(by.crush).toMatchObject({ present: false, supported: false });
+    // Si opencode/crush estan en el host no lo decide el fixture sino la maquina
+    // (en Windows conviven con bun en PATH). Lo que se afirma aqui es la matriz de
+    // soporte y que "instalado" solo se consulta cuando hay algo que consultar.
+    const onHost = (name: string) => resolveExecutable(name) !== null;
+    expect(by.opencode.supported).toBe(true);
+    expect(by.opencode.present).toBe(onHost("opencode"));
+    expect(by.opencode.installed).toBe(onHost("opencode") ? false : null);
+    expect(by.crush.supported).toBe(false);
+    expect(by.crush.present).toBe(onHost("crush"));
+    expect(by.crush.installed).toBeNull();
   });
 });
 
 describe("plan / apply / verify", () => {
   test("el plan no escribe nada y muestra el comando exacto", async () => {
-    const before = existsSync(process.env.FAKE_LOG!) ? readFileSync(process.env.FAKE_LOG!, "utf8") : "";
+    const before = existsSync(log) ? readFileSync(log, "utf8") : "";
     const steps = await plan("install", ["claude", "gemini", "hermes", "openclaw", "copilot", "pi", "kimi", "nope"]);
-    expect(steps.find((s) => s.id === "claude")!.argv).toEqual([join(bin, "claude"), "mcp", "add", "--scope", "user", MCP_NAME, "--", launcherPath()]);
+    expect(steps.find((s) => s.id === "claude")!.argv).toEqual([fakes.claude.path, "mcp", "add", "--scope", "user", MCP_NAME, "--", launcherPath()]);
     expect(steps.find((s) => s.id === "gemini")!.argv).toContain("--scope");
-    expect(steps.find((s) => s.id === "hermes")!.argv).toEqual([join(bin, "hermes"), "mcp", "add", MCP_NAME, "--command", launcherPath()]);
-    expect(steps.find((s) => s.id === "openclaw")!.argv).toEqual([join(bin, "openclaw"), "mcp", "add", MCP_NAME, "--command", launcherPath(), "--no-probe"]);
-    expect(steps.find((s) => s.id === "copilot")!.argv).toEqual([join(bin, "copilot"), "mcp", "add", MCP_NAME, "--", launcherPath()]);
-    expect(steps.find((s) => s.id === "pi")!.argv).toEqual([join(bin, "pi"), "mcp", "add", MCP_NAME, "--", launcherPath()]);
+    expect(steps.find((s) => s.id === "hermes")!.argv).toEqual([fakes.hermes.path, "mcp", "add", MCP_NAME, "--command", launcherPath()]);
+    expect(steps.find((s) => s.id === "openclaw")!.argv).toEqual([fakes.openclaw.path, "mcp", "add", MCP_NAME, "--command", launcherPath(), "--no-probe"]);
+    expect(steps.find((s) => s.id === "copilot")!.argv).toEqual([fakes.copilot.path, "mcp", "add", MCP_NAME, "--", launcherPath()]);
+    expect(steps.find((s) => s.id === "pi")!.argv).toEqual([fakes.pi.path, "mcp", "add", MCP_NAME, "--", launcherPath()]);
     expect(steps.find((s) => s.id === "kimi")!.argv).toBeNull();
     expect(steps.find((s) => s.id === "nope")!.reason).toBe("harness desconocido");
-    const after = readFileSync(process.env.FAKE_LOG!, "utf8").slice(before.length);
+    const after = readFileSync(log, "utf8").slice(before.length);
     expect(after).not.toContain(" mcp add ");
     expect(existsSync(launcherPath())).toBe(false);
   });
@@ -95,7 +95,8 @@ describe("plan / apply / verify", () => {
     const installed = await apply("install", ids, true);
     expect(installed.every((r) => r.ran && r.ok && r.verified === true)).toBe(true);
     expect(existsSync(launcherPath())).toBe(true);
-    expect(readFileSync(launcherPath(), "utf8")).toContain("src/mcp/chatgpt.ts");
+    // El lanzador de Windows se escribe con barras nativas; la afirmacion es de contenido.
+    expect(readFileSync(launcherPath(), "utf8").replaceAll("\\", "/")).toContain("src/mcp/chatgpt.ts");
     expect((await detect(ids)).every((s) => s.installed === true)).toBe(true);
     // Segunda vez: nada que hacer.
     expect((await apply("install", ids, true)).every((r) => !r.ran)).toBe(true);
@@ -117,7 +118,7 @@ describe("plan / apply / verify", () => {
     expect(detected.every((s) => s.present && s.supported && s.installed === false)).toBe(true);
 
     const steps = await plan("install", ["cursor", "opencode"]);
-    expect(steps.find((s) => s.id === "cursor")!.reason).toContain(".cursor/mcp.json");
+    expect(steps.find((s) => s.id === "cursor")!.reason).toContain(join(".cursor", "mcp.json"));
     expect(steps.find((s) => s.id === "opencode")!.reason).toContain("opencode.json");
 
     const installed = await apply("install", ["cursor", "opencode"], true);

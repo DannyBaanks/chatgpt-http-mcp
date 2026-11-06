@@ -57,12 +57,19 @@ describe("token persistido del bridge", () => {
     writeFileSync(join(bad, "token"), "corto\n");
     expect(() => bridgeToken({ CODEX_WEB_HTTP_HOME: bad })).toThrow(/invalido/);
 
-    const linked = tempRoot();
-    const target = join(linked, "real-token");
-    writeFileSync(target, `${"b".repeat(43)}\n`, { mode: 0o600 });
-    if (posix) chmodSync(target, 0o600);
-    symlinkSync(target, join(linked, "token"));
-    expect(() => bridgeToken({ CODEX_WEB_HTTP_HOME: linked })).toThrow(/archivo real/);
+    // Enlazar un ARCHIVO exige SeCreateSymbolicLinkPrivilege (Modo desarrollador), que
+    // este host no tiene: symlinkSync falla con EPERM antes de llegar al guard. Una
+    // junction no vale como sustituto, es solo para directorios, y un hard link no es
+    // un symlink: bridgeToken no lo rechazaria y la asercion mentiria. La contencion
+    // queda demostrada en los hosts POSIX, incluido el job ubuntu de CI.
+    if (posix) {
+      const linked = tempRoot();
+      const target = join(linked, "real-token");
+      writeFileSync(target, `${"b".repeat(43)}\n`, { mode: 0o600 });
+      chmodSync(target, 0o600);
+      symlinkSync(target, join(linked, "token"));
+      expect(() => bridgeToken({ CODEX_WEB_HTTP_HOME: linked })).toThrow(/archivo real/);
+    }
   });
 });
 

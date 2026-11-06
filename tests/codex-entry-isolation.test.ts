@@ -3,6 +3,14 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// Motivo del skip en Windows: aqui el "codex" falso es un guion que se EJECUTA, y
+// spawnCodex() exige un .exe nativo real y lo lanza por node:child_process
+// (src/platform/codex-windows-sandbox.ts:27-40, decision deliberada de no correr shims
+// por cmd.exe). No hay sustituto sin compilar un ejecutable. Las afirmaciones que si
+// son demostrables en Windows viven en tests/windows-sandbox.test.ts (plan de launch
+// con ISYMCP_CODEX_CLI_BIN) y tests/codex-launcher.test.ts.
+const isolationTest = test.skipIf(process.platform === "win32");
+
 const entry = join(import.meta.dir, "..", "src", "isymcp.ts");
 
 function fixture() {
@@ -25,7 +33,7 @@ async function run(args: string[], env: Record<string, string | undefined>) {
   return { out, err, code };
 }
 
-test("native Codex command runs while the bridge is down and creates no bridge process", async () => {
+isolationTest("native Codex command runs while the bridge is down and creates no bridge process", async () => {
   const { dir, env } = fixture();
   const result = await run(["codex", "exec", "-m", "gpt-6-luna", "native canary"], env);
   expect(result.code).toBe(0);
@@ -34,7 +42,7 @@ test("native Codex command runs while the bridge is down and creates no bridge p
   expect(existsSync(join(dir, "codex-profiles"))).toBe(false);
 });
 
-test("Codex help does not start Web services", async () => {
+isolationTest("Codex help does not start Web services", async () => {
   const { dir, env } = fixture();
   const result = await run(["codex", "--help"], env);
   expect(result.code).toBe(0);
@@ -42,7 +50,7 @@ test("Codex help does not start Web services", async () => {
   expect(existsSync(join(dir, "run"))).toBe(false);
 });
 
-test("Web launcher selects its own provider and leaves global Codex files unchanged", async () => {
+isolationTest("Web launcher selects its own provider and leaves global Codex files unchanged", async () => {
   const { dir, env } = fixture();
   const globalDir = env.CODEX_HOME;
   const paths = ["config.toml", "models_cache.json"].map(file => join(globalDir, file));

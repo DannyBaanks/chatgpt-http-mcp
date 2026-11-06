@@ -268,12 +268,6 @@ export class TableroService {
     const session = `${SESSION_PREFIX}${input.agente}-${input.task_id}`.replace(/[^A-Za-z0-9_-]/g, "_");
     const prompt = launchPrompt(cfg, input.agente, input.task_id);
     const env = this.cleanEnv(cfg);
-    const envBin = Bun.which("env") ?? "/usr/bin/env";
-    const argv = [
-      this.tmux(), "-L", this.socket(), "new-session", "-d", "-s", session, "-c", launcher.cwd,
-      envBin, "-i", ...Object.entries(env).map(([k, v]) => `${k}=${v}`),
-      ...launcher.argv.map((a) => (a === PROMPT_SLOT ? prompt : a)),
-    ];
     const shown = { agente: input.agente, sesion: session, cwd: launcher.cwd, comando: launcher.argv.map((a) => (a === PROMPT_SLOT ? "<prompt>" : a)), prompt };
     const live = this.consoles();
     if (live.some((c) => c.session === session)) throw new TableroError("tablero_already_running", `ya hay una consola para esa tarea: ${session}`);
@@ -285,6 +279,14 @@ export class TableroService {
       cfg.maxPerHour})`);
     if (input.dry_run) return { dry_run: true, ...shown };
 
+    // El argv se arma despues del dry_run: resolver tmux aqui hacia que una
+    // simulacion exigiera tmux instalado, cuando la simulacion no lanza nada.
+    const envBin = Bun.which("env") ?? "/usr/bin/env";
+    const argv = [
+      this.tmux(), "-L", this.socket(), "new-session", "-d", "-s", session, "-c", launcher.cwd,
+      envBin, "-i", ...Object.entries(env).map(([k, v]) => `${k}=${v}`),
+      ...launcher.argv.map((a) => (a === PROMPT_SLOT ? prompt : a)),
+    ];
     const proc = Bun.spawnSync(argv, { env, timeout: 15_000 });
     if (proc.exitCode !== 0) throw new TableroError("tablero_launch_failed", `tmux exit ${proc.exitCode}: ${clip(proc.stderr.toString(), 300)}`);
     ledger.launches.push({ ts: new Date(this.now()).toISOString(), agent: input.agente, task_id: input.task_id, session });

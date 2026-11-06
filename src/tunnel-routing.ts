@@ -1,6 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+/** Un solo resolutor del binario gestionado. ISYMCP_TUNNEL_CLIENT_BIN permite
+ * demostrar el ciclo con un cliente falso, igual que ISYMCP_CODEX_CLI_BIN; afecta
+ * solo a resolver/ejecutar — install-tunnel.ts sigue escribiendo la ruta gestionada.
+ */
+export function tunnelClientPath(home: string): string {
+  return process.env.ISYMCP_TUNNEL_CLIENT_BIN?.trim()
+    || join(home, "bin", process.platform === "win32" ? "tunnel-client.exe" : "tunnel-client");
+}
+
 export function configuredTunnelAlias(home: string, override?: string): string {
   const path = join(home, "tunnel.json");
   const saved = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};

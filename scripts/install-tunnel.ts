@@ -135,30 +135,52 @@ export async function installTunnelClient(force = false): Promise<string> {
   return binary;
 }
 
-export function installRuntimeKey(sourceFile: string): string {
-  if (!existsSync(sourceFile)) throw new Error(`no existe el archivo de key: ${sourceFile}`);
-  const key = readFileSync(sourceFile, "utf8").trim();
+export function validateRuntimeKey(value: string): string {
+  const key = value.trim();
   if (key.length === 0 || key.length > 64 * 1024) throw new Error("key vacia o demasiado grande");
+  return key;
+}
+
+export function storeRuntimeKey(value: string): string {
+  const key = validateRuntimeKey(value);
+  mkdirSync(home(), { recursive: true, mode: 0o700 });
+  securePrivatePath(home(), true);
   const dest = join(home(), "secrets", "tunnel-runtime.key");
   mkdirSync(join(home(), "secrets"), { recursive: true, mode: 0o700 });
-  if (process.platform === "win32") securePrivatePath(join(home(), "secrets"), true);
+  securePrivatePath(join(home(), "secrets"), true);
   atomicWrite(dest, new TextEncoder().encode(key), 0o600);
   return dest;
 }
 
-export function installTunnelId(sourceFile: string): string {
-  const raw = readFileSync(sourceFile, "utf8").trim();
+export function installRuntimeKey(sourceFile: string): string {
+  if (!existsSync(sourceFile)) throw new Error(`no existe el archivo de key: ${sourceFile}`);
+  return storeRuntimeKey(readFileSync(sourceFile, "utf8"));
+}
+
+export function validateTunnelId(value: string): string {
+  const raw = value.trim();
   if (!/^tunnel_[a-f0-9]{32}$/.test(raw)) {
-    throw new Error("tunnel id invalido: se espera tunnel_ seguido de 32 hex minusculas");
+    throw new Error("tunnel id invalido: pega tunnel_ seguido de 32 hex minusculas");
   }
-  const dest = join(home(), "tunnel.json");
+  return raw;
+}
+
+export function storeTunnelId(value: string): string {
+  const raw = validateTunnelId(value);
   mkdirSync(home(), { recursive: true, mode: 0o700 });
+  securePrivatePath(home(), true);
+  const dest = join(home(), "tunnel.json");
   atomicWrite(dest, new TextEncoder().encode(JSON.stringify({
     tunnelId: raw,
     tunnelClientVersion: TUNNEL_VERSION,
     installedAt: new Date().toISOString(),
   }, null, 2) + "\n"), 0o600);
   return raw;
+}
+
+export function installTunnelId(sourceFile: string): string {
+  if (!existsSync(sourceFile)) throw new Error(`no existe el archivo de tunnel id: ${sourceFile}`);
+  return storeTunnelId(readFileSync(sourceFile, "utf8"));
 }
 
 if (import.meta.main) {

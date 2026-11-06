@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "../codex-sessions";
+import { securePrivatePath } from "../platform/private-path";
 import type { AppConfig } from "../config";
 import { selectComposerSettings } from "../chatgpt-settings";
 import { canonicalConversationUrl, sendWebTurn, withWebLock } from "../web-turn";
@@ -53,6 +54,14 @@ function write(path: string, value: unknown) {
   const tmp = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`;
   writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
   renameSync(tmp, path);
+}
+// securePrivatePath levanta icacls en Windows; una vez por directorio y proceso.
+// Los archivos hijos heredan la ACL, así que write() no invoca icacls por archivo.
+const securedDirectories = new Set<string>();
+function secureDir(dir: string) {
+  if (process.platform !== "win32") { securePrivatePath(dir, true); return; }
+  const key = dir.toLowerCase();
+  if (!securedDirectories.has(key)) { securePrivatePath(dir, true); securedDirectories.add(key); }
 }
 interface State {
   url: string; input: TaskInputItem[]; instructions: string; pending?: string;
@@ -107,6 +116,7 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
   const fingerprint = hash(stable({ ...semanticBody, input, registryFingerprint }));
   const dir = deps.dir ?? join(bridgeHome(), "codex-responses");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  secureDir(dir);
   const rememberConversation = (response: Record<string, any>) => {
     const launchId = req.headers.get("x-isymcp-launch-id")?.trim() ?? "";
     if (!launchId) return;

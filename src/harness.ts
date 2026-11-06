@@ -193,7 +193,9 @@ export function resolveExecutable(name: string, path = process.env.PATH): string
   try {
     const real = realpathSync(found);
     const info = statSync(real);
-    if (!info.isFile() || (info.mode & 0o111) === 0) return null;
+    // PATHEXT ya decide que esto es ejecutable en Windows (.exe/.cmd/.bat) y el
+    // modo que reporta Bun nunca trae bit de ejecucion: el check POSIX alli no aplica.
+    if (!info.isFile() || (process.platform !== "win32" && (info.mode & 0o111) === 0)) return null;
     return found;
   } catch {
     return null;

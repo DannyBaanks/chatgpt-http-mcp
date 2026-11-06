@@ -6,6 +6,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
+import { securePrivatePath } from "./platform/private-path";
 import { buildIsolatedCodexArgs } from "../scripts/install-web-models";
 import { VERIFIED_WEB_ROUTES } from "./web-models";
 import { canonicalConversationUrl } from "./web-turn";
@@ -106,9 +107,11 @@ function receiptPath(dir: string, launchId: string): string {
 
 function privateWrite(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  securePrivatePath(dirname(path), true);
   const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
   writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
   renameSync(tmp, path);
+  securePrivatePath(path, false);
 }
 
 function readJson(path: string): unknown {

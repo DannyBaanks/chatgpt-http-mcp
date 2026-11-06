@@ -1,5 +1,6 @@
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { expectPrivate } from "./helpers/private-mode";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
@@ -56,7 +57,7 @@ test("two committed chats resume by exact thread id and replay the same receipt"
     expect(resume.join("\n")).toContain('model="chatgpt-web/gpt-6"');
     expect(resume).not.toContain("--last");
     expect(resume).not.toContain("exec");
-    expect(statSync(join(dir, `conversation-${launchA}.json`)).mode & 0o777).toBe(0o600);
+    expectPrivate(join(dir, `conversation-${launchA}.json`), false);
     const replay = commitConversationReceipt(dir, {
       launchId: launchA, threadId: alpha.threadId, taskKey, url: alpha.url, model, effort: "high",
     });

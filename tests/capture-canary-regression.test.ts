@@ -71,12 +71,20 @@ test("completed stable new answer is returned", async () => {
   expect(await captureFrames(["NEW"], 5000)).toBe("NEW");
 });
 
+// "systemd PATH" es un PATH despojado. El análogo Windows es SOLO System32: ni el
+// directorio de bun (la afirmacion es que no se le busque por PATH) ni los directorios
+// de usuario. Aqui se midio que System32 basta: whoami.exe, que la ruta privada si
+// necesita resolver, vive ahi.
+const minimalPathValue = process.platform === "win32"
+  ? join(process.env.SystemRoot ?? "C:\\Windows", "System32")
+  : "/usr/local/bin:/usr/bin:/bin";
+
 for (const minimalPath of [false, true]) {
   test(`temporary bridge startup failure is saved${minimalPath ? " with systemd PATH" : ""}`, async () => {
     const home = mkdtempSync(join(tmpdir(), "isymcp-start-fail-"));
     const p = Bun.spawn([process.execPath, "run", join(import.meta.dir, "../src/isymcp.ts"), "canary"], {
       env: { ...process.env, DISPLAY: "", WAYLAND_DISPLAY: "", CODEX_WEB_HTTP_HOME: home, CODEX_WEB_HTTP_PORT: "1", CODEX_WEB_HTTP_WEB_MODELS: "invalid",
-        ...(minimalPath ? { PATH: "/usr/local/bin:/usr/bin:/bin" } : {}) }, stdout: "pipe", stderr: "pipe",
+        ...(minimalPath ? { PATH: minimalPathValue } : {}) }, stdout: "pipe", stderr: "pipe",
     });
     const [exit, stderr] = await Promise.all([p.exited, new Response(p.stderr).text()]);
     expect(exit).toBe(1);
@@ -98,7 +106,12 @@ for (const minimalPath of [false, true]) {
 }
 
 
-test("desktop notice identifies origin and action without dumping the stack", async () => {
+// Motivo del skip en Windows: el aviso de escritorio es una superficie que el producto
+// solo implementa con DISPLAY/WAYLAND_DISPLAY + notify-send (src/canary.ts:213), y el
+// cuerpo multilinea tampoco puede viajar por un lanzador .cmd (Bun lo rechaza). Lo que
+// este test afirmaba de la NOTICIA (origen, accion, evidencia, sin stack) queda cubierto
+// por el test de arriba, que si corre en ambos sistemas.
+test.skipIf(process.platform === "win32")("desktop notice identifies origin and action without dumping the stack", async () => {
   const home = mkdtempSync(join(tmpdir(), "isymcp-notice-"));
   const bin = join(home, "bin");
   mkdirSync(bin);

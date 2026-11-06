@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { securePrivatePath } from "./platform/private-path";
 import { bridgeHome } from "./codex-sessions";
 
 export interface TurnRecord {
@@ -38,8 +39,11 @@ export function readTurnRecord(turnId: string): TurnRecord | null {
 
 function writeTurnRecord(turnId: string, record: TurnRecord): void {
   try {
-    mkdirSync(storeDir(), { recursive: true });
-    writeFileSync(recordPath(turnId), `${JSON.stringify(record)}\n`, { mode: 0o600 });
+    mkdirSync(storeDir(), { recursive: true, mode: 0o700 });
+    securePrivatePath(storeDir(), true);
+    const path = recordPath(turnId);
+    writeFileSync(path, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+    securePrivatePath(path, false);
   } catch {
     /* cache best-effort: nunca rompe el turno */
   }
