@@ -6,6 +6,11 @@ import { defaultBrowserExecutable } from "../src/platform/browser";
 // El mismo resolutor del producto (src/web-turn.ts:223): en Linux sigue siendo
 // /usr/bin/google-chrome y en Windows busca Chrome/Edge instalados.
 const chrome = defaultBrowserExecutable();
+// readComposerSettings devuelve un objeto con TODOS los campos null ante cualquier
+// excepcion interna (src/chatgpt-settings.ts:208) y el motivo solo se escribe a stderr
+// si ISYMCP_DEBUG=1. Sin esto, un fallo en CI llega como cuatro nulls sin explicacion:
+// fue exactamente lo que paso en el job windows-host del run 42207486395.
+process.env.ISYMCP_DEBUG ??= "1";
 // Sin navegador en el host no hay DOM que ejercitar: son saltos con motivo, no fallos.
 const browserTest = test.skipIf(!chrome);
 
@@ -50,7 +55,15 @@ async function composer(highLabel = "High"): Promise<Page> {
 browserTest("settings read waits for the usable composer control and ignores model buttons outside its form", async () => {
   const page = await composer();
   try {
-    expect(await settings.readComposerSettings(page, { timeoutMs: 1000 })).toMatchObject({ model: "GPT-6", effort: "Medium", effortPosition: 2, effortSteps: 3 });
+    // timeoutMs es el techo de CADA espera de Playwright, no un SLA de latencia: las dos
+    // propiedades afirmadas (aguantar el trigger deshabilitado hasta los 100 ms del
+    // fixture, y ignorar el boton de modelo que vive fuera del form) se cumplen igual con
+    // 1000 que con 5000. Con 1000 el presupuesto se iba en el arranque frio del navegador
+    // y el test pasaba a medir la velocidad del host: 914.99 y 985.27 ms en esta maquina
+    // con 6 instancias de Chrome concurrentes (margen de 15 ms, sin un solo reintento), y
+    // en el job windows-host del run 42207486395 tardo 2663 ms y devolvio los 4 campos
+    // null. El mismo fichero ya reconoce ese coste frio en beforeAll (launch timeout 20 s).
+    expect(await settings.readComposerSettings(page, { timeoutMs: 5_000 })).toMatchObject({ model: "GPT-6", effort: "Medium", effortPosition: 2, effortSteps: 3 });
     expect(await page.locator('form button').getAttribute('data-opened')).toBe("true");
     expect(await page.locator('[role="menu"]').isVisible()).toBe(false);
   } finally { await page.close(); }

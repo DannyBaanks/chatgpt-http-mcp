@@ -443,3 +443,19 @@ session tokens, so it is now unlinked on the error path too.
 `tests/codex-sessions.test.ts` adds the detector, which fails against the pre-fix source on
 this host with the runner's own `EPERM` (`1 fail`) and passes after (`12 pass / 0 fail`). The
 pre-existing 4-writer test had never caught this here, only on the runner.
+
+**Attempt 1 is a budget, not a product property.** `readComposerSettings` takes `timeoutMs`
+as a ceiling for each Playwright wait, and the test passed 1000 ms while the whole read
+completed with zero retries in **914.99 ms / 985.27 ms** here under six concurrent Chrome
+instances — a 15 ms margin, and `timeoutMs: 1000` appears nowhere else in the repo (every
+other caller uses the 70 s default). The budget moved to 5000 ms; the two asserted
+properties (tolerating the trigger that the fixture enables at 100 ms, and scoping to the
+owning `form`) are unchanged, and no assertion was relaxed.
+
+**Attempt 2's `panel start` exit 1 is NOT_DEMONSTRATED as the same cause.** The test asserts
+only `exitCode` and `stdout`, so the CLI's reason never reaches the log — the same
+silence-swallowing shape as `readComposerSettings`, whose internal error is discarded into an
+all-null object at `src/chatgpt-settings.ts:208`. The composer test now sets `ISYMCP_DEBUG=1`
+(it has exactly one reader in the tree) so a repeat prints the message instead of five
+nulls. If `panel start` fails again after the registry fix, that is the next thing to
+instrument.
