@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Medido: con el PR en estado CONFLICTING no se programo ningun run de pull_request
+  # (0 runs en el repo desde el 2026-10-31). Este disparador deja observar el job sobre
+  # la propia rama mientras el PR espera su reconcilizacion con main.
+  workflow_dispatch:
 
 permissions:
   contents: read
