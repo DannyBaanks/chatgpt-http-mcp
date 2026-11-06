@@ -403,3 +403,43 @@ Windows support. The Windows run had 13 more skips than this host's simulation p
 and 2 fewer passing tests, consistent with the sandbox cluster gating itself off in the
 absence of a Linux-image-capable daemon — the Moby on `windows-latest` serves Windows
 containers, and `isymcp-sandbox` is a Linux image.
+
+Updated 2026-11-06 (later, first PR-branch run): after the merge was pushed, the real
+`pull_request` run `42207486395` on `86b628c3` programmed normally (the PR stopped being
+`CONFLICTING`), and **`windows-host` failed twice while `test (ubuntu)` passed both times** —
+666 tests across 102 files, 92.88 s then 107.34 s. It was not the same test both times:
+
+```
+attempt 1  (fail) composer-selection > settings read waits for the usable composer control   [2663.32ms]
+attempt 2  (fail) cli-e2e            > tunnel status and server lifecycle                     [10666.32ms]
+attempt 2  (fail) codex-sessions     > procesos concurrentes no pierden escrituras (revoke)   [103.62ms]
+```
+
+That spread is the honest signal the widening was meant to buy: these are not capability
+gaps like `tmux`, and they do not fail here.
+
+**Root cause of the registry failure, reproduced on this host and fixed.** The runner died
+with `EPERM: operation not permitted, rename '<home>/codex-sessions.json.tmp-<pid>' ->
+'...codex-sessions.json'` (`errno -4048`, `src/codex-sessions.ts:102` before the fix). Two
+separate Windows behaviours, both measured here with concurrent processes:
+
+- `withRegistryLock` acquired the lock with `openSync(lock, "wx")` and re-ran anything that
+  was not `EEXIST`. When another process already *holds* the lock file, Windows reports
+  `EPERM` (`ERROR_ACCESS_DENIED`), not `EEXIST` — so the second writer died instead of
+  waiting. 3 of 4 spawned writers exited on that line. The exclusion was not an exclusion.
+- Renaming over a destination another process has open fails, because `MoveFileEx` needs
+  delete access and a reader opens the registry without `FILE_SHARE_DELETE`. One writer
+  against three reading processes: **2490 `EPERM` vs 325 published**, and every reader
+  succeeded — the collision is writer-vs-open-handle, never reader-vs-reader. With the same
+  contention and a bounded retry: **0 failures, 46 recoveries**.
+
+`src/codex-sessions.ts` now treats `EPERM` as "lock busy" only while the lock file actually
+exists (a real ACL problem on `bridgeHome` still raises immediately rather than ageing out
+against the 10 s deadline), and publishes through `publishRegistry`, which retries the
+rename with a short backoff and **re-throws when it still will not land** — a revocation
+that never reaches disk has to stay a visible failure, never an OK. The temp file carries
+session tokens, so it is now unlinked on the error path too.
+
+`tests/codex-sessions.test.ts` adds the detector, which fails against the pre-fix source on
+this host with the runner's own `EPERM` (`1 fail`) and passes after (`12 pass / 0 fail`). The
+pre-existing 4-writer test had never caught this here, only on the runner.

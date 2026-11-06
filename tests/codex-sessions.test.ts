@@ -50,6 +50,26 @@ describe("codex-sessions registry", () => {
     expect(labels).not.toContain("victim");
   }, 30_000);
 
+  test("un lector concurrente no deshace la publicacion del registro", async () => {
+    mintSession(workspace, { label: "semilla" });
+    const path = registryPath();
+    // El lector abre y cierra el destino en cada lectura, que es exactamente lo que hace
+    // cualquier MCP call sobre codex-sessions.json. En Windows ese handle tan breve le
+    // quita al rename el acceso de borrado que MoveFileEx exige (EPERM: -4048); en POSIX
+    // es inofensivo. La propiedad afirmada es la misma en los dos sistemas: lo minteado
+    // llega a disco. Medido antes del arreglo: 2490 EPERM contra 325 publicaciones.
+    const reader = Bun.spawn([process.execPath, "-e", `const { openSync, closeSync } = await import("node:fs");
+      const p = process.argv.at(-1); const until = Date.now() + 2000;
+      while (Date.now() < until) { try { const fd = openSync(p, "r"); closeSync(fd); } catch { /* entre publicacion y publicacion */ } }`,
+      path], { env: { ...process.env, CODEX_WEB_HTTP_HOME: home }, stdout: "ignore", stderr: "pipe" });
+    for (let i = 0; i < 25; i++) mintSession(workspace, { label: `pub-${i}` });
+    expect(await reader.exited).toBe(0);
+    expect(readSessions().map((s) => s.label).filter((l) => /^pub-\d+$/.test(l))).toHaveLength(25);
+    // El tmp contiene tokens de sesion: no puede quedar ni siquiera cuando el rename
+    // necesito reintentar, o cada choque dejaria capacidades grabadas en el HOME.
+    expect(existsSync(`${path}.tmp-${process.pid}`)).toBe(false);
+  }, 30_000);
+
   test("CLI binds a local task and emits a four-line MCP command without pasting task content", () => {
     const task = "PRIVATE_LOCAL_TASK_ONLY_4_LINES";
     writeFileSync(join(workspace, "TASK.md"), task);
