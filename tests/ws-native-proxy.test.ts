@@ -40,7 +40,7 @@ describe("WebSocket nativo a traves del bridge", () => {
         close() { seen.closed = true; },
       },
     });
-    const bridge = startServer(loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on", CODEX_WEB_HTTP_UPSTREAM: `http://127.0.0.1:${upstream.port}` }));
+    const bridge = startServer(loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on", CODEX_WEB_HTTP_UPSTREAM: `http://127.0.0.1:${upstream.port}` }), { requireToken: false });
     try {
       const client = new WebSocket(`ws://127.0.0.1:${bridge.port}/v1/responses`, { headers: { authorization: "Bearer token-de-la-app", "chatgpt-account-id": "acct-1" } } as unknown as string[]);
       const received: string[] = [];
@@ -64,7 +64,7 @@ describe("WebSocket nativo a traves del bridge", () => {
   });
 
   test("un evento sin modelo en una conexion nueva se rechaza (no abre upstream)", async () => {
-    const bridge = startServer(loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on", CODEX_WEB_HTTP_UPSTREAM: "http://127.0.0.1:1" }));
+    const bridge = startServer(loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on", CODEX_WEB_HTTP_UPSTREAM: "http://127.0.0.1:1" }), { requireToken: false });
     try {
       const client = new WebSocket(`ws://127.0.0.1:${bridge.port}/v1/responses`);
       const got = new Promise<string>((resolve) => { client.onmessage = (e) => resolve(String(e.data)); });

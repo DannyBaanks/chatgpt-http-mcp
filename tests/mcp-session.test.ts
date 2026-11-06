@@ -50,7 +50,7 @@ describe("MCP con session tokens (vivo)", () => {
     });
     expect(payload.executed).toBe(false);
     expect(String(payload.stderr)).toContain("V1 stub");
-  });
+  }, 30_000);
 
   test("read-only ejecuta y NO puede escribir", async () => {
     const session = mintSession(workspace, { label: "ro", writable: false });

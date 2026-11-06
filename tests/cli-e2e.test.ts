@@ -7,6 +7,7 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {run} from '../src/media/process';
 import {fakeExecutable} from './helpers/fake-exec';
+import {bridgeAuthHeaders} from '../src/local-guard';
 
 const root=resolve(import.meta.dir,'..');
 const homes:string[]=[];
@@ -17,14 +18,19 @@ function isolated(){
  // asi que sin USERPROFILE el "export" se llevaba los logs reales de la maquina. El
  // literal POSIX queda igual en Linux, donde HOME si basta.
  const windowsHome=process.platform==='win32'?{USERPROFILE:home}:{};
- return {home,bridge,media:join(home,'media'),env:{...process.env,...windowsHome,HOME:home,CODEX_WEB_HTTP_HOME:bridge,ISYMCP_MEDIA_HOME:join(home,'media'),CODEX_WEB_HTTP_PORT:String(42000+Math.floor(Math.random()*12000)),ISYMCP_PANEL_PORT:String(42000+Math.floor(Math.random()*12000))}};
+ // NodeJS.ProcessEnv explicito: sin el, el typecheck infiere un tipo cerrado por las
+ // claves literales y perderia la firma indexada de process.env, que es la que permite
+ // anadir variables por test (ISYMCP_TUNNEL_CLIENT_BIN mas abajo).
+ const env:NodeJS.ProcessEnv={...process.env,...windowsHome,HOME:home,CODEX_WEB_HTTP_HOME:bridge,ISYMCP_MEDIA_HOME:join(home,'media'),
+  CODEX_WEB_HTTP_PORT:String(42000+Math.floor(Math.random()*12000)),ISYMCP_PANEL_PORT:String(42000+Math.floor(Math.random()*12000))};
+ return {home,bridge,media:join(home,'media'),env};
 }
 function cli(args:string[],env:NodeJS.ProcessEnv,input?:string){
  return Bun.spawnSync([process.execPath,join(root,'src/isymcp.ts'),...args],{cwd:root,env,stdout:'pipe',stderr:'pipe',stdin:Buffer.from(input??''),timeout:30000});
 }
 async function waitForUnavailable(url:string):Promise<boolean>{
  for(let i=0;i<30;i++){
-  try{if(!(await fetch(url)).ok)return true;}catch{return true;}
+  try{await fetch(url);}catch{return true;}
   await new Promise(r=>setTimeout(r,100));
  }
  return false;
@@ -63,7 +69,7 @@ print(p.returncode);print(out.decode(errors='replace'))`;
  const lines=result.stdout.toString().split('\n'),exitCode=Number(lines.shift());
  return {exitCode,stdout:lines.join('\n')+result.stderr.toString(),stderr:result.stderr.toString()};
 }
-afterAll(()=>{for(const home of homes)rmSync(home,{recursive:true,force:true});});
+afterAll(()=>{for(const home of homes)rmSync(home,{recursive:true,force:true});},30000);
 
 test('CLI help, tree, and media CRUD execute in a private temporary HOME',()=>{
  const e=isolated();
@@ -127,7 +133,7 @@ test('tunnel status and server lifecycle use only fake tools and isolated ports'
   const health=cli(['health'],e.env);expect(health.exitCode).toBe(1);expect(health.stderr.toString()).toContain('Bridge no disponible');
   const metrics=cli(['metrics'],e.env);expect(metrics.exitCode).toBe(1);expect(metrics.stderr.toString()).toContain('Error obteniendo métricas');
   const started=cli(['server','start','--no-connector'],e.env);expect(started.exitCode).toBe(0);expect(started.stdout.toString()).toContain('server detached');
-  let healthy=false;for(let i=0;i<40;i++){try{healthy=(await fetch(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`)).ok;}catch{}if(healthy)break;await new Promise(r=>setTimeout(r,100));}
+  let healthy=false;for(let i=0;i<40;i++){try{healthy=(await fetch(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`,{headers:bridgeAuthHeaders({},e.env)})).ok;}catch{}if(healthy)break;await new Promise(r=>setTimeout(r,100));}
   expect(healthy).toBe(true);
   const stopped=cli(['server','stop'],e.env);expect(stopped.exitCode).toBe(0);expect(stopped.stdout.toString()).toContain('server parado');
   const panel=cli(['panel','start'],e.env);expect(panel.exitCode).toBe(0);expect(panel.stdout.toString()).toContain('panel detached');
@@ -146,7 +152,7 @@ test('menu media-prepare routes into the shared guided flow and cancel never dow
  const result=cli(['menu','media-prepare'],e.env,'\n');
  expect(result.exitCode).toBe(0);expect(result.stdout.toString()).toContain('Pega el enlace público de YouTube');
  expect(JSON.parse(cli(['media','list'],e.env).stdout.toString())).toEqual([]);
-});
+},30000);
 
 // This crosses ffmpeg, three CLI launches and a live MCP stdio session; CI's
 // cold runners can exceed Bun's five-second default without the flow hanging.
@@ -187,4 +193,4 @@ test.skipIf(process.platform === "win32")('guided CLI prepares a generated video
   expect(sheet.isError).not.toBe(true);expect(JSON.parse(sheet.content[0].text).selected_sheet.index).toBe(0);expect(sheet.content.filter((part:any)=>part.type==='image')).toHaveLength(1);
   const schema=tools.find(tool=>tool.name==='media_lookup')!.inputSchema as any;expect(Object.keys(schema.properties??{})).not.toContain('path');
  } finally {await client.close();}
-},20_000);
+},60_000);

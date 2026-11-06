@@ -160,7 +160,8 @@ export async function readComposerSettings(page: Page, options: { timeoutMs?: nu
       return {
         model: checked ? (checked.innerText || "").trim().split("\n")[0] : null,
         texts,
-        slider: slider ? { now: slider.getAttribute("aria-valuenow"), max: slider.getAttribute("aria-valuemax"), min: slider.getAttribute("aria-valuemin"), text: slider.getAttribute("aria-valuetext") } : null,
+        slider: slider ? { now: slider.getAttribute("aria-valuenow"), max: slider.getAttribute("aria-valuemax"), min: slider.getAttribute("aria-valuemin"),
+          text: slider.getAttribute("aria-valuetext") } : null,
       };
     });
 
@@ -330,10 +331,12 @@ export function openSettingsWindow(config: AppConfig, maxMs = 20 * 60_000): { st
         lastResult = { saved: false, reason: "la ventana ya no estaba logueada en ChatGPT; no se toco el estado guardado", at: new Date().toISOString() };
       } else {
         const backup = replaceStorageState(statePath, snapshot);
-        lastResult = { saved: true, reason: "estado guardado; el headless lo usa desde el siguiente turno", at: new Date().toISOString(), backup, cookies: snapshot.cookies?.length ?? 0, indexedDB: usedIndexedDB };
+        lastResult = { saved: true, reason: "estado guardado; el headless lo usa desde el siguiente turno", at: new Date().toISOString(), backup,
+          cookies: snapshot.cookies?.length ?? 0, indexedDB: usedIndexedDB };
       }
     } catch (error) {
-      lastResult = { saved: false, reason: `fallo la ventana de ajustes: ${error instanceof Error ? error.message : String(error)}`, at: new Date().toISOString() };
+      lastResult = { saved: false, reason: `fallo la ventana de ajustes: ${error instanceof Error ? error.message : String(error)}`,
+        at: new Date().toISOString() };
     } finally {
       finishSignal = null;
       await browserHandle?.browser.close().catch(() => {});

@@ -10,7 +10,7 @@ test('historical baseline and remount do not invent turns; equal new messages re
 });
 test('assistant changes are snapshots, code fences stay text and completion is observed',()=>{
  const o=new PassiveConversationObserver(url);o.baseline(snapshot([]));
- const msg={kind:'assistant',messageId:'a',markdown:'```json\n{"kind":"call"}\n```',complete:false};
+ const msg={kind:'assistant' as const,messageId:'a',markdown:'```json\n{"kind":"call"}\n```',complete:false};
  expect(o.observe(snapshot([msg]))).toEqual([msg]);expect(o.observe(snapshot([msg]))).toEqual([]);
  expect(o.observe(snapshot([{...msg,complete:true}]))).toEqual([{...msg,complete:true}]);
  expect(o.observe(snapshot([msg]))).toEqual([]); // a stale remount must not reopen a completed message

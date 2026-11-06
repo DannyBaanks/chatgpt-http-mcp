@@ -5,16 +5,19 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFile
 import { createConnection } from "node:net";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
-import { bridgeHome, findSessionByToken, isExpired, mintSession, resolveWithinReal, updateSession, type CodexSession } from "../codex-sessions";
+import { bridgeHome, findSessionByToken, isExpired, mintSession, resolveWithinReal, revokeSession, updateSession, type CodexSession } from "../codex-sessions";
 import { capabilities, shapesFor, WIRE_ALIASES, type ToolName } from "./catalog";
 import { readMcpBootstrap } from "./bootstrap";
 import { isWindowsPipePath, localIpcPath } from "../platform/ipc";
+import { canaryCommand, validCanaryEnvironment, type CurrentOwnerCanary } from "./current-owner-canary";
 
 type Owner = NonNullable<CodexSession["nativeOwner"]>;
 const supported: ToolName[] = ["codex_turn_start", "codex_tool_inventory", "codex_exec", "codex_tool_call", "codex_turn_complete"];
-const json = (value: unknown, isError = false) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }], ...(isError ? { isError: true } : {}) });
+const json = (value: unknown, isError = false) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }], ...(isError ?
+  { isError: true } : {}) });
 const metadata = (session: CodexSession) => ({ fp: session.fp, cwd: session.cwd, writable: session.writable,
-  backend: "active-codex", owner: session.nativeOwner!.owner, source: session.nativeOwner!.source });
+  backend: "active-codex", owner: session.nativeOwner!.owner, source: session.nativeOwner!.source,
+  ...(session.nativeOwner!.canary ? { execution_scope: "fixed-canary", host_sandbox: session.nativeOwner!.canary.hostSandbox } : {}) });
 
 function socketIdentity(path: string) {
   if (!isAbsolute(path)) throw Error("native_socket_requires_absolute_path");
@@ -60,9 +63,18 @@ async function rpc(owner: Owner, payload: Record<string, unknown>, timeoutMs?: n
 }
 function validateEnvironment(session: CodexSession, environment: any) {
   if (!environment || realpathSync(environment.cwd) !== realpathSync(session.cwd) ||
-      !Array.isArray(environment.tools) || !environment.tools.some((t: any) => t.name === "exec" && t.freeform === true)) throw Error("native_owner_environment_mismatch");
+      !Array.isArray(environment.tools) || !environment.tools.some((t: any) => t.name === "exec" && t.freeform === true)) throw Error(
+        "native_owner_environment_mismatch");
+  if (session.nativeOwner?.canary) {
+    if (session.writable || !validCanaryEnvironment(environment) ||
+        environment.executionGrant.marker !== session.nativeOwner.canary.marker ||
+        environment.sandboxPolicy.type !== session.nativeOwner.canary.hostSandbox) throw Error("native_canary_environment_mismatch");
+    return;
+  }
+  if (environment.executionGrant !== undefined) throw Error("native_canary_grant_required");
   // This first adapter is read-only; broader native grants require a separate contract.
-  if (session.writable || environment.sandboxPolicy?.type !== "readOnly" || !Array.isArray(environment.writableRoots) || environment.writableRoots.length !== 0) throw Error("native_owner_read_only_required");
+  if (session.writable || environment.sandboxPolicy?.type !== "readOnly" || !Array.isArray(environment.writableRoots) ||
+    environment.writableRoots.length !== 0) throw Error("native_owner_read_only_required");
 }
 async function claim(session: CodexSession) {
   const owner = session.nativeOwner!;
@@ -76,15 +88,23 @@ async function claim(session: CodexSession) {
 async function releaseActivity(owner: Owner, activityId: string) {
   await rpc(owner, { method: "activity_complete", token: owner.ownerToken, activityId });
 }
-export async function mintNativeSession(options: { cwd: string; socketPath: string; ownerToken: string; owner: Owner["owner"]; ttlMinutes: number }) {
+export async function mintNativeSession(options: { cwd: string; socketPath: string; ownerToken: string; owner: Owner["owner"]; ttlMinutes: number; canary?
+  : CurrentOwnerCanary }) {
   const identity = socketIdentity(options.socketPath);
   if (!Number.isFinite(options.ttlMinutes) || options.ttlMinutes <= 0 || options.ttlMinutes > 20 || !options.ownerToken.startsWith("turn_") ||
-      Object.values(options.owner).length !== 4 || Object.values(options.owner).some(v => typeof v !== "string" || v.length < 8)) throw Error("invalid_native_owner_registration");
+      Object.values(options.owner).length !== 4 || Object.values(options.owner).some(v => typeof v !== "string" || v.length < 8)) throw Error(
+        "invalid_native_owner_registration");
   const status = await nativeRpc(options.socketPath, { method: "owner_status" });
   if (status.protocolVersion !== 5 || status.acceptingExternalOwners !== true) throw Error("unsupported_native_broker_protocol");
+  if (options.canary && (status.currentTurnCanary !== true || options.canary.hostSandbox !== "dangerFullAccess")) throw Error(
+    "unsupported_native_canary_grant");
+  if (options.canary) canaryCommand(options.canary.marker);
   const session = mintSession(options.cwd, { label: "active-codex:" + options.owner.threadId, ttlHours: options.ttlMinutes / 60 });
-  const registered = updateSession(session.fp, s => { s.nativeOwner = { ...identity, socketPath: options.socketPath, ownerToken: options.ownerToken, owner: options.owner, phase: "prepared" }; });
-  const binding = await claim(registered); await releaseActivity(registered.nativeOwner!, binding.activityId);
+  const registered = updateSession(session.fp, s => { s.nativeOwner = { ...identity, socketPath: options.socketPath, ownerToken: options.ownerToken,
+    owner: options.owner, phase: "prepared", ...(options.canary ? { canary: options.canary } : {}) }; });
+  try {
+    const binding = await claim(registered); await releaseActivity(registered.nativeOwner!, binding.activityId);
+  } catch (error) { revokeSession(registered.fp); throw error; }
   return registered;
 }
 export function bindNativeSource(fp: string, source: { url: string; messageId: string }) {
@@ -100,7 +120,10 @@ const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
 function nativeCommandLine(command: string[]): string {
   if (process.platform !== "win32") return command.map(shellQuote).join(" ");
   const argv = Buffer.from(JSON.stringify(command), "utf8").toString("base64");
-  const script = `$__isymcp_json = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${argv}')); $__isymcp_argv = @($__isymcp_json | ConvertFrom-Json); $__isymcp_exe = [string]$__isymcp_argv[0]; $__isymcp_args = @($__isymcp_argv | Select-Object -Skip 1); & $__isymcp_exe @__isymcp_args; $__isymcp_success = $?; $__isymcp_exit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue; if ($null -ne $__isymcp_exit) { exit $__isymcp_exit }; if ($__isymcp_success) { exit 0 } else { exit 1 }`;
+  const script = (`$__isymcp_json = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${
+    argv}')); $__isymcp_argv = @($__isymcp_json | ConvertFrom-Json); $__isymcp_exe = [string]$__isymcp_argv[0]; $__isymcp_args = @($__isymcp_argv | ` +
+    `Select-Object -Skip 1); & $__isymcp_exe @__isymcp_args; $__isymcp_success = $?; $__isymcp_exit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction ` +
+    `SilentlyContinue; if ($null -ne $__isymcp_exit) { exit $__isymcp_exit }; if ($__isymcp_success) { exit 0 } else { exit 1 }`);
   const encoded = Buffer.from(script, "utf16le").toString("base64");
   return `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}`;
 }
@@ -119,7 +142,8 @@ export function nativeGateway(command: string[], cwd: string): string {
 }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-  if (value && typeof value === "object") return "{" + Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => JSON.stringify(k) + ":" + canonical(v)).join(",") + "}";
+  if (value && typeof value === "object") return "{" + Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k,
+    v]) => JSON.stringify(k) + ":" + canonical(v)).join(",") + "}";
   return JSON.stringify(value);
 }
 async function execute(session: CodexSession, args: Record<string, unknown>, callId?: string) {
@@ -128,6 +152,8 @@ async function execute(session: CodexSession, args: Record<string, unknown>, cal
   if (!Array.isArray(command) || !command.length || command.some(c => typeof c !== "string" || !c || c.includes("\0"))) throw Error("invalid_native_argv");
   const cwd = resolveWithinReal(session.cwd, typeof args.cwd === "string" ? args.cwd : ".");
   if (!cwd || !existsSync(cwd) || !lstatSync(cwd).isDirectory()) throw Error("native_cwd_outside_workspace_or_missing");
+  if (session.nativeOwner?.canary && (cwd !== realpathSync(session.cwd) ||
+      JSON.stringify(command) !== JSON.stringify(canaryCommand(session.nativeOwner.canary.marker)))) throw Error("native_canary_command_required");
   const signature = createHash("sha256").update(canonical({ command, cwd })).digest("hex");
   const identity = createHash("sha256").update(callId ?? signature).digest("hex");
   const directory = join(bridgeHome(), "native-call-journal", session.fp);
@@ -144,13 +170,17 @@ async function execute(session: CodexSession, args: Record<string, unknown>, cal
   const owner = session.nativeOwner!; let binding: Awaited<ReturnType<typeof claim>> | undefined;
   try {
     binding = await claim(session);
-    const out = await rpc(owner, { method: "invoke", bindingId: binding.bindingId, wireName: "exec", freeform: true, input: nativeGateway(command, cwd) }, 60000);
+    const out = await rpc(owner, { method: "invoke", bindingId: binding.bindingId, wireName: "exec", freeform: true, input: nativeGateway(command, cwd) },
+      60000);
     if (out?.isError) throw Error("native_tool_returned_error");
     const blocks = out?.content?.filter((c: any) => c.type === "text" && typeof c.text === "string");
-    const results = (blocks ?? []).flatMap((c: any) => { try { const r = JSON.parse(c.text); return r.native_command_result ? [r.native_command_result] : []; } catch { return []; } });
-    if (results.length !== 1 || typeof results[0].output !== "string" || !(results[0].exit_code === null || Number.isInteger(results[0].exit_code))) throw Error("native_result_shape_mismatch");
+    const results = (blocks ?? []).flatMap((c: any) => { try { const r = JSON.parse(c.text); return r.native_command_result ? [r.native_command_result] : [];
+      } catch { return []; } });
+    if (results.length !== 1 || typeof results[0].output !== "string" || !(results[0].exit_code === null || Number.isInteger(results[0].
+      exit_code))) throw Error("native_result_shape_mismatch");
     const actual = results[0];
-    const result = { ...metadata(session), command, cwd, executed: actual.exit_code !== null, output: actual.output, exit_code: actual.exit_code, native_result: actual };
+    const result = { ...metadata(session), command, cwd, executed: actual.exit_code !== null, output: actual.output, exit_code: actual.exit_code,
+      native_result: actual };
     writeFileSync(journal, JSON.stringify({ signature, phase: "complete", result }), { mode: 0o600 });
     return json(result);
   } catch (e) {
@@ -185,7 +215,8 @@ export async function routeNativeTool(session: CodexSession, tool: ToolName, inp
       if (arguments_ === undefined && typeof input.input === "string") arguments_ = JSON.parse(input.input);
       const key = contract === "safe" ? "request_id" : "turn_token";
       const parsed = z.object(shapesFor(contract)[name]).parse({ ...(arguments_ as any), [key]: session.token });
-      return name === "codex_exec" ? await execute(session, parsed, typeof input.call_id === "string" ? input.call_id : undefined) : await routeNativeTool(session, name, parsed, contract);
+      return name === "codex_exec" ? await execute(session, parsed, typeof input.call_id === "string" ? input.call_id : undefined) : await routeNativeTool(
+        session, name, parsed, contract);
     }
     if (tool === "codex_turn_complete") {
       if (typeof input.response !== "string" || !input.response.trim()) throw Error("native_completion_response_required");
@@ -199,9 +230,11 @@ export async function routeNativeTool(session: CodexSession, tool: ToolName, inp
     if (tool !== "codex_turn_start" && tool !== "codex_tool_inventory") throw Error("native_tool_unsupported_use_inventory");
     const binding = await claim(session); await releaseActivity(owner, binding.activityId);
     if (tool === "codex_turn_start") return json({ started: true, session: metadata(session), backend: "active-codex", bootstrap: readMcpBootstrap() });
+    const canary = session.nativeOwner.canary;
     return json({ ...metadata(session), source: "active Codex owner", tools: supported,
       capabilities: capabilities(contract).filter(c => supported.includes(c.name)),
-      limits: { read_only: true, foreground_exec: true, background: false, patch: false, image: false,
+      limits: { read_only: !canary, foreground_exec: true, background: false, patch: false, image: false,
+        ...(canary ? { canary_only: true, host_sandbox: canary.hostSandbox, allowed_command: canaryCommand(canary.marker) } : {}),
         retries: "direct exec: same argv/cwd replays once per native turn; tool_call: explicit call_id" } });
   } catch (e) { return json({ error: e instanceof Error ? e.message : "native_route_failed", backend: "active-codex", fp: session?.fp }, true); }
 }

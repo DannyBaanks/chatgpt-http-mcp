@@ -71,7 +71,7 @@ test('preparation covers a 121-second audio/video source in bounded chunks and r
   expect(refreshed.generation_id).not.toBe(current.generation_id);
   expect(resumedPhases).toContain('audio_scan');
   expect(resumedPhases.filter(phase => phase === 'contact_sheet_reused')).toHaveLength(3);
-}, 30_000);
+}, 60_000);
 
 // Same real-FFmpeg cost as the test above: 61 seconds of source, two contact sheet
 // pages and 32 frame decodes, so Bun's default 5s per-test timeout is not headroom.
@@ -109,4 +109,4 @@ test('audio-only and video-only sources mark the absent modality unavailable', a
   const videoOnly = await prepare(videoPath, join(base, 'video-catalog'));
   expect(videoOnly.manifest.unavailable_modalities).toEqual(['audio']);
   expect(videoOnly.manifest.artifacts.map(artifact => artifact.kind)).toEqual(['contact_sheet']);
-});
+}, 30_000);

@@ -7,7 +7,8 @@ import { basename, join, resolve, extname } from 'node:path';
 import { verifyDownloadedTikTok } from './tiktok-url';
 import { youtubeSource } from './youtube-url';
 export type MediaDownloadReceipt = { platform?:'youtube'|'tiktok'; video_id:string; source_url:string; canonical_url?:string };
-export type Asset = { id:string; path:string; realPath:string; sha256:string; bytes:number; name:string; revoked:boolean; addedAt:string; sourceUrl?:string; downloadReceipt?:MediaDownloadReceipt };
+export type Asset = { id:string; path:string; realPath:string; sha256:string; bytes:number; name:string; revoked:boolean; addedAt:string; sourceUrl?:string;
+  downloadReceipt?:MediaDownloadReceipt };
 const extensions = new Set(['.wav','.flac','.mp3','.m4a','.mp4','.mov','.webm']);
 export const digest = (b:Buffer) => createHash('sha256').update(b).digest('hex');
 function validDownloadReceipt(sourceUrl:string|undefined,receipt:MediaDownloadReceipt):boolean {
@@ -38,14 +39,16 @@ export async function boundedRead(path:string):Promise<Buffer> {
 export class MediaCatalog {
  constructor(public home=process.env.ISYMCP_MEDIA_HOME || join(homedir(),'.local/state/isymcp/media')) { mkdirSync(home,{recursive:true,mode:0o700}); }
  private file(id:string) { if(!/^media_[a-f0-9-]{36}$/.test(id)) throw Error('Invalid asset ID'); return join(this.home,id+'.json'); }
- private save(a:Asset) { const file=this.file(a.id); const temp=file+'.'+randomUUID()+'.tmp'; writeFileSync(temp,JSON.stringify(a),{mode:0o600,flag:'wx'}); renameSync(temp,file); }
+ private save(a:Asset) { const file=this.file(a.id); const temp=file+'.'+randomUUID()+'.tmp'; writeFileSync(temp,JSON.stringify(a),{mode:0o600,flag:'wx'});
+   renameSync(temp,file); }
  get(id:string):Asset { const a=JSON.parse(readFileSync(this.file(id),'utf8')) as Asset; if(a.revoked) throw Error('Asset revoked'); return a; }
  async add(input:string,sourceUrl?:string,downloadReceipt?:MediaDownloadReceipt):Promise<Asset> {
   if(downloadReceipt&&!validDownloadReceipt(sourceUrl,downloadReceipt))throw Error('Invalid media download receipt');
   const path=resolve(input), realPath=realpathSync(path); if(!extensions.has(extname(path).toLowerCase())) throw Error('Unsupported media extension');
   const s=statSync(realPath); if(!s.isFile() || s.size>500*1024*1024) throw Error('Media must be a file of at most 500 MiB');
   const bytes=await boundedRead(realPath); if(bytes.length>500*1024*1024 || realpathSync(path)!==realPath) throw Error('Asset changed during registration');
-  const a:Asset={id:'media_'+randomUUID(),path,realPath,sha256:digest(bytes),bytes:bytes.length,name:basename(path),revoked:false,addedAt:new Date().toISOString(),sourceUrl,downloadReceipt}; remaining(); this.save(a); return a;
+  const a:Asset={id:'media_'+randomUUID(),path,realPath,sha256:digest(bytes),bytes:bytes.length,name:basename(path),revoked:false,
+    addedAt:new Date().toISOString(),sourceUrl,downloadReceipt}; remaining(); this.save(a); return a;
  }
  async resolve(id:string):Promise<Asset> {
   const a=this.get(id); if(realpathSync(a.path)!==a.realPath) throw Error('Asset changed: register again');
@@ -66,6 +69,7 @@ export class MediaCatalog {
   try {await writeFile(file,data,{mode:0o600,flag:'wx'}); const result=await work(a,file); remaining(); this.get(id); return result;}
   finally {await unlink(file).catch(()=>{}); await rmdir(dir).catch(()=>{});}
  }
- list() { return readdirSync(this.home).filter(f=>/^media_[a-f0-9-]{36}\.json$/.test(f)).map(f=>JSON.parse(readFileSync(join(this.home,f),'utf8')) as Asset).filter(a=>!a.revoked).map(({id,name,bytes,sha256,sourceUrl})=>({id,name:basename(name.replaceAll('\\','/')),bytes,sha256,source_url:sourceUrl})); }
+ list() { return readdirSync(this.home).filter(f=>/^media_[a-f0-9-]{36}\.json$/.test(f)).map(f=>JSON.parse(readFileSync(join(this.home,f),'utf8')) as Asset)
+   .filter(a=>!a.revoked).map(({id,name,bytes,sha256,sourceUrl})=>({id,name:basename(name.replaceAll('\\','/')),bytes,sha256,source_url:sourceUrl})); }
  revoke(id:string) { const a=JSON.parse(readFileSync(this.file(id),'utf8')) as Asset; this.save({...a,revoked:true}); }
 }

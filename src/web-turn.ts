@@ -207,21 +207,12 @@ function shellBinary(): string {
  * UA del Chrome real (cf_clearance esta atado a ese UA), sin --enable-automation
  * y con la feature AutomationControlled apagada.
  */
-function chromeVersion(bin: string): string {
-  // On Windows, running chrome.exe --version opens a browser window instead
-  // of printing a version. Importing this module during bridge startup must
-  // never launch Chrome or block the server while that window stays open.
-  if (process.platform === "win32") return "153.0.0.0";
-  try {
-    const out = Bun.spawnSync([bin, "--version"]).stdout.toString();
-    return /(\d+\.\d+\.\d+\.\d+)/.exec(out)?.[1] ?? "153.0.0.0";
-  } catch {
-    return "153.0.0.0";
-  }
+export function formatChromeUserAgent(version: string | null | undefined): string {
+  const chromeVersion = version?.match(/(\d+\.\d+\.\d+\.\d+)/)?.[1] ?? "153.0.0.0";
+  return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
 }
 /** Chrome completo; CODEX_WEB_HTTP_CHROME para rutas fuera de Ubuntu/Debian. */
 const CHROME_BINARY = process.env.CODEX_WEB_HTTP_CHROME?.trim() || defaultBrowserExecutable();
-const normalUA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion(CHROME_BINARY)} Safari/537.36`;
 
 /** Extrae la ultima respuesta del asistente a partir de las marcas de la UI. */
 export function extractResponse(main: string): string {
@@ -230,7 +221,11 @@ export function extractResponse(main: string): string {
   if (idx < 0) return "";
   let rest = main.slice(idx + markers[0].length);
   const cut = rest.search(
-    /(ChatGPT puede cometer errores|ChatGPT can make mistakes|Última respuesta|Tú dijiste:|You said:|(?:^|\n)\s*¿?Te gusta esta personalidad\?|(?:^|\n)\s*Do you like this personality\?)/i,
+    new RegExp(
+      String.raw`(ChatGPT puede cometer errores|ChatGPT can make mistakes|Última respuesta|Tú dijiste:|You said:` +
+        String.raw`|(?:^|\n)\s*¿?Te gusta esta personalidad\?|(?:^|\n)\s*Do you like this personality\?)`,
+      "i",
+    ),
   );
   if (cut >= 0) rest = rest.slice(0, cut);
   return rest.trim();
@@ -299,7 +294,7 @@ export async function launchChatGPTBrowser(
     const context = await browser.newContext({
       storageState: statePath,
       locale: "es-ES",
-      userAgent: normalUA,
+      userAgent: formatChromeUserAgent(browser.version()),
       viewport: opts.viewport === undefined ? { width: 1280, height: 800 } : opts.viewport,
     });
     const page = await context.newPage();
@@ -374,7 +369,8 @@ async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text
         return false;
       };
 
-      const thoughtEls = Array.from(last.querySelectorAll('[data-testid="thought-content"], [data-testid="reasoning-content"], details.thought, .thought-content')) as HTMLElement[];
+      const thoughtEls = Array.from(last.querySelectorAll(
+        '[data-testid="thought-content"], [data-testid="reasoning-content"], details.thought, .thought-content')) as HTMLElement[];
       for (const el of thoughtEls) {
         if (!isAssistantMessage(el)) {
           thought = (el.innerText ?? "").trim();
@@ -506,7 +502,8 @@ async function dumpCaptureFailure(page: Page): Promise<void> {
           conversationTurn: sel('[data-testid^="conversation-turn-"]'),
           authorRole: sel('[data-message-author-role]'),
           markdown: sel(".markdown"),
-          assistantPrimary: sel('[data-testid^="conversation-turn-"][data-message-author-role="assistant"], [data-turn-key]:has([data-conversation-role="assistant"])'),
+          assistantPrimary: sel(
+            '[data-testid^="conversation-turn-"][data-message-author-role="assistant"], [data-turn-key]:has([data-conversation-role="assistant"])'),
           stopButton: sel('button[data-testid="stop-button"], button[aria-label*="Detener"], button[aria-label*="Stop"]'),
         },
       };

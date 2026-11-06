@@ -5,7 +5,7 @@
 **Fecha:** 2026-10-14  
 **Prioridad:** P0 — Account Safety  
 **Autoridad final:** Usuario / Propietario de la cuenta  
-**Estado:** AUDITORÍA READ-ONLY COMPLETADA  
+**Estado:** AUDITORÍA READ-ONLY COMPLETADA · **ACEPTADO POR EL PROPIETARIO (2026-10-31)**
 
 ---
 
@@ -116,3 +116,27 @@ La auditoría de cumplimiento concluye que:
 
 > **ESTADO DE CUMPLIMIENTO:** **PARCIAL Y CONDICIONADO**.  
 > Las herramientas locales y la extensibilidad de Codex CLI cumplen con los estándares de la plataforma. La automatización de la interfaz web de ChatGPT y los reintentos contra bloqueos de seguridad quedan formalmente **VETADOS** para salvaguardar la cuenta del propietario.
+
+---
+
+## 7. Aceptación del propietario
+
+- **Fecha:** 2026-10-31
+- **Autoridad:** Propietario de la cuenta (autoridad final del dictamen)
+- **Decisión:** **ACEPTADO**.
+
+El propietario acepta el dictamen en su estado **PARCIAL Y CONDICIONADO** y sus
+consecuencias operativas:
+
+- La automatización de la interfaz web de ChatGPT y la evasión de bloqueos
+  permanecen **VETADAS**; no se reintentará una operación tras un bloqueo.
+- El navegador nativo autónomo queda **CONGELADO** para la versión 1.0.0; los
+  entrypoints mantienen `503 native_browser_unavailable` y no se harán pruebas
+  remotas adicionales sin un adaptador de propietario autorizado.
+- Se mantiene el uso de MCP Custom App condicionado a la operación humana y de
+  Codex CLI con proveedor local y sandbox.
+- El lanzador sintético de Codex App continúa deshabilitado hasta obtener
+  clarificación oficial.
+
+Registro de la decisión del navegador nativo:
+[`docs/verification/2026-10-31-native-browser-frozen.md`](../verification/2026-10-31-native-browser-frozen.md).

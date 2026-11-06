@@ -43,7 +43,7 @@ test('catalog accepts a TikTok receipt only when the final TikTok video identity
  const file=join(root,'tiktok.mp4');writeFileSync(file,'video bytes');
  const source='https://vt.tiktok.com/ZSgLUAEhe/';
  const canonical='https://www.tiktok.com/@theunearthlyhub/video/7695118893425102113';
- const receipt={platform:'tiktok',video_id:'7695118893425102113',source_url:source,canonical_url:canonical};
+ const receipt={platform:'tiktok' as const,video_id:'7695118893425102113',source_url:source,canonical_url:canonical};
  const asset=await catalog.add(file,source,receipt as any);
  expect(catalog.get(asset.id).downloadReceipt).toEqual(receipt);
  await expect(catalog.add(file,source,{...receipt,canonical_url:'https://www.tiktok.com/@other/video/7695118893425102120'} as any)).rejects.toThrow('Invalid media download receipt');

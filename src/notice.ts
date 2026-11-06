@@ -15,6 +15,7 @@ export function desktopNotice(notice: Notice): { title: string; body: string } {
   const labels: Record<NoticeSeverity, string> = { info: "Informacion", warn: "Aviso", error: "Error", action_required: "Requiere accion" };
   return {
     title: `${notice.source.toUpperCase()} · ${labels[notice.severity]}`,
-    body: `Origen: ${notice.component}\nEvento: ${notice.event}\n${notice.summary}\n${notice.action ? `Detalle: ${notice.action}` : `Evidencia: ${notice.evidence_ref}`}`,
+    body: `Origen: ${notice.component}\nEvento: ${notice.event}\n${notice.summary}\n${notice.action ? `Detalle: ${notice.action}` : `Evidencia: ${
+      notice.evidence_ref}`}`,
   };
 }

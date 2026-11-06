@@ -29,9 +29,11 @@ export const MAX_CHAT_MESSAGE_CHARS = 100_000;
 
 export type ChatPhase = "idle" | "queued" | "navigating" | "thinking";
 // Estado para la UI: el turno activo (dentro del candado) y cuantos esperan.
-let active: { chat_id: string; phase: Exclude<ChatPhase, "idle" | "queued">; since: string; partial?: string; thought?: string; tools?: ToolCard[] } | null = null;
+let active: { chat_id: string; phase: Exclude<ChatPhase, "idle" | "queued">; since: string; partial?: string; thought?: string; tools?
+  : ToolCard[] } | null = null;
 let queued = 0;
-export function chatStatus(): { phase: ChatPhase; chat_id: string | null; queued: number; since: string | null; partial?: string; thought?: string; tools?: ToolCard[] } {
+export function chatStatus(): { phase: ChatPhase; chat_id: string | null; queued: number; since: string | null; partial?: string; thought?: string; tools?
+  : ToolCard[] } {
   if (active) {
     return {
       phase: active.phase, chat_id: active.chat_id, queued, since: active.since,
@@ -43,20 +45,12 @@ export function chatStatus(): { phase: ChatPhase; chat_id: string | null; queued
   return { phase: queued > 0 ? "queued" : "idle", chat_id: null, queued, since: null };
 }
 
-/**
- * Bloqueos de seguridad de OpenAI: llegan como TEXTO del asistente, no como
- * error HTTP. No son fallos del bridge (evidencia: soak 100 turno 95, soak-tools
- * turno 2) y la tool no llego a ejecutarse.
- */
-const PROVIDER_BLOCK_PATTERNS = [
-  /bloquead[oa] por los controles de seguridad de OpenAI/i,
-  /OpenAI ha bloqueado esta llamada/i,
-  /blocked by OpenAI'?s? (?:safety|security)/i,
-  /OpenAI (?:has )?blocked this (?:tool )?call/i,
-];
-export function isProviderBlock(text: string): boolean {
-  return PROVIDER_BLOCK_PATTERNS.some((re) => re.test(text));
-}
+// Bloqueos de seguridad de OpenAI: llegan como TEXTO del asistente, no como
+// error HTTP. No son fallos del bridge (evidencia: soak 100 turno 95, soak-tools
+// turno 2) y la tool no llego a ejecutarse. La deteccion vive en provider-block
+// para que la ruta MCP la use sin cargar playwright.
+import { isProviderBlock } from "./provider-block";
+export { isProviderBlock };
 
 /** Quien fallo, a partir del tipo nombrado del bridge. */
 export function errorKind(message: string): ChatErrorKind {
@@ -235,7 +229,8 @@ async function turnInsideLock(
       }
       chat.conversation_url = canonical;
     } else if (canonical !== chat.conversation_url) {
-      return fail("capture", "La pestana termino en otra conversacion; la respuesta no se asocio a este chat.", `esperada=${chat.conversation_url} real=${result.url}`);
+      return fail("capture", "La pestana termino en otra conversacion; la respuesta no se asocio a este chat.", `esperada=${chat.conversation_url} real=${
+        result.url}`);
     }
 
     if (!result.submitted) return fail("bridge", "El mensaje no llego a enviarse en ChatGPT.", `ms=${result.ms}`);

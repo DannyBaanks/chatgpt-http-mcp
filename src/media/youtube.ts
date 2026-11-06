@@ -4,6 +4,7 @@ import { join, isAbsolute } from 'node:path';
 import { run } from './process';
 import { verifyDownloadedYouTubeId } from './youtube-url';
 import { tiktokSource, verifyDownloadedTikTok, TikTokDownloadReceipt } from './tiktok-url';
+import { isBotWallFailure } from './ytdlp-signatures';
 export { verifyDownloadedYouTubeId } from './youtube-url';
 export type YouTubeDownloadResult = { path:string; video_id:string; source_url:string };
 export type TikTokDownloadResult = TikTokDownloadReceipt & { path:string };
@@ -14,11 +15,13 @@ export function youtubeDownloaderBinary(env:NodeJS.ProcessEnv=process.env):strin
 }
 export function downloadBudget(dir:string,maxBytes:number):string|undefined {
  let sum=0;
- for(const name of readdirSync(dir)){const stat=statSync(join(dir,name));if(!stat.isFile())continue;sum+=stat.size;if(stat.size>maxBytes)return 'Downloaded media exceeds file limit';}
+ for(const name of readdirSync(dir)){const stat=statSync(join(dir,name));if(!stat.isFile())continue;sum+=stat.size;if(stat.
+   size>maxBytes)return 'Downloaded media exceeds file limit';}
  if(sum>maxBytes*2)return 'Download workspace exceeds disk limit';
  const disk=statfsSync(dir);if(disk.bavail*disk.bsize<64*1024*1024)return 'Insufficient free disk space for import';
 }
-async function extractWithYtDlp(url:string,dir:string,maxBytes:number,runner:typeof run,includeWebpageUrl:boolean):Promise<{path:string;video_id:string;webpage_url?:string}> {
+async function extractWithYtDlp(url:string,dir:string,maxBytes:number,runner:typeof run,
+ includeWebpageUrl:boolean):Promise<{path:string;video_id:string;webpage_url?:string}> {
  const command=youtubeDownloaderBinary();
  const node=process.env.ISYMCP_VIDEO_VISION_NODE||'node';
  const idPath=join(dir,'downloaded-video-id.txt');
@@ -35,8 +38,19 @@ async function extractWithYtDlp(url:string,dir:string,maxBytes:number,runner:typ
   '--print-to-file','after_move:%(id)s',idPath,
  ];
  if(includeWebpageUrl) args.push('--print-to-file','after_move:%(webpage_url)s',webpageUrlPath);
- args.push('-o',join(dir,'media.%(ext)s'),'--print','after_move:%(filepath)j',url);
- const output=await runner(command,args,8192,180000,{env:{PATH:process.env.PATH||'/usr/bin:/bin',HOME:dir,TMPDIR:dir,LANG:'C.UTF-8'},guard:()=>downloadBudget(dir,maxBytes),processGroup:true});
+ args.push('-o',join(dir,'media.%(ext)s'),'--print','after_move:%(filepath)j');
+ const options={env:{PATH:process.env.PATH||'/usr/bin:/bin',HOME:dir,TMPDIR:dir,LANG:'C.UTF-8'},
+  guard:()=>downloadBudget(dir,maxBytes),processGroup:true};
+ let output:Buffer;
+ try {output=await runner(command,[...args,url],8192,180000,options);}
+ catch(error) {
+  // Some videos are gated behind YouTube's "confirm you're not a bot" check for the default clients;
+  // the embedded web player client still serves them without cookies, config or plugins. That player
+  // is a YouTube extractor, so a TikTok failure re-raises the original error rather than retrying.
+  if(includeWebpageUrl||!isBotWallFailure(error))throw error;
+  try {output=await runner(command,[...args,'--extractor-args','youtube:player_client=web_embedded',url],8192,180000,options);}
+  catch{throw error;}
+ }
  const lines=output.toString().trim().split('\n');
  if(lines.length!==1)throw Error('Downloader did not return one media file');
  const path=JSON.parse(lines[0]);if(typeof path!=='string'||!isAbsolute(path))throw Error('Invalid download output');

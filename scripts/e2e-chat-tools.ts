@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, unl
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { chatPath } from "../src/chats";
+import { bridgeAuthHeaders } from "../src/local-guard";
 import { mintSession, readSessions, revokeSession } from "../src/codex-sessions";
 
 const ROOT = join(import.meta.dir, "..");
@@ -53,7 +54,7 @@ let pass = false;
 const t0 = Date.now();
 try {
   for (let i = 0; i < 60; i++) {
-    try { if ((await fetch(`http://127.0.0.1:${BRIDGE_PORT}/health`)).ok && (await fetch(`${P}/api/chats`)).ok) break; } catch { /* arrancando */ }
+    try { if ((await fetch(`http://127.0.0.1:${BRIDGE_PORT}/health`, { headers: bridgeAuthHeaders() })).ok && (await fetch(`${P}/api/chats`)).ok) break; } catch { /* arrancando */ }
     await Bun.sleep(500);
   }
   const chat = (await api("/api/chats", {})).json;

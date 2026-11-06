@@ -8,4 +8,5 @@ test('help documents guided preparation and the scriptable URL form',()=>{
  const help=result.stdout.toString();
  expect(help).toContain('isymcp media prepare');
  expect(help).toContain('isymcp media prepare <url>');
+ expect(help).toContain('isymcp doctor');
 });

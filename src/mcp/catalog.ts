@@ -51,20 +51,28 @@ export function shapesFor(contract: "native" | "safe"): Record<ToolName, Record<
 }
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
-  codex_turn_start: "Inicia el turno usando su token y devuelve la guía local verificada en bootstrap.content y, si está vinculada, la tarea local en request.content.",
+  codex_turn_start:
+    "Inicia el turno usando su token y devuelve la guía local verificada en bootstrap.content y, si está vinculada, la tarea local en request.content.",
   codex_exec:
-    "Ejecuta un argv en el backend autorizado por el token; consulta el inventario. Las sesiones independientes usan sandbox aislado (bwrap en Linux o contenedor Linux de Docker en Windows) y admiten background=true con exec_id. Las sesiones active-codex envían comandos al dueño nativo y reportan output combinado; esta primera ruta solo admite lectura y foreground.",
+    ("Ejecuta un argv en el backend autorizado por el token; consulta el inventario. Las sesiones independientes usan sandbox aislado (bwrap en Linux o " +
+      "contenedor Linux de Docker en Windows) y admiten background=true con exec_id. Las sesiones active-codex envían comandos al dueño nativo y reportan " +
+      "output combinado; esta primera ruta solo admite lectura y foreground."),
   codex_write_stdin:
-    "Escribe al stdin de un proceso vivo iniciado con codex_exec background=true. Devuelve la salida nueva desde la ultima lectura; close_stdin manda EOF; signal TERM/KILL termina el proceso; wait_ms (0-10000, 2000 por defecto) acota la espera de salida.",
+    ("Escribe al stdin de un proceso vivo iniciado con codex_exec background=true. Devuelve la salida nueva desde la ultima lectura; close_stdin manda EOF;" +
+      " signal TERM/KILL termina el proceso; wait_ms (0-10000, 2000 por defecto) acota la espera de salida."),
   codex_apply_patch:
-    "Aplica un patch al workspace en dos formatos equivalentes: nativo Codex (*** Begin Patch ... *** End Patch) o diff unificado (git diff). Requiere sesion writable; un patch invalido no toca el archivo.",
+    ("Aplica un patch al workspace en dos formatos equivalentes: nativo Codex (*** Begin Patch ... *** End Patch) o diff unificado (git diff). Requiere " +
+      "sesion writable; un patch invalido no toca el archivo."),
   codex_view_image: "Devuelve una imagen del workspace para inspeccion del modelo (png/jpg/jpeg/webp/gif, max 8MB).",
   codex_tool_inventory:
     "Lista las tools nativas ejecutables en la sesion: nombres exactos, descripciones, esquemas de argumentos y requisitos (turn_token, writable).",
   codex_tool_call:
-    "Invoca una tool nativa exacta por wire_name (el de codex_tool_inventory o el alias corto: exec, apply_patch, view_image, write_stdin, tool_inventory) con la sesion autorizada del turno: valida los argumentos contra el esquema y reusa sandbox y workspace. call_id deduplica reintentos.",
+    ("Invoca una tool nativa exacta por wire_name (el de codex_tool_inventory o el alias corto: exec, apply_patch, view_image, write_stdin," +
+      " tool_inventory) con la sesion autorizada del turno: valida los argumentos contra el esquema y reusa sandbox y workspace. call_id deduplica " +
+      "reintentos."),
   codex_turn_complete:
-    "Envia la respuesta completa al turno conectado y lo cierra. En sesiones independientes limpia sus procesos background; active-codex exige un fence sin llamadas pendientes y conserva la propiedad de procesos en Codex.",
+    ("Envia la respuesta completa al turno conectado y lo cierra. En sesiones independientes limpia sus procesos background;" +
+      " active-codex exige un fence sin llamadas pendientes y conserva la propiedad de procesos en Codex."),
 };
 
 export const TOOL_REQUIRES: Record<ToolName, { writable: boolean; notes?: string }> = {

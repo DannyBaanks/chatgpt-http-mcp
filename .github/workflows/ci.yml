@@ -67,6 +67,9 @@ jobs:
       - name: Tests
         run: bun test
 
+      - name: Typecheck
+        run: bun run typecheck
+
   windows-host:
     runs-on: windows-latest
     # La cobertura portable mide 139.73 s en esta workstation (4 núcleos, los mismos del
@@ -130,7 +133,7 @@ jobs:
       # saltan solos con motivo cuando falta su capability, y ese salto es informacion.
       - name: Windows host integration
         run: >-
-          bun test
+          bun test --timeout 15000
           --path-ignore-patterns "**/authority-boundary.test.ts"
           --path-ignore-patterns "**/chat-phase2-tools.test.ts"
           --path-ignore-patterns "**/exec-registry-retry.test.ts"

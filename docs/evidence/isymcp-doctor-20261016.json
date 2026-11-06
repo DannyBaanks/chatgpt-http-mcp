@@ -1,0 +1,79 @@
+{
+  "version": "isymcp-doctor/1",
+  "ok": true,
+  "checks": [
+    {
+      "id": "node",
+      "label": "node",
+      "status": "ok",
+      "detail": "v26.3.0"
+    },
+    {
+      "id": "bun",
+      "label": "bun",
+      "status": "ok",
+      "detail": "1.4.2"
+    },
+    {
+      "id": "platform",
+      "label": "plataforma",
+      "status": "ok",
+      "detail": "linux x64"
+    },
+    {
+      "id": "yt-dlp",
+      "label": "yt-dlp",
+      "status": "ok",
+      "detail": "2026.08.19 (/home/danny/.oamaestro/bin/yt-dlp)"
+    },
+    {
+      "id": "ffmpeg",
+      "label": "ffmpeg",
+      "status": "ok",
+      "detail": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers"
+    },
+    {
+      "id": "ffprobe",
+      "label": "ffprobe",
+      "status": "ok",
+      "detail": "ffprobe version 6.1.1-3ubuntu5 Copyright (c) 2007-2023 the FFmpeg developers"
+    },
+    {
+      "id": "browser",
+      "label": "navegador",
+      "status": "ok",
+      "detail": "/usr/bin/google-chrome"
+    },
+    {
+      "id": "sandbox",
+      "label": "sandbox",
+      "status": "ok",
+      "detail": "bwrap-read-only"
+    },
+    {
+      "id": "disk",
+      "label": "disco libre",
+      "status": "ok",
+      "detail": "65.4 GB"
+    },
+    {
+      "id": "catalog",
+      "label": "catalogo de media",
+      "status": "ok",
+      "detail": "/home/danny/.local/state/isymcp/media"
+    },
+    {
+      "id": "media-error",
+      "label": "ultimo fallo de media",
+      "status": "warn",
+      "detail": "media_unknown: Download or media validation failed; source may be unavailable, require login, or be blocked"
+    }
+  ],
+  "errors": [],
+  "remedy": {
+    "code": "media_unknown",
+    "cause": "Fallo de medios sin causa especifica (puede ser anterior a los codigos estables).",
+    "remedy": "Reintenta la operacion; si vuelve a fallar, revisa el ultimo fallo con isymcp doctor --json.",
+    "command_hint": "isymcp media prepare <url>"
+  }
+}

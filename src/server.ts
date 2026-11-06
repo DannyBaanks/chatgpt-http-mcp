@@ -16,6 +16,7 @@ import { parseWsTurn, wsFrames } from "./ws-responses";
 import { guardLocalRequest } from "./local-guard";
 import { forwardHeaders, NativeWsProxy, upstreamWsUrl } from "./ws-native-proxy";
 import { ChatTurnError, chatStatus, runChatTurn } from "./chat-turn";
+import { rejectUnavailableBrowser } from "./visible/native-browser";
 import { publicChat } from "./chats";
 import { finishSettingsWindow, openSettingsWindow, settingsStatus, verifySettings } from "./chatgpt-settings";
 import { formatPrometheusMetrics, getMetrics } from "./metrics";
@@ -66,9 +67,12 @@ async function modelsWithWeb(req: Request, config: AppConfig): Promise<Response>
   }
 }
 
-export function createHandler(config: AppConfig): (req: Request) => Promise<Response> {
+export function createHandler(
+  config: AppConfig,
+  options: { requireToken?: boolean } = {},
+): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
-    const denied = guardLocalRequest(req, { requireJsonBody: true, requireToken: true });
+    const denied = guardLocalRequest(req, { requireJsonBody: true, requireToken: options.requireToken !== false });
     if (denied) return denied;
     const url = new URL(req.url);
     if (url.pathname === "/v1/responses" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
@@ -126,10 +130,12 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
     }
     if (url.pathname === "/isymcp/chat/turn") {
       if (req.method !== "POST") return errorJson(405, "method_not_allowed", "POST esperado");
-      const body = (await req.json().catch(() => null)) as { chat_id?: unknown; message?: unknown } | null;
+      const body = (await req.json().catch(() => null)) as { chat_id?: unknown; message?: unknown; browser?: unknown } | null;
       if (!body || typeof body.chat_id !== "string" || typeof body.message !== "string") {
         return errorJson(400, "chat_bad_request", "se espera {chat_id, message}");
       }
+      const denied = rejectUnavailableBrowser(body.browser);
+      if (denied) return denied;
       try {
         const outcome = await runChatTurn(body.chat_id, body.message, config);
         return Response.json({ ok: outcome.ok, reply: outcome.reply, chat: publicChat(outcome.chat, false) });
@@ -168,10 +174,15 @@ export function createHandler(config: AppConfig): (req: Request) => Promise<Resp
   };
 }
 
-export function startServer(config: AppConfig = loadConfig(), options: { webResponse?: typeof handleWebResponses } = {}) {
+type WsData = { headers: Record<string, string>; native: NativeWsProxy | null };
+
+export function startServer(
+  config: AppConfig = loadConfig(),
+  options: { webResponse?: typeof handleWebResponses; requireToken?: boolean } = {},
+) {
   const webResponse = options.webResponse ?? handleWebResponses;
-  const handler = createHandler(config);
-  const server = Bun.serve({
+  const handler = createHandler(config, { requireToken: options.requireToken });
+  const server = Bun.serve<WsData>({
     hostname: config.hostname,
     port: config.port,
     idleTimeout: 0,
@@ -182,7 +193,7 @@ export function startServer(config: AppConfig = loadConfig(), options: { webResp
       if (url.pathname === "/v1/responses" && (req.method === "GET" || req.headers.get("upgrade"))) {
         // Los websockets no tienen CORS: sin esta guarda cualquier pagina
         // abierta podria hablar con el bridge (CSWSH).
-        const denied = guardLocalRequest(req, { requireToken: true });
+        const denied = guardLocalRequest(req, { requireToken: options.requireToken !== false });
         if (denied) return denied;
         if (bun.upgrade(req, { data: { headers: Object.fromEntries(req.headers), native: null as NativeWsProxy | null } })) return undefined;
         return new Response("websocket requerido", { status: 426 });

@@ -17,7 +17,7 @@ function h(tagName: string, attrs: Record<string, string>, ...children: Array<Mi
     classList,
     getAttribute: (n) => attrs[n] ?? null,
     get textContent() { return childNodes.map((c) => c.textContent ?? "").join(""); },
-  };
+  } as MiniNode;
 }
 
 describe("domToMarkdown", () => {

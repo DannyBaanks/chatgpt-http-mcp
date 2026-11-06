@@ -1,11 +1,12 @@
 // panel-integrations.test.ts — el panel refleja las tareas de Codex (M8) y el
 // canario, sin filtrar el contenido privado de las tareas.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listCodexTasks } from "../src/codex-tasks";
-import { buildPanelState, renderMain } from "../src/panel";
+import { buildPanelState, renderMain, startPanel } from "../src/panel";
 
 let home: string;
 let dir: string;
@@ -57,5 +58,28 @@ describe("tareas de Codex en el panel", () => {
     const html = renderMain(await buildPanelState("59999"));
     expect(html).toContain('data-action="canary-run"');
     expect(html).toMatch(/Programado: todos los días 09:00|Sin programar|<p class="small muted"><\/p>/);
+  });
+});
+
+describe("asset local del panel", () => {
+  test("sirve solo el Blossom fijo como PNG y mantiene el guard local", async () => {
+    const server = startPanel(0, "59999");
+    try {
+      const base = server.url;
+      const asset = await fetch(new URL("/assets/openai-white-monoblossom.png", base));
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get("content-type")).toBe("image/png");
+      const bytes = Buffer.from(await asset.arrayBuffer());
+      expect(bytes.byteLength).toBe(16787);
+      expect(createHash("sha256").update(bytes).digest("hex").toUpperCase()).toBe("21C7057CFBEC1B3892B7C3D724C57B914755CA66E4178F331072782CBC86525B");
+      expect(bytes.equals(readFileSync(new URL("../assets/openai-white-monoblossom.png", import.meta.url)))).toBe(true);
+
+      const arbitrary = await fetch(new URL("/assets/not-served.txt", base));
+      expect(arbitrary.status).toBe(404);
+      const denied = await fetch(new URL("/assets/openai-white-monoblossom.png", base), { headers: { host: "example.com" } });
+      expect(denied.status).toBe(403);
+    } finally {
+      server.stop(true);
+    }
   });
 });

@@ -52,7 +52,8 @@ export function findCodexWindowsCli(env: NodeJS.ProcessEnv = process.env): strin
   }
 
   const npmCodex = env.APPDATA
-    ? join(env.APPDATA, "npm", "node_modules", "@openai", "codex", "node_modules", "@openai", "codex-win32-x64", "vendor", "x86_64-pc-windows-msvc", "bin", "codex.exe")
+    ? join(env.APPDATA, "npm", "node_modules", "@openai", "codex", "node_modules", "@openai", "codex-win32-x64", "vendor", "x86_64-pc-windows-msvc", "bin",
+      "codex.exe")
     : "";
   return npmCodex && regularExe(npmCodex) ? win32.resolve(npmCodex) : null;
 }

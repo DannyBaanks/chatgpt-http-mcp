@@ -14,11 +14,12 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
-import type { ToolCard } from "./tool-trace";
+import { publicToolCard, type ToolCard } from "./tool-trace";
 import { securePrivatePath } from "./platform/private-path";
 
 export const CHAT_ID_RE = /^c_[0-9a-f]{16}$/;
 export const MAX_MESSAGES = 200;
+export const MAX_DRAFT_LENGTH = 10_000;
 const SCHEMA = "isymcp.chat/1";
 
 export type ChatErrorKind = "provider_blocked" | "session" | "browser" | "bridge" | "unavailable" | "capture" | "tools_session";
@@ -48,6 +49,10 @@ export interface ChatRecord {
   tools_enabled: boolean;
   /** fp de la sesion elegida (referencia; el token nunca se guarda aqui). */
   session_fp: string | null;
+  /** Borrador privado del compositor; registros anteriores se normalizan a vacio. */
+  draft?: string;
+  /** Revision monotona para descartar escrituras obsoletas del borrador. */
+  draft_revision?: number;
   messages: ChatMessage[];
 }
 
@@ -69,7 +74,11 @@ export function saveChat(chat: ChatRecord): void {
   const path = chatPath(chat.id);
   if (!path) throw new Error(`chat_id invalido: ${chat.id}`);
   ensureDir();
-  const trimmed = { ...chat, messages: chat.messages.slice(-MAX_MESSAGES) };
+  const trimmed = {
+    ...chat,
+    draft: typeof chat.draft === "string" ? chat.draft.slice(0, MAX_DRAFT_LENGTH) : "",
+    messages: chat.messages.slice(-MAX_MESSAGES),
+  };
   const tmp = `${path}.tmp-${process.pid}`;
   writeFileSync(tmp, `${JSON.stringify(trimmed, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, path);
@@ -87,6 +96,8 @@ export function createChat(title = "Nuevo chat"): ChatRecord {
     updated_at: now,
     tools_enabled: false,
     session_fp: null,
+    draft: "",
+    draft_revision: 0,
     messages: [],
   };
   saveChat(chat);
@@ -103,6 +114,8 @@ export function loadChat(id: string): ChatRecord | null {
       ...data,
       tools_enabled: data.tools_enabled === true,
       session_fp: typeof data.session_fp === "string" ? data.session_fp : null,
+      draft: typeof data.draft === "string" ? data.draft.slice(0, MAX_DRAFT_LENGTH) : "",
+      draft_revision: Number.isSafeInteger(data.draft_revision) && (data.draft_revision ?? 0) >= 0 ? data.draft_revision : 0,
       messages: Array.isArray(data.messages) ? data.messages : [],
     };
   } catch {
@@ -122,6 +135,18 @@ export function listChats(): ChatRecord[] {
 /** Vista para el navegador: sin nada que no deba ver (hoy no hay secretos
  * en el registro, pero el contrato es explicito). */
 export function publicChat(chat: ChatRecord, withMessages: boolean) {
+  const messages = withMessages ? chat.messages.map((message) => {
+    if (!message.meta || !Object.hasOwn(message.meta, "tools")) return message;
+    return {
+      ...message,
+      meta: {
+        ...message.meta,
+        tools: Array.isArray(message.meta.tools)
+          ? message.meta.tools.map(publicToolCard).filter((card): card is ToolCard => card !== null)
+          : [],
+      },
+    };
+  }) : undefined;
   return {
     id: chat.id,
     title: chat.title,
@@ -129,9 +154,11 @@ export function publicChat(chat: ChatRecord, withMessages: boolean) {
     created_at: chat.created_at,
     updated_at: chat.updated_at,
     tools_enabled: chat.tools_enabled,
-    session_fp: chat.session_fp,
     message_count: chat.messages.length,
-    ...(withMessages ? { messages: chat.messages } : {}),
+    ...(withMessages ? { session_fp: chat.session_fp } : {}),
+    ...(withMessages ? { draft: chat.draft ?? "" } : {}),
+    ...(withMessages ? { draft_revision: chat.draft_revision ?? 0 } : {}),
+    ...(messages ? { messages } : {}),
   };
 }
 

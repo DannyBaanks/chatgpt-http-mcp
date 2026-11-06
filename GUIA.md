@@ -19,6 +19,40 @@ Salida real del menú instalado, recortada, verificada en una terminal PTY:
 
 **ISyMCP** convierte tu suscripción de ChatGPT en una interfaz de chat local en localhost, un API compatible con OpenAI / Responses, y una herramienta MCP para tus agentes de código (Codex, Claude Code, Cursor, OpenCode, Copilot CLI, Hermes, OpenClaw, Pi, Gemini).
 
+## Panel de chat, Evidencia y Actividad
+
+En el panel, **Conversación** es la vista inicial. Usa **Nuevo chat** para crear
+una conversación; escribir en el compositor antes de tener un chat conserva el
+borrador en esta pestaña y no crea chats por sí solo. Cada conversación tiene
+su propio borrador: se guarda automáticamente, vuelve al cambiar de chat y se
+restaura tras recargar. Un envío correcto limpia el texto enviado; un error o
+texto escrito durante el envío se conserva.
+
+Las pestañas muestran información distinta del mismo chat:
+
+- **Conversación:** historial y respuesta en vivo de ChatGPT.
+- **Evidencia:** comprobantes MCP guardados, con filtros de todas, fallidas y
+  completadas; “Ir al mensaje propietario” abre el mensaje asociado. Los
+  comprobantes se proyectan desde el historial local del chat (hasta 200
+  mensajes). No guardan stdout ni stderr; la vista no los reconstruye.
+- **Actividad:** disponibilidad actual del bridge, fase y herramientas del chat
+  seleccionado. Si el único turno activo pertenece a otro chat, se indica sin
+  atribuirle esa fase al chat abierto.
+
+El lateral abre el historial, sesiones de trabajo, Actividad y Ajustes; el
+control inferior permite abrir Estado. En pantallas angostas, Chat, Sesiones y
+Ajustes usan cajones que se cierran con **Escape** y devuelven el foco al
+control que los abrió. Elegir una sesión la asocia al chat actual aunque las
+tools sigan apagadas. Para permitir ejecuciones, enciende **Codex ISyMCP** de
+forma explícita y revisa el alcance de la carpeta seleccionada.
+
+La respuesta muestra el Blossom monocromático local junto a la etiqueta
+ChatGPT; ISyMCP sigue siendo la marca del panel. La procedencia y el uso del
+archivo están en [`assets/README.md`](assets/README.md). El E2E reproducible del panel
+usa un bridge sintético y marca claramente sus comprobantes de prueba. No
+equivale a un turno autenticado contra ChatGPT: ese canario real queda
+**NOT_DEMONSTRATED** en el [registro de verificación](docs/verification/2026-10-15-panel-chat-views.md).
+
 ---
 
 ## 1. Requisitos Previos
@@ -356,7 +390,7 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 
 1. **Tokens de Sesión para Herramientas:**
    ```bash
-   # Crear token de solo lectura (por defecto, 7 días de validez)
+   # Crear token de solo lectura (por defecto, 24 horas de validez)
    isymcp session mint --cwd ~/mi-proyecto
 
    # Crear token con permisos de escritura en la carpeta
@@ -370,7 +404,34 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 2. **Confinamiento:**
    - La raíz del sistema y el `$HOME` del usuario quedan ocultos y montados en modo solo lectura.
    - La red dentro del contenedor está deshabilitada por defecto (activable con `CODEX_WEB_HTTP_SANDBOX_NET=1`).
+   - `/run`, `/var/run` y `/var/log` quedan tapados (desde 2026-10-28). Ahí viven los sockets de D-Bus,
+     systemd y Docker: sin red no basta, porque un socket Unix no es red. Antes de esto un comando de la
+     burbuja podía correr `systemd-run --user` (fuera del sandbox) o hablar con Docker (root).
    - El bridge escucha **únicamente** en la interfaz loopback `127.0.0.1`.
+
+3. **Token local del bridge — obligatorio desde 2026-10-30:**
+   Todas las rutas (`/v1/*`, `/isymcp/*`, `/health`, `/metrics`) y el websocket exigen
+   `x-isymcp-token`. Si no defines `CODEX_WEB_HTTP_TOKEN`, el primer arranque crea
+   `<home del bridge>/token` (por defecto `~/.codex-web-http/token`) con permisos `0600`
+   y lo reutiliza en los siguientes arranques. El panel, el MCP, el canario, `isymcp codex`
+   y la CLI lo leen solos: no hay que configurar nada. Salida real (2026-10-30, home temporal):
+
+   ```console
+   $ curl -i http://127.0.0.1:48991/health
+   HTTP/1.1 401 Unauthorized
+   {"error":{"type":"unauthorized","message":"falta o es invalido x-isymcp-token (CODEX_WEB_HTTP_TOKEN)"}}
+
+   $ ls -l /tmp/tmp.WdtpZ3xwaL/token
+   -rw------- 1 danny danny 44 oct 30 20:55 /tmp/tmp.WdtpZ3xwaL/token
+
+   $ curl -s -H "x-isymcp-token: $(tr -d '\n' < /tmp/tmp.WdtpZ3xwaL/token)" http://127.0.0.1:48991/health
+   {"status":"ok","uptime_seconds":1,"upstream":"https://chatgpt.com/backend-api/codex","web_models":"on",...}
+   ```
+
+   `CODEX_WEB_HTTP_TOKEN`, si está definida, tiene prioridad y no se toca el disco. Si el
+   archivo no se puede crear o leer, el bridge **no arranca**: falla cerrado en vez de quedar
+   abierto. El token de sesión de las herramientas `codex_*` (`isymcp session mint`) es otro
+   mecanismo y no cambia.
 
 ---
 
@@ -378,10 +439,105 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 
 | Problema | Causa Posible | Solución |
 |---|---|---|
-| **Error 401 en `/health` o `/api/*`** | Variable `CODEX_WEB_HTTP_TOKEN` configurada sin enviar cabecera `Authorization` | Ejecuta `isymcp health` (maneja la auth automáticamente) o exporta tu token. |
+| **Error 401 en `/health` o `/api/*`** | Falta la cabecera `x-isymcp-token` o el token no coincide | Ejecuta `isymcp health` (lee el token solo) o manda `x-isymcp-token` con el valor de `~/.codex-web-http/token` o `CODEX_WEB_HTTP_TOKEN`. |
 | **Error `web_session_expired`** | Las cookies de chatgpt.com caducaron | Vuelve a ejecutar `bun run scripts/import-cookies.ts --file cookie.txt`. |
 | **Error `upstream_unreachable`** | Corte de conexión hacia OpenAI | Verifica tu conexión a internet o el estado de ChatGPT. |
 | **Túnel desconectado** | ChatGPT no puede llamar herramientas | Ejecuta `isymcp tunnel connect` o reactívalo desde el Panel. |
+
+## Tablero: el modelo como tu mano derecha (2026-10-28)
+
+### El comando
+
+```bash
+isymcp tablero status
+```
+
+Con esto ChatGPT (desde la computadora **o el celular**, con el MCP prendido) administra tu Tablero de
+coordinación de agentes y abre consolas de agentes para que trabajen tareas. **Solo** dentro del Tablero y
+**solo** las consolas que tú declaraste.
+
+### Regla de oro
+
+**Lo que se puede lanzar lo decides tú en `~/.codex-web-http/tablero.json`, nunca el modelo.**
+Viene apagado. Lanzar una consola con un prompt equivale a ejecutar código, así que el modelo solo elige
+*qué agente* y *qué tarea*: el comando y el prompt son fijos.
+
+### Encenderlo (salida real)
+
+```
+$ isymcp tablero init
+plantilla creada (apagada, 0600): /home/<tú>/.codex-web-http/tablero.json
+Edita tableroDir, allowedRoots y launchers; luego: isymcp tablero on
+```
+
+Ejemplo de `tablero.json` (rutas absolutas; `{prompt}` es el único hueco permitido):
+
+```json
+{
+  "enabled": false,
+  "tableroDir": "/home/<tú>/Development/ISyCo/workspace/agents/chat_sandbox",
+  "identity": "gpt_mano_derecha",
+  "allowedRoots": ["/home/<tú>/Development/ISyCo"],
+  "maxLive": 2,
+  "maxPerHour": 6,
+  "launchers": {
+    "agy":    { "argv": ["/home/<tú>/.local/bin/agy-limited", "-i", "{prompt}"], "cwd": "/home/<tú>/Development/ISyCo" },
+    "claude": { "argv": ["/home/<tú>/.local/bin/claude", "{prompt}"], "cwd": "/home/<tú>/Development/ISyCo" },
+    "codex":  { "argv": ["/home/<tú>/.local/bin/codex", "{prompt}"], "cwd": "/home/<tú>/Development/ISyCo" }
+  }
+}
+```
+
+```
+$ isymcp tablero status
+ENCENDIDO · identidad gpt_mano_derecha · .../tablero.json
+límites: 2 consolas vivas, 6 lanzamientos/hora
+  agy: /home/danny/.local/bin/agy-limited -i {prompt}  (cwd /home/danny/Development/ISyCo)
+  claude: /home/danny/.local/bin/claude {prompt}  (cwd /home/danny/Development/ISyCo)
+consolas vivas: ninguna
+```
+
+Apagar al instante (las tools responden `tablero_disabled` desde la siguiente llamada, sin reiniciar):
+`isymcp tablero off`. Cerrar todas las consolas lanzadas: `isymcp tablero stop`.
+
+### Qué le dices a ChatGPT
+
+*"Haz una tarea en el Tablero para acabar PITON y lanza agy a trabajarla."* Usa:
+
+| Tool | Hace |
+|---|---|
+| `tablero_leer` | tareas abiertas, posts, bridge, quién está activo, consolas (con `hilo=<id>`: un hilo completo) |
+| `tablero_publicar` | post o comentario, firmado `gpt_mano_derecha` |
+| `tablero_tarea` | abre una tarea; **solo estas se pueden lanzar** |
+| `tablero_estado` | cierra (`CERRADA`) o reabre (`ABIERTA`) a tu nombre |
+| `tablero_lanzar` | abre la consola del agente para esa tarea (`dry_run=true` muestra el comando exacto) |
+| `tablero_consolas` / `tablero_detener` | ver / cerrar consolas |
+
+Ver una consola: `tmux -L isymcp-tablero attach -t tab-<agente>-<tarea>` (salir sin cerrarla: Ctrl+B, D).
+
+### Cómo leer los errores
+
+| `error_code` | Significa | Qué hacer |
+|---|---|---|
+| `tablero_not_configured` / `tablero_disabled` | no hay `tablero.json` / está apagado | `isymcp tablero init` / `on` |
+| `tablero_config_invalid` | algo del archivo no pasa (el mensaje dice qué) | corrígelo; `isymcp tablero status` lo revalida |
+| `tablero_task_not_launchable` | la tarea no la creó el modelo con `tablero_tarea` | que cree una tarea propia que la describa |
+| `tablero_task_tampered` | la tarea cambió en el archivo después de crearse | no se lanza: revisa quién la editó |
+| `tablero_wrong_agent` | la tarea es para otro agente | lanza el correcto o crea otra tarea |
+| `tablero_limit_live` / `tablero_limit_rate` | demasiadas consolas / lanzamientos en la última hora | `tablero_detener` o espera |
+
+### Trampas
+
+1. **Un post en el Tablero no es una orden.** Lo escriben agentes que leyeron webs y repos. Por eso solo se
+   lanzan tareas creadas por el modelo en *tu* chat, y su SHA-256 queda en `tablero-ledger.json`: una
+   tarea escrita por otro agente (aunque firme como `danny`) o editada después, no se lanza.
+2. **No pongas flags que apaguen permisos** en `argv` (`--dangerously-skip-permissions`, `--yolo`, `--auto`,
+   `danger-full-access`, `never`...): el archivo se rechaza entero. La consola debe pedir permisos como siempre.
+3. **La consola no hereda tus tokens:** corre con `env -i` y solo pasan `HOME`, `PATH`, idioma, terminal y
+   la sesión gráfica/D-Bus (las necesita `agy-limited`). Nada que se llame `*TOKEN*`, `*API_KEY*`, `CODEX_WEB_HTTP_*`.
+4. **El modelo firma como sí mismo** (`gpt_mano_derecha`), nunca como tú: en el Tablero siempre sabes quién fue.
+5. **Solo en tus turnos.** ChatGPT actúa cuando tú le escribes; no lo pongas a reaccionar solo a lo que aparece
+   en el Tablero (eso es el caso `CONDITIONAL` del dictamen de cumplimiento).
 
 ## Medios locales: audio y video (2026-10-09)
 
@@ -497,6 +653,41 @@ En ChatGPT, selecciona **Codex ISyMCP** y pide primero `media_lookup(url)`. Si a
 
 Codex ISyMCP es un servidor de herramientas; la respuesta en lenguaje natural la genera el modelo de ChatGPT. Las herramientas de medios se invocan directamente y no necesitan `turn_token`. Las herramientas `codex_*` sí requieren un token de sesión válido: créalo con `isymcp session mint --cwd <directorio>` y pega el `turn_token` junto con `COMANDO: @CODEX ISYMCP`. `codex_turn_start` no crea ese token. Un token inventado o desconocido solo recibe un recibo de compatibilidad y no ejecuta comandos; `codex_tool_inventory` en ese modo responde `tools: []` con la razón, en vez de anunciar herramientas que no corren.
 
+## Generación de imágenes local con ComfyUI
+
+ISyMCP puede enviar a ComfyUI un workflow exportado en formato **API**, con los campos que tú declares como configurables. Solo procesa workflows que registres explícitamente. ComfyUI debe estar ejecutándose en el mismo equipo; por defecto ISyMCP usa `http://127.0.0.1:8188`.
+
+Primero exporta el workflow desde ComfyUI en formato API. Añade declaraciones de entrada al JSON exportado; los IDs y nombres de campos deben existir en el grafo. Ejemplo de las declaraciones que se agregan al objeto raíz:
+
+```json
+"inputs": {
+  "prompt": { "node_id": "6", "field": "text", "type": "string", "required": true },
+  "seed": { "node_id": "3", "field": "seed", "type": "integer", "min": 0, "max": 4294967295, "default": 123 }
+}
+```
+
+Se aceptan entradas `string`, `number`, `integer`, `boolean` y `enum`; también `required`, `default`, rangos `min`/`max` y opciones para `enum`. Solo los campos declarados pueden cambiar durante una llamada. Guarda el bundle como JSON y regístralo:
+
+```bash
+bun src/isymcp.ts comfy workflow add ./workflow-isymcp.json
+bun src/isymcp.ts comfy workflow list
+bun src/isymcp.ts comfy status
+```
+
+`comfy status` solo comprueba la instancia; no la inicia. Si está en otro puerto loopback, define `ISYMCP_COMFYUI_URL=http://127.0.0.1:<puerto>`. La dirección solo puede ser loopback HTTP/HTTPS. Workflows, trabajos e imágenes se guardan de forma privada en `~/.local/state/isymcp/comfyui`; para usar otro catálogo configura `ISYMCP_COMFYUI_HOME` en el proceso MCP y en la CLI.
+
+En ChatGPT, actualiza/reconecta **Codex ISyMCP** para cargar las tools y pide una imagen usando el workflow registrado. El ciclo es `comfyui_workflows` → `comfyui_generate(workflow_id, inputs)` → `comfyui_job_status(job_id)` hasta `completed` → `creative_asset_get(asset_id)`. También existen `comfyui_status` y `comfyui_job_status`; las tools de imagen funcionan sin `turn_token`. `src/mcp/media.ts` ofrece estas tools por separado.
+
+Una generación completada devuelve la imagen del catálogo local mediante un ID opaco, SHA-256 y vista previa MCP. El archivo no se expone por ruta; se valida el tipo y la firma del contenido. El límite del artefacto es 100 MiB y se devuelve una vista previa MCP de hasta 1 MiB. La instancia local de ComfyUI recibe el prompt y los parámetros declarados; la imagen solicitada sí se entrega al cliente MCP.
+
+Pruebas locales con servidor ComfyUI simulado: **PASS** para registro, validación de entradas, generación, consulta y recuperación de una imagen. Rechazo de destinos no locales: **PASS**. La prueba con una instancia real de ComfyUI y una llamada desde ChatGPT aún está **NOT_DEMONSTRATED**; no avances al siguiente milestone de integración hasta confirmar una generación real desde ISyMCP.
+
+En ChatGPT, con ComfyUI encendido y el workflow registrado, pega algo como:
+
+> Usa `comfyui_workflows` para elegir el workflow de imagen. Genera una imagen con prompt "un zorro mecánico bajo lluvia azul" y seed 123. Espera con `comfyui_job_status` hasta que termine y muestra la imagen con `creative_asset_get`. Informa el ID y hash del artefacto.
+
+Si `comfyui_status` indica `available: false`, inicia ComfyUI y revisa su dirección. Si el trabajo termina sin imagen, falla con `comfyui_no_image_output`; si indica error de ejecución, revisa nodos, modelos y conexión en ComfyUI. Conserva el ID/hash devuelto y confirma aquí que la imagen apareció en ChatGPT; esa confirmación cierra el milestone de uso real.
+
 ## Las ocho herramientas codex_* (completas)
 
 **Evidencia histórica de 2026-10-10:** las ocho herramientas `codex_*` se probaron con un token válido dentro de bwrap en Linux. Esta rama añade Docker y Codex CLI sandbox para Windows; ambos recorridos en Windows son **NOT_DEMONSTRATED** hasta que CI y una ejecución local confirmen el comportamiento. [Evidencia y límites](docs/verification/2026-10-10-native-mcp-live.md).
@@ -593,11 +784,76 @@ El archivo contiene video 720×720 y audio estéreo a 48 kHz, duración 18.521 s
 |---|---|
 | `running` | Consulta `media_import_status`; todavía no hay un resultado para analizar |
 | `complete` | Usa `asset.id`; el archivo ya está registrado con SHA-256 |
-| `failed` | Informa el error; no afirmes haber visto ni escuchado el video |
+| `failed` | Informa `error_code` y `message`; no afirmes haber visto ni escuchado el video |
 | Unknown import job | El servidor pudo reiniciarse o el estado salir del historial de 50 trabajos; busca el archivo en `media_list` |
 | Media worker busy | Espera; descarga y análisis comparten un trabajador |
 
 Primera versión: videos individuales públicos de YouTube y Shorts, HTTPS, hasta 30 minutos y 500 MiB. No importa playlists, transmisiones en vivo, sitios arbitrarios ni archivos de redes privadas. Plazo de descarga/validación: 180 segundos; consultas de estado pueden esperar hasta 10 segundos; las consultas normales de análisis tienen 60 segundos y audio_scan tiene 300 segundos. Las ventanas de análisis de audio admiten hasta 120 segundos; audio_scan recorre la pista completa en bloques de hasta 120 segundos. Resolución solicitada de video hasta 720p. Si YouTube exige iniciar sesión o bloquea el enlace, el trabajo falla explícitamente: no usa cookies del navegador.
+
+## Media y YouTube
+
+Desde 2026-10-16 cada fallo de importación trae un **código estable** (`error_code`) y un mensaje accionable. `media_import_status` (con `state: failed`) y `media_lookup` lo devuelven dentro de su JSON. El importador nunca propaga el `stderr` crudo de `yt-dlp`: puede traer URLs firmadas, cookies o rutas locales; solo viaja un detalle saneado y recortado.
+
+| `error_code` | Qué significa | Qué hacer |
+|---|---|---|
+| `media_youtube_bot_wall` | YouTube pide confirmar que no eres un bot | Reintenta en unos minutos; se usa el cliente web incrustado, sin cookies |
+| `media_youtube_login_required` | El vídeo exige sesión iniciada | Prueba otro enlace público; el import es sin cookies por política |
+| `media_rate_limited` | YouTube limitó las descargas (HTTP 429) | Espera unos minutos y evita ráfagas |
+| `media_source_unavailable` | Vídeo privado, borrado o restringido | Verifica que el enlace siga siendo público |
+| `media_geo_blocked` | No disponible en esta región | Sin solución local; usa otro enlace |
+| `media_format_unavailable` | Sin formato descargable compatible | Actualiza `yt-dlp` y reintenta |
+| `media_tool_missing` | Falta `yt-dlp` o `ffmpeg` | Instálalo; `isymcp doctor` lo reporta |
+| `media_network_offline` | Sin red o fallo de DNS | Revisa la conexión |
+| `media_too_large` / `media_too_long` | Excede 500 MiB / 30 minutos | Usa un vídeo más corto o ligero |
+| `media_identity_mismatch` | La identidad descargada no coincide con el enlace | Reintenta con `watch?v=...`; no se exportó nada |
+| `media_timeout` | Superó el tiempo límite | Vídeo más corto o mejor conexión |
+| `media_workspace_error` | Directorio o disco no disponible | Libera espacio y revisa permisos |
+| `media_prepare_failed` | Falló la preparación (audio/hojas) | El origen verificado se conserva: reintenta con la misma URL |
+| `media_catalog_unavailable` | Catálogo no disponible u offset inválido | Revisa el directorio de medios |
+| `media_invalid_url` | No es una URL pública HTTPS de vídeo/Short | Usa `watch?v=<id>` o un Short individual |
+| `media_lookup_failed` | No se pudo verificar fuente o integridad | Vuelve a registrar/preparar |
+| `media_asset_changed` | Los bytes cambiaron o el asset fue revocado | Vuelve a registrar el archivo |
+| `media_invalid_request` | Petición inválida (p. ej. `sheet_index`) | Revisa los parámetros |
+| `media_busy` | Otra consulta de medios en curso | Espera y reintenta |
+| `media_download_unknown` / `media_unknown` | Causa no clasificada | Reintenta; mira `isymcp doctor --json` |
+
+### Diagnóstico local: `isymcp doctor`
+
+```bash
+isymcp doctor          # binarios y versiones, navegador, sandbox, disco, catálogo y último fallo de media
+isymcp doctor --json   # el mismo reporte en JSON (incluye error_code y su remedio)
+isymcp doctor --explain  # opt-in: añade una explicación con un modelo local
+```
+
+`doctor` es **determinista y offline**: no usa red ni modelo. Complementa a `isymcp health` (que mira servicios vivos): `doctor` mira el entorno local y el último fallo de media, y propone un remedio con un comando sugerido. Sale con código 1 si algún chequeo falla.
+
+Cada llamada a las tools de medios queda registrada en `mcp-trace.log` (eventos `call` y `tool.result` con `tool`, `call_id`, `ok`, `error_code`). Como las tools de medios no piden `turn_token`, esos eventos no aparecen en la vista por sesión (que filtra por huella de token), pero sí son evidencia local en disco.
+
+`--explain` es opcional y **no ejecuta nada** de lo que proponga el modelo: solo imprime texto. El prompt sale **saneado** (sin rutas, URLs ni tokens) y recortado. Para habilitarlo, exporta el comando del motor local que recibe el prompt por `stdin`:
+
+```bash
+ISYMCP_EXPLAIN_CMD="ollama run llama3.2" isymcp doctor --explain
+```
+
+Sin `ISYMCP_EXPLAIN_CMD` el doctor informa que no hay motor y siguen mandando los remedios deterministas.
+
+`--fix` es todavía más acotado: solo existe una whitelist explícita (hoy `media-home`, que crea el directorio de estado si falta y **no borra nada**). Sin `--apply` solo muestra el plan:
+
+```bash
+isymcp doctor --fix media-home            # dry-run: muestra el plan, no toca nada
+isymcp doctor --fix media-home --apply    # ejecuta solo esa acción whitelisted
+```
+
+Cualquier otra acción se rechaza con un error claro (`accion no permitida` junto con la lista de permitidas) y el comando sale con código 1 sin tocar el sistema.
+
+### De una explicación nueva a una firma estable
+
+Cuando aparece un fallo nuevo de `yt-dlp`, el camino para convertirlo en algo permanente es corto y siempre pasa por una prueba:
+
+1. El modelo (`doctor --explain`) o el operador describe el `stderr` nuevo.
+2. Ese patrón se convierte en una firma en `src/media/ytdlp-signatures.ts` (un patrón con su código `media_*`).
+3. La firma se mapea a un remedio en `src/doctor-rules.ts`.
+4. `bun test tests/media-ytdlp-signatures.test.ts tests/doctor-rules.test.ts` exige la cobertura 1:1: un código sin regla rompe el test y no se puede mergear.
 
 Reutiliza yt-dlp instalado por Video Vision en `~/.oamaestro/bin/yt-dlp`, o el ejecutable de PATH. `ISYMCP_YTDLP_BIN` permite seleccionar otro ejecutable instalado. No instala ni actualiza automáticamente software; mantiene desactivadas la configuración, los plugins y la caché del descargador. Video Vision sigue proporcionando los fotogramas.
 
@@ -708,3 +964,17 @@ Si la etapa automatizada muestra «Verifique que es un ser humano», completa t�
 El intento visible posterior confirmó que el host conectado a Chrome vuelve a mostrar el reto «Verify you are human». El usuario indicó que sigue bloqueado; no se envió ningún compose desde ese intento. `browser_ready_auth_unverified` solo describe el arranque del proceso y no confirma que ChatGPT esté disponible. `NOT_DEMONSTRATED`: invocación real del complemento desde este host y respuesta nativa en el mismo turno. Si el reto aparece, completa la verificación manualmente en esa ventana; el controlador ahora debe informar `visible_challenge_requires_human` antes de tocar el chat. No intentes resolverlo con automatización.
 
 El host de esta etapa inicia Chrome normal dentro del perfil aislado y se conecta únicamente al endpoint CDP loopback creado por ese proceso. Al cerrarlo, solicita primero `Browser.close` al mismo Chrome; esto evita dejar el perfil marcado como cierre inesperado. El cierre ordenado tiene pruebas de controlador, pero aún no se ha confirmado en una sesión real después de este cambio. Prueba focalizada: `bun test tests/visible-browser-host.test.ts tests/visible-driver.test.ts` — 10 aprobadas, 0 fallidas. Informe: `docs/verification/2026-10-14-visible-chrome-blocker.md`.
+
+## Estabilidad de la suite y auditoría de dependencias (2026-10-31)
+
+La suite completa (`bun test`) queda en **705 pruebas aprobadas, 3 omitidas y 0 fallidas en 107 archivos**. Las 3 omitidas son pruebas opt-in de Windows y Video Vision, no fallos. Se ejecutaron tres corridas completas consecutivas bajo carga controlada de CPU (load average 9.9–11.3): 91.73 s, 98.50 s y 91.12 s, todas con exit 0. Los tests de integración que lanzan FFmpeg, Chrome o CLIs ahora declaran presupuestos explícitos de 30–90 s; el presupuesto global por defecto sigue en 5 s para los tests unitarios.
+
+Dependencias: `@modelcontextprotocol/sdk` subió de 1.30.0 a 1.32.2 y `bun audit` ya no reporta vulnerabilidades (antes: 14, de ellas 6 altas) en 116 paquetes. `bun run typecheck` termina sin errores. Para reportar un problema de seguridad, usa el reporte privado de GitHub descrito en `SECURITY.md`; no publiques tokens, cookies ni datos de tu cuenta en un issue público. Evidencia: `docs/verification/2026-10-31-suite-stability-and-dependency-audit.md`.
+
+## Release 1.0.0 y congelación del navegador nativo (2026-10-31)
+
+La versión estable 1.0.0 consolida el token obligatorio del bridge, el freno fail-closed ante bloqueos de OpenAI, el socket privado del broker, la suite estabilizada y las dependencias sin vulnerabilidades conocidas al momento de publicar. El propietario aceptó el dictamen de cumplimiento (`docs/compliance/FINAL_VERDICT.md`) y **congeló el navegador nativo autónomo**: `isymcp ask --browser native` y los entrypoints del panel siguen devolviendo `503 native_browser_unavailable`; no se reintenta una operación tras un bloqueo de OpenAI ni se harán pruebas remotas nuevas sin un adaptador de propietario autorizado. La automatización de la interfaz web sigue vetada. Usa el chat operado por ti, la MCP Custom App condicionada a la autorización humana o Codex CLI con proveedor local y sandbox. Decisión: `docs/verification/2026-10-31-native-browser-frozen.md`. Notas del release: `docs/releases/v1.0.0.md`.
+
+## Release 1.0.1 (parche de diagnóstico) (2026-10-31)
+
+1.0.1 es un parche sobre 1.0.0 con un solo cambio, de diagnóstico: `isymcp doctor` dejaba de marcar un fallo de media obsoleto. Antes, el chequeo del "último fallo" leía el job fallido más reciente aunque después hubiera importes completados, así que dos fallos históricos (anteriores a los códigos de error estables) aparecían siempre como `media_unknown`, y el remedio "reintenta" no los podía limpiar porque un reintento exitoso escribe un job nuevo y deja intacto el viejo. Ahora el fallo solo se reporta si es la actividad más reciente; un catálogo recuperado muestra `ok · sin fallos registrados`. **La evidencia cruda no se toca: ningún `job.json` se borra ni se reescribe, solo cambia la interpretación del doctor.** El puente, las tools MCP, el sandbox y el navegador nativo congelado quedan igual que en 1.0.0. Suite: 706 pass / 3 skip / 0 fail. Registro: `docs/verification/2026-10-31-v1.0.1-doctor-fix.md`. Notas: `docs/releases/v1.0.1.md`.

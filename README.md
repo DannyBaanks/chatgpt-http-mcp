@@ -8,13 +8,13 @@
 Scoped tools · Native Codex CLI integration · Verifiable execution receipts · Bun on Linux & Windows
 
 [![CI](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DannyBaanks/chatgpt-http-mcp/actions/workflows/ci.yml)
-[![Release candidate](https://img.shields.io/github/v/release/DannyBaanks/chatgpt-http-mcp?include_prereleases&label=prerelease)](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2)
-[![Recorded tests](https://img.shields.io/badge/recorded%20suite-545%20pass%20%7C%201%20skip-informational)](docs/verification/2026-10-14-visible-two-way-pass.md)
+[![Latest release](https://img.shields.io/github/v/release/DannyBaanks/chatgpt-http-mcp?label=release)](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.1)
+[![Recorded tests](https://img.shields.io/badge/recorded%20suite-706%20pass%20%7C%203%20skip-informational)](docs/verification/2026-10-31-v1.0.1-doctor-fix.md)
 [![License MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Bun 1.4.2](https://img.shields.io/badge/runtime-Bun%201.4.2-222)
 ![Experimental](https://img.shields.io/badge/status-experimental-orange)
 
-**[Download rc.2](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2)** · **[Guía en español](GUIA.md)** · **[Quickstart](#quickstart)** · **[Security & limitations](#limitations--risks--read-before-using)**
+**[Download 1.0.1](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.1)** · **[Guía en español](GUIA.md)** · **[Quickstart](#quickstart)** · **[Security & limitations](#limitations--risks--read-before-using)**
 
 <img src="docs/images/chat-tools.png" alt="ISyMCP demo panel with tool execution receipts and success/failure cards" width="900">
 
@@ -31,7 +31,7 @@ Scoped tools · Native Codex CLI integration · Verifiable execution receipts ·
 
 | I want to… | Go to |
 |---|---|
-| Download a versioned source package | [v1.0.0-rc.2 release](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2) |
+| Download a versioned source package | [v1.0.1 release](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.1) |
 | Set up ISyMCP on Linux | [Quickstart](#quickstart) · [Spanish guide](GUIA.md) |
 | Set up ISyMCP on Windows | [Windows guide](docs/WINDOWS.md) |
 | See what was actually tested | [Verification records](docs/EVIDENCE.md) |
@@ -41,9 +41,9 @@ Scoped tools · Native Codex CLI integration · Verifiable execution receipts ·
 
 ### Releases & downloads
 
-**Current published candidate: `v1.0.0-rc.2` (October 14, 2026).** [Release notes & assets](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.0-rc.2) · [All releases](https://github.com/DannyBaanks/chatgpt-http-mcp/releases) · [Tags](https://github.com/DannyBaanks/chatgpt-http-mcp/tags).
+**Current published release: `v1.0.1` (October 31, 2026).** [Release notes & assets](https://github.com/DannyBaanks/chatgpt-http-mcp/releases/tag/v1.0.1) · [All releases](https://github.com/DannyBaanks/chatgpt-http-mcp/releases) · [Tags](https://github.com/DannyBaanks/chatgpt-http-mcp/tags).
 
-Download `isymcp-v1.0.0-rc.2.tar.gz` or `.zip`, plus `SHA256SUMS`, from the release. **They are source archives, not standalone binaries.** Bun is required. The release workflow publishes only after CI succeeds against the tagged commit; existing tags are not moved. See [release maintenance](docs/RELEASING.md).
+Download `isymcp-v1.0.1.tar.gz` or `.zip`, plus `SHA256SUMS`, from the release. **They are source archives, not standalone binaries.** Bun is required. The release workflow publishes only after CI succeeds against the tagged commit; existing tags are not moved. See [release maintenance](docs/RELEASING.md).
 
 > [!NOTE]
 > Why no green **Latest** badge? GitHub excludes prereleases (`-rc.*`) from its stable `/releases/latest` endpoint. The version **is tagged and released**; it is simply not marked stable yet.
@@ -54,6 +54,8 @@ Download `isymcp-v1.0.0-rc.2.tar.gz` or `.zip`, plus `SHA256SUMS`, from the rele
 
 ### 💬 A real chat, on localhost with Live Thinking Stream
 `isymcp panel` opens a chat at **http://127.0.0.1:8798**. Each chat in the sidebar is its **own real ChatGPT conversation**, and you watch the answer **while ChatGPT is still writing it**: lists, code blocks, links, and animated, collapsible thought/reasoning boxes in real time.
+
+The chat panel has three working views over the same conversation: **Conversación** for messages, **Evidencia** for saved tool receipts with filters and links to the owning message, and **Actividad** for the current bridge/chat status. The narrow left rail opens recent chats, session selection, activity, settings and host status; the drawers support Escape and return keyboard focus. Drafts save per chat and return after switching or reloading. The assistant avatar is a small local OpenAI Blossom asset; ISyMCP remains the product identity. Evidence cards show only fields retained in the receipt, so they do not invent or reconstruct stdout/stderr. See the [operator guide](GUIA.md#panel-de-chat-evidencia-y-actividad) and [browser verification record](docs/verification/2026-10-15-panel-chat-views.md).
 
 <img src="docs/images/chat-live.png" alt="Live answer streaming with a blinking cursor and a running tool card" width="900">
 
@@ -188,6 +190,19 @@ isymcp codex launcher                              # installs ~/.local/bin/codex
 isymcp smoke                                       # automated end-to-end sanity verification
 ```
 
+**Native Codex browser — frozen for 1.0.0.** `isymcp native-browser status --json`
+reports both integrated-browser execution modes as blocked;
+`isymcp native-browser probe --json` inspects the installed Codex protocol without
+starting a model or changing configuration (exit 2 while unverified).
+`isymcp ask "hello" --browser native` fails explicitly with
+`503 native_browser_unavailable` rather than sending the message through the
+existing Chrome adapter. The native owner, autonomous browser adapter and
+two-pair E2E are not implemented. The owner froze this line for 1.0.0 after a
+reported OpenAI safety block: no remote retries are performed, and it will only
+be revisited if a documented, authorized owner/browser adapter becomes
+available. See the [decision record](docs/verification/2026-10-31-native-browser-frozen.md)
+and the [capability matrix and evidence](docs/verification/2026-10-23-native-browser-gate.md).
+
 **Model and reasoning (experimental Web transport).** The browser adapter attempts to use whichever model and reasoning settings are available in the signed-in UI; availability and labels can change. In the chat's side panel, **Verificar** shows what ISyMCP sees (for example `GPT-5.6 Sol · High (3/3)`). **Sincronizar ajustes** opens a visible Chrome with your session: you set the model and reasoning by hand, close the window, and that becomes the bridge's default.
 
 *Note on Reasoning Traces vs Internal CoT:* The captured thinking (`reasoning_content` in API / thought boxes in the panel) represents the **visible summary and UI-rendered thoughts** exposed by ChatGPT Web's DOM. Capturing this DOM presentation is NOT equivalent to obtaining the model's full, raw latent internal Chain-of-Thought tokens. We document and stream strictly what is visibly presented on screen.
@@ -275,12 +290,15 @@ Process explicitly registered audio and video locally, then inspect the evidence
 | **One-off public YouTube video, Short or TikTok** | Call `media_import(url)`, poll `media_import_status(job_id, wait_seconds: 10)` until `complete`, and use `asset.id`. TikTok direct URLs and `vt.tiktok.com`/`vm.tiktok.com` share links are accepted. |
 | **Inspect video** | Use `media_info`, `video_contact_sheet` for an overview and `video_frame` for a specific timestamp. |
 | **Inspect audio** | Use `audio_scan` to scan the complete track in chunks of at most 120 seconds, then `audio_analyze` to zoom into a selected waveform, spectrogram or stereo measurement. |
+| **Generate an image locally** | Register a ComfyUI API workflow with `isymcp comfy workflow add <workflow.json>`, then call `comfyui_generate` and retrieve its verified image with `creative_asset_get`. |
 
 For step-by-step commands and the verified ChatGPT prompt, see **[GUIA.md — Medios locales](GUIA.md#medios-locales-audio-y-video-2026-10-09)**.
 
 ### Local execution, entry points & limits
 
-The independent `src/mcp/media.ts` entry point processes only explicitly registered local assets. The main **Codex ISyMCP** entry point exposes the media tools alongside its existing `codex_*` tools; both share `src/media/register.ts`. `media_list` discovers only user-registered assets, paginated in groups of 20. `media_lookup` resolves only a canonical public YouTube URL already in the catalog and never starts work. Codex session authorization and sandbox behavior remain enforced.
+The independent `src/mcp/media.ts` entry point processes only explicitly registered local assets and exposes the local ComfyUI image tools. The main **Codex ISyMCP** entry point exposes the media and ComfyUI tools alongside its existing `codex_*` tools. `media_list` discovers only user-registered assets, paginated in groups of 20. `media_lookup` resolves only a canonical public YouTube URL already in the catalog and never starts work. Codex session authorization and sandbox behavior remain enforced.
+
+ComfyUI workflows are explicitly registered and stored with a SHA-256 under the private ISyMCP state directory. The connector only accepts a loopback ComfyUI endpoint; it validates declared inputs, stores generated image bytes locally, and returns an image preview by opaque asset ID. See the [ComfyUI setup and use guide](GUIA.md#generación-de-imágenes-local-con-comfyui).
 
 Both MCP entry points publish the bundled ISyMCP PNG through `serverInfo.icons` during initialization. ChatGPT or another MCP client may need to reconnect after upgrading the server before it refreshes the icon and tool catalog.
 
@@ -366,6 +384,7 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 | `isymcp canary` / `canary status` | Real turn verification: capture, turn identity, Markdown |
 | `isymcp canary schedule [--apply]` | Daily systemd user timer or Windows Task Scheduler task for regression alerts |
 | `isymcp health` | Live health and diagnostic status of the bridge |
+| `isymcp doctor [--json]` | Offline local diagnostics (binaries, versions, sandbox, disk, last media failure + `error_code` and remedy) |
 | `isymcp metrics [--prom]` | Real-time telemetry (turns, tokens, latencies, memory) or Prometheus format |
 | `isymcp smoke` | Unified E2E verification suite (health, metrics, harnesses, launcher) |
 | `isymcp logs` | Live bridge log viewer and exporter |
@@ -377,14 +396,15 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 - **Local only, for real.** The bridge and the panel bind `127.0.0.1` *and* reject foreign `Host`/`Origin` headers and non-JSON POSTs (protection against CSRF and DNS rebinding).
 - **Token Authentication (`CODEX_WEB_HTTP_TOKEN`):** Required for any non-loopback exposure. Clients must send `Authorization: Bearer <TOKEN>` or `x-isymcp-token`.
 - **Sandbox Isolation.** `bubblewrap` on Linux, Docker Desktop on Windows, and the optional Codex native Windows MXC sandbox hide bridge secrets, deny network by default, and scope writes to the selected workspace. The native Windows MCP E2E is demonstrated in [the Windows guide](docs/WINDOWS.md); Docker-backed Windows execution is not demonstrated here.
-- **Session Tokens.** Tokens expire (7 days by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
+- **Session Tokens.** Tokens expire (24 hours by default) and can be revoked. Only sanitized fingerprints (`sha256[:12]`) are stored in logs and UI.
 - **Platform safety boundaries:** Reported OpenAI blocks must halt the affected operation without bypass. This safeguard is not a blanket claim that every browser path has passed a compliance audit; see [open risks](docs/compliance/FINAL_VERDICT.md).
+- **Vulnerability reporting:** Use [GitHub private vulnerability reporting](SECURITY.md); never paste live tokens, cookies or account data into a public issue.
 
 ---
 
 ## Verification & Testing
 
-- **Full Test Suite:** **545 tests passing, 1 skipped, 0 failed across 81 files** (`bun test`; verified on 2026-10-14).
+- **Full Test Suite:** **706 tests passing, 3 skipped, 0 failed across 107 files** (`bun test`; verified on 2026-10-31). [Record](docs/verification/2026-10-31-v1.0.1-doctor-fix.md).
 - **Two-Way E2E Round Trip:** Documented through separately recorded native-owner and sandbox canaries, including an 18 ms sandbox execution. [Receipts and limits](docs/verification/2026-10-14-visible-two-way-pass.md).
 - **Unified E2E Smoke:** Verified with `isymcp smoke` and `scripts/e2e-all.ts`.
 - **Soak Testing:** 99/100 successful real turns in soak baseline; 9/10 with tool execution inside sandbox.

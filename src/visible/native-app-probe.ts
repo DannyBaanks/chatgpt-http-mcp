@@ -45,8 +45,10 @@ export function readOwnedAppProbeProfile(options: { root: string; configSha256: 
   const text = readFileSync(join(codexHome, "config.toml"), "utf8");
   if (createHash("sha256").update(text).digest("hex") !== options.configSha256) throw Error("native_app_profile_changed");
   const config = Bun.TOML.parse(text) as any, provider = config.model_providers?.[config.model_provider];
-  if (config.model !== options.model || provider?.base_url !== `http://127.0.0.1:${options.port}/v1` || provider.requires_openai_auth !== false) throw Error("native_app_profile_endpoint_mismatch");
-  if (config.model_catalog_json && (!isAbsolute(config.model_catalog_json) || !existsSync(config.model_catalog_json) || !statSync(config.model_catalog_json).isFile())) throw Error("native_app_catalog_missing");
+  if (config.model !== options.model || provider?.base_url !== `http://127.0.0.1:${options.port}/v1` || provider.requires_openai_auth !== false) throw Error(
+    "native_app_profile_endpoint_mismatch");
+  if (config.model_catalog_json && (!isAbsolute(config.model_catalog_json) || !existsSync(config.model_catalog_json) || !statSync(config.model_catalog_json).
+    isFile())) throw Error("native_app_catalog_missing");
   return { root, codexHome, userData, configSha256: options.configSha256 };
 }
 

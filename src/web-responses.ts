@@ -47,7 +47,7 @@ export async function peekWebRequest(req: Request): Promise<WebRequest | null> {
   }
   if (!body || typeof body !== "object" || Array.isArray(body) || !isWebModel(body.model)) return null;
   return {
-    model: body.model,
+    model: body.model as string,
     ...parseResponsesInput(body),
     stream: body.stream === true,
   };

@@ -73,7 +73,7 @@ describe("endpoints de telemetría y salud en el bridge (server.ts)", () => {
 
   test("GET /metrics devuelve OpenMetrics en texto plano", async () => {
     const config = loadConfig();
-    const handler = createHandler(config);
+    const handler = createHandler(config, { requireToken: false });
 
     recordTurn({ durationMs: 150, ok: true, promptTokens: 20, completionTokens: 40 });
 
@@ -87,7 +87,7 @@ describe("endpoints de telemetría y salud en el bridge (server.ts)", () => {
 
   test("GET /api/metrics devuelve JSON estructurado", async () => {
     const config = loadConfig();
-    const handler = createHandler(config);
+    const handler = createHandler(config, { requireToken: false });
 
     recordTurn({ durationMs: 200, ok: true });
 
@@ -101,7 +101,7 @@ describe("endpoints de telemetría y salud en el bridge (server.ts)", () => {
 
   test("GET /api/health y /health devuelven estado de salud completo", async () => {
     const config = loadConfig();
-    const handler = createHandler(config);
+    const handler = createHandler(config, { requireToken: false });
 
     const req = new Request("http://127.0.0.1:8791/api/health", { method: "GET" });
     const res = await handler(req);

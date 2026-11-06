@@ -31,10 +31,11 @@ import { defaultExportPath, exportLines, formatLine, parseBound, readAll, select
 import { MENU, brandHeader, findItem, select, visible, visibleLabels } from "./menu";
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
 import { detectTuis, installIntoOpencode } from "./tui";
-import { bridgeAuthHeaders } from "./local-guard";
+import { bridgeAuthHeaders, bridgeToken } from "./local-guard";
 import { processMatches, stopProcessTree } from "./platform/process";
 import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
 import { installTunnelClient, storeRuntimeKey, storeTunnelId, validateRuntimeKey, validateTunnelId } from "../scripts/install-tunnel";
+import { nativeBrowserCommand, parseBrowserOption, rejectUnavailableBrowser } from "./visible/native-browser";
 
 const ROOT = join(import.meta.dir, "..");
 const PORT = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
@@ -254,7 +255,8 @@ async function askChatGPT(message: string, fresh = false): Promise<boolean> {
       signal: AbortSignal.timeout(15 * 60_000),
     });
     const body = (await res.json().catch(() => null)) as
-      | { ok?: boolean; reply?: { text?: string; meta?: { kind?: string; detail?: string } }; chat?: { conversation_url?: string | null }; error?: { type?: string; message?: string } }
+      | { ok?: boolean; reply?: { text?: string; meta?: { kind?: string; detail?: string } }; chat?: { conversation_url?: string | null }; error?: { type?
+        : string; message?: string } }
       | null;
     clearInterval(poll);
     if (shown && tty) process.stderr.write(`\n${paint("2", "── respuesta final ──")}\n`);
@@ -322,7 +324,8 @@ async function settingsSync(): Promise<void> {
   await ask("Enter cuando termines (guarda y cierra la ventana)… ");
   const done = await bridgeJson("/isymcp/settings/finish", "POST");
   const last = done.body?.last as { saved?: boolean; reason?: string } | null | undefined;
-  console.log(last ? `${last.saved ? "✓ guardado" : "✗ no guardado"}: ${last.reason ?? ""}` : "ventana cerrada; el resultado aparece en unos segundos (isymcp → Ajustes → Verificar)");
+  console.log(last ? `${last.saved ? "✓ guardado" : "✗ no guardado"}: ${last.reason ?? ""}` :
+    "ventana cerrada; el resultado aparece en unos segundos (isymcp → Ajustes → Verificar)");
 }
 
 // ── Confirmaciones del menu ────────────────────────────────────────────────
@@ -441,7 +444,8 @@ function codexSession(sub: string, rest: string[]): void {
     console.log("  COMANDO: @CODEX ISYMCP");
     console.log(`  turn_token: ${record.token}`);
     console.log("  Primero llama codex_turn_start y lee bootstrap.content.");
-    console.log(record.request ? "  Ejecuta la tarea local verificada de request.content y devuelve evidencia real." : "  Solicitud: <escribe aquí tu tarea autorizada>.");
+    console.log(record.request ? "  Ejecuta la tarea local verificada de request.content y devuelve evidencia real." :
+      "  Solicitud: <escribe aquí tu tarea autorizada>.");
     return;
   }
   if (sub === "list") {
@@ -561,11 +565,14 @@ function help(): void {
                              el mismo chat (visible en el panel); --new abre otro.
                              Tambien por stdin: echo hola | isymcp ask
   isymcp up [--no-connector] levanta server (detached) y conecta el tunel;
-                             el server deja elegido el connector Codex ISyMCP
+                             no toca ~/.codex/config.toml. Para enrutarlo ahi:
+                             isymcp models apply, o usa isymcp codex
   isymcp down                para server y tunel
   isymcp server start|stop
   isymcp tunnel setup        abre ajustes de OpenAI, guarda ID/API key y conecta
   isymcp tunnel connect|stop|status
+  isymcp native-browser status|probe [--json] diagnostico del navegador nativo
+  isymcp ask "texto" --browser native seleccion explicita; falla si no esta disponible
   isymcp models              dry-run del perfil Web privado
   isymcp models apply        prepara perfil aislado; no cambia Codex global
   isymcp models restore      restaura solo el perfil Web propio
@@ -580,13 +587,19 @@ function help(): void {
   isymcp command "texto"     texto para pegar en chatgpt.com
   isymcp media prepare      pega una URL, elige carpeta y confirma el paquete
   isymcp media prepare <url> prepara de forma no interactiva y devuelve JSON
+  isymcp comfy workflow add <workflow.json> registra un workflow API local de ComfyUI
+  isymcp comfy workflow list lista los workflows registrados
+  isymcp comfy status         comprueba la instancia local de ComfyUI
+  isymcp tablero status      estado del grupo tablero_* (apagado por defecto)
+  isymcp tablero init|on|off plantilla / encender / apagar al instante
+  isymcp tablero stop        cierra todas las consolas lanzadas desde el Tablero
   isymcp tui list            TUIs detectadas (config dir y/o binario)
   isymcp tui install         dry-run del parche opencode (provider+MCP)
   isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
   isymcp tui install --restore vuelve al backup
   isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] [--request-file TASK.md]
                              crea un session token del MCP (read-only por defecto;
-                             caduca a los 7 dias, --ttl 0 = nunca;
+                             caduca a las 24 h, --ttl 0 = nunca;
                              request-file vincula una tarea local por SHA-256)
   isymcp session list        sesiones vivas (solo fingerprint)
   isymcp session revoke <token|fp>
@@ -599,6 +612,10 @@ function help(): void {
                              instala el MCP isymcp-chatgpt (sin --apply: solo el plan)
   isymcp harness uninstall <ids|--all> [--apply]
   isymcp health              diagnóstico de salud en vivo del bridge y servicios
+  isymcp doctor              diagnóstico local: binarios, sandbox, disco, último fallo de media
+  isymcp doctor --json       el mismo reporte en JSON (códigos de error incluidos)
+  isymcp doctor --explain    añade una explicación con un modelo local (opt-in; no ejecuta nada)
+  isymcp doctor --fix <id> [--apply]  plan (dry-run) o aplica un remedio whitelisted
   isymcp metrics             telemetría en vivo (turnos, tokens, latencias, memoria)
   isymcp metrics --prom      métricas en formato Prometheus / OpenMetrics
   isymcp smoke               batería de pruebas E2E automatizada (health, métricas, harnesses, launcher)
@@ -645,11 +662,14 @@ function logs(args: string[]): void {
   console.log(`lineas: ${saved.count}`);
 }
 
-async function ask(question: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await rl.question(question);
-  rl.close();
-  return answer.trim();
+function ask(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
 }
 
 async function askHidden(question: string): Promise<string> {
@@ -759,6 +779,18 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
   "down": () => { tunnel("stop"); stopServer(); },
   "restart": () => { tunnel("stop"); stopServer(); startServer(); tunnel("connect"); },
   "status": () => status(),
+  "doctor": async () => {
+    const { runDoctor, formatDoctor } = await import("./doctor");
+    const report = runDoctor();
+    console.log(formatDoctor(report));
+    const { explainReport, defaultExplainRunner } = await import("./doctor-explain");
+    const runner = defaultExplainRunner();
+    if (runner) {
+      const text = await explainReport(report, runner);
+      if (text) console.log(`\nexplicacion (modelo local; no se ejecuta nada de lo que proponga)\n  ${text.replace(/\n/g, "\n  ")}`);
+    }
+    if (!report.ok) process.exitCode = 1;
+  },
   "panel-open": () => openPanel(),
   "panel-start": async () => { await startPanelDetached(); },
   "panel-stop": () => stopPanel(),
@@ -817,7 +849,7 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
   },
   "session-mint-write": async () => {
     const cwd = (await ask(`cwd (${process.cwd()}): `)) || process.cwd();
-    if (!(await confirm(`ChatGPT podra ESCRIBIR en ${cwd} (sandbox, 7 dias). ¿Seguro?`))) return;
+    if (!(await confirm(`ChatGPT podra ESCRIBIR en ${cwd} (sandbox, 24 h). ¿Seguro?`))) return;
     const label = await ask("label (ej: mi-proyecto): ");
     await menuSession("mint", ["--cwd", cwd, "--write", ...(label ? ["--label", label] : [])]);
   },
@@ -874,8 +906,67 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await openMenu();
 } else if (!cmd || cmd === "status") {
   await status();
+} else if (cmd === "native-browser") {
+  process.exitCode = await nativeBrowserCommand(sub, rest);
+} else if (cmd === "tablero") {
+  process.exitCode = (await import("./tablero/cli")).tableroCommand(sub ?? "status");
 } else if (cmd === "media") {
-  await (await import("./media/cli")).mediaCommand(sub, rest);
+  try { await (await import("./media/cli")).mediaCommand(sub, rest); }
+  catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "";
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(code ? `✗ ${code}: ${message}` : `✗ ${message}`);
+    process.exitCode = 1;
+  }
+} else if (cmd === "comfy") {
+  try { await (await import("./comfyui/cli")).comfyCommand(sub, rest); }
+  catch (error) {
+    console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
+} else if (cmd === "doctor") {
+  const { runDoctor, formatDoctor, mediaStateHome } = await import("./doctor");
+  const json = sub === "--json" || rest.includes("--json");
+  const explain = sub === "--explain" || rest.includes("--explain");
+  const report = runDoctor();
+  console.log(json ? JSON.stringify(report, null, 2) : formatDoctor(report));
+  if (explain) {
+    const { explainReport, defaultExplainRunner } = await import("./doctor-explain");
+    const runner = defaultExplainRunner();
+    if (!runner) {
+      console.log("\nexplicacion: sin motor configurado (exporta ISYMCP_EXPLAIN_CMD); los remedios de arriba son deterministas.");
+    } else {
+      const text = await explainReport(report, runner);
+      console.log("\nexplicacion (modelo local; no se ejecuta nada de lo que proponga)");
+      console.log(text ? `  ${text.replace(/\n/g, "\n  ")}` : "  sin respuesta del motor; usa los remedios deterministas de arriba.");
+    }
+  }
+  const argv = [sub, ...rest].filter((value): value is string => typeof value === "string");
+  const fixAt = argv.indexOf("--fix");
+  if (fixAt !== -1) {
+    const { applyFix, listFixActions, planFix } = await import("./doctor-fix");
+    const action = argv[fixAt + 1] && !argv[fixAt + 1].startsWith("--") ? argv[fixAt + 1] : "";
+    if (!action) {
+      console.error(`✗ --fix requiere una accion; permitidas: ${listFixActions().join(", ")}`);
+      process.exitCode = 1;
+    } else if (!argv.includes("--apply")) {
+      try {
+        console.log(`\nplan --fix ${action}: ${planFix(action)}\n  (dry-run; añade --apply para ejecutarla)`);
+      } catch (error) {
+        console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+    } else {
+      try {
+        const result = applyFix(action, { mediaHome: mediaStateHome() });
+        console.log(`\n--fix ${action}: ${result.detail}`);
+      } catch (error) {
+        console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+    }
+  }
+  if (!report.ok) process.exitCode = 1;
 } else if (cmd === "tree") {
   console.log(brandHeader());
   for (const label of visibleLabels()) console.log(`  ${label}`);
@@ -919,7 +1010,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   const configPath = flag("--config", rest) ?? join(homedir(), ".config", "opencode", "opencode.json");
   if (!sub || sub === "list") {
     for (const tui of detectTuis(homedir())) {
-      console.log(`${tui.present ? "presente " : "ausente  "}${tui.installable ? "[instalable]" : "            "} ${tui.id} (${tui.label}) ${tui.bin ?? tui.configDir}`);
+      console.log(`${tui.present ? "presente " : "ausente  "}${tui.installable ? "[instalable]" : "            "} ${tui.id} (${tui.label}) ${
+        tui.bin ?? tui.configDir}`);
     }
   } else if (sub === "install") {
     const which = flag("--tui", rest) ?? "opencode";
@@ -961,7 +1053,16 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
     process.exit(2);
   }
 } else if (cmd === "ask") {
-  const args = [sub, ...rest].filter((a): a is string => Boolean(a));
+  let selected: ReturnType<typeof parseBrowserOption>;
+  try { selected = parseBrowserOption([sub, ...rest].filter((a): a is string => Boolean(a))); }
+  catch (error) { console.error(error instanceof Error ? error.message : "browser_selection_invalid"); process.exit(2); }
+  const denied = rejectUnavailableBrowser(selected.browser);
+  if (denied) {
+    const body = await denied.json();
+    console.error(`${body.error.type}: ${body.error.message}`);
+    process.exit(2);
+  }
+  const args = selected.args;
   const fresh = args.includes("--new");
   let text = args.filter((a) => a !== "--new").join(" ");
   if (!text && !process.stdin.isTTY) text = await Bun.stdin.text();
@@ -1040,7 +1141,8 @@ async function metricsCommand(sub?: string, rest: string[] = []): Promise<void> 
     console.log(`ISyMCP Telemetría en Vivo (Uptime: ${m.uptimeSeconds}s)`);
     console.log(`  Turnos:       ${m.turns.total} total (${m.turns.success} ok, ${m.turns.failed} err, ${m.turns.reasoning_turns} con pensamiento)`);
     console.log(`  Latencia:     avg ${m.latency_ms.avg} ms · min ${m.latency_ms.min} ms · max ${m.latency_ms.max} ms`);
-    console.log(`  Tokens est.:  ${m.tokens.total_tokens_estimated.toLocaleString()} total (${m.tokens.prompt_tokens_estimated} prompt, ${m.tokens.completion_tokens_estimated} compl, ${m.tokens.reasoning_tokens_estimated} reasoning)`);
+    console.log(`  Tokens est.:  ${m.tokens.total_tokens_estimated.toLocaleString()} total (${m.tokens.prompt_tokens_estimated} prompt, ${
+      m.tokens.completion_tokens_estimated} compl, ${m.tokens.reasoning_tokens_estimated} reasoning)`);
     console.log(`  Memoria:      ${(m.memory.rss_bytes / (1024 * 1024)).toFixed(1)} MB RSS · ${(m.memory.heap_used_bytes / (1024 * 1024)).toFixed(1)} MB Heap`);
     if (Object.keys(m.errors_by_type).length > 0) {
       console.log(`  Errores:      ${Object.entries(m.errors_by_type).map(([k, v]) => `${k}=${v}`).join(", ")}`);
@@ -1083,7 +1185,8 @@ async function harnessCommand(sub: string, rest: string[]): Promise<void> {
     const statuses = await detect();
     if (json) { console.log(JSON.stringify(statuses, null, 2)); return; }
     for (const s of statuses) {
-      const state = !s.present ? "no instalado" : !s.supported ? `detectado · ${s.pending}` : s.installed === true ? "isymcp-chatgpt ✓" : s.installed === false ? "sin isymcp-chatgpt" : "estado desconocido";
+      const state = !s.present ? "no instalado" : !s.supported ? `detectado · ${s.pending}` : s.installed === true ? "isymcp-chatgpt ✓" : s.
+        installed === false ? "sin isymcp-chatgpt" : "estado desconocido";
       console.log(`  ${s.present ? "●" : "·"} ${s.id.padEnd(9)} ${state}`);
     }
     return;
@@ -1139,14 +1242,17 @@ async function canaryCommand(sub: string, rest: string[]): Promise<void> {
   const unitDir = join(homedir(), ".config", "systemd", "user");
   const launcher = join(home, "bin", process.platform === "win32" ? "isymcp-canary.ps1" : "isymcp-canary");
   const service = `[Unit]\nDescription=ISyMCP canario (captura de chatgpt.com)\n\n[Service]\nType=oneshot\nExecStart=${launcher}\n`;
-  const timer = `[Unit]\nDescription=ISyMCP canario diario\n\n[Timer]\nOnCalendar=*-*-* 09:00:00\nPersistent=true\nRandomizedDelaySec=10m\n\n[Install]\nWantedBy=timers.target\n`;
+  const timer =
+    (`[Unit]\nDescription=ISyMCP canario diario\n\n[Timer]\nOnCalendar=*-*-* 09:00:00\nPersistent=true\nRandomizedDelaySec=10m\n\n[Install]\nWantedBy=timers.` +
+      `target\n`);
   const windows = process.platform === "win32";
   const steps = windows
     ? sub === "schedule"
       ? [`escribir ${launcher} con ACL privada`, `crear tarea diaria de Windows a las 09:00 (solo cuando el usuario inicio sesion)`]
       : [`eliminar tarea de Windows "ISyMCP Canary"`, `borrar ${launcher}`]
     : sub === "schedule"
-      ? [`escribir ${launcher} (lanzador sin espacios)`, `escribir ${join(unitDir, "isymcp-canary.service")}`, `escribir ${join(unitDir, "isymcp-canary.timer")} (diario 09:00, Persistent)`, "systemctl --user daemon-reload", "systemctl --user enable --now isymcp-canary.timer"]
+      ? [`escribir ${launcher} (lanzador sin espacios)`, `escribir ${join(unitDir, "isymcp-canary.service")}`, `escribir ${join(unitDir,
+        "isymcp-canary.timer")} (diario 09:00, Persistent)`, "systemctl --user daemon-reload", "systemctl --user enable --now isymcp-canary.timer"]
       : ["systemctl --user disable --now isymcp-canary.timer", `borrar ${join(unitDir, "isymcp-canary.service")} y .timer`, "systemctl --user daemon-reload"];
   if (!rest.includes("--apply")) {
     console.log(`PLAN (${sub}) — no se toco nada. Repite con --apply:`);
@@ -1161,11 +1267,13 @@ async function canaryCommand(sub: string, rest: string[]): Promise<void> {
     return;
   }
   const { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
-  const sh = (argv: string[]) => { const p = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" }); if (p.exitCode !== 0) throw new Error(`${argv.join(" ")}: ${p.stderr.toString().trim()}`); };
+  const sh = (argv: string[]) => { const p = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" }); if (p.exitCode !== 0) throw new Error(`${
+    argv.join(" ")}: ${p.stderr.toString().trim()}`); };
   if (sub === "schedule") {
     mkdirSync(join(launcher, ".."), { recursive: true });
     const script = join(import.meta.dir, "isymcp.ts");
-    writeFileSync(launcher, `#!/usr/bin/env bash\n# generado por isymcp canary schedule\nexec ${JSON.stringify(process.execPath)} run '${script.replace(/'/g, `'\\''`)}' canary run\n`, { mode: 0o700 });
+    writeFileSync(launcher, `#!/usr/bin/env bash\n# generado por isymcp canary schedule\nexec ${JSON.stringify(process.execPath)} run '${script.replace(/'/g,
+      `'\\''`)}' canary run\n`, { mode: 0o700 });
     chmodSync(launcher, 0o700);
     mkdirSync(unitDir, { recursive: true });
     writeFileSync(join(unitDir, "isymcp-canary.service"), service);
@@ -1295,7 +1403,8 @@ async function codexCommand(sub: string | undefined, rest: string[]): Promise<vo
     if (profile.catalogReady) catalogPath = profile.catalogPath;
   }
   const fullArgs = buildCodexArgs(userArgs, PORT, catalogPath);
-  const code = await spawnCodex(fullArgs);
+  // El perfil aislado manda x-isymcp-token desde CODEX_WEB_HTTP_TOKEN.
+  const code = await spawnCodex(fullArgs, usesWebBridge(userArgs) ? { CODEX_WEB_HTTP_TOKEN: bridgeToken() } : {});
   // La invocacion desde el menu vuelve al menu; no termina todo isymcp.
   if (code !== 0) process.exitCode = code;
 }

@@ -1,3 +1,4 @@
+/** Process helpers that keep platform-specific process inspection in one place. */
 // Bits 0..6 of the exit code are results; bit 7 (128) is the "I finished" sentinel.
 const MAX_NEEDLES = 7;
 

@@ -17,7 +17,8 @@
 // el hunk; si no hay, se usa la pista explicita de `@@ -N`; si tampoco, se
 // busca la ventana completa (ctx+del) en orden. El candidato SIEMPRE se
 // verifica contra el archivo real antes de aplicar: si nada cuadra, rechazo.
-import { closeSync, constants, fchmodSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmdirSync, unlinkSync,
+  writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -341,7 +342,8 @@ function applyCodexPatchWindows(cwd: string, ops: FileOp[]): string[] {
       }
     }
     retainBackups = failures.length > 0;
-    throw new CodexPatchError(`${error instanceof Error ? error.message : String(error)}${failures.length ? `; rollback incompleto, backups conservados: ${failures.join(", ")}` : ""}`);
+    throw new CodexPatchError(`${error instanceof Error ? error.message : String(error)}${failures.length ? `; rollback incompleto, backups conservados: ${
+      failures.join(", ")}` : ""}`);
   } finally {
     for (const path of scratch) {
       if (retainBackups && path.includes(".isymcp-backup-")) continue;
@@ -477,7 +479,8 @@ export function applyCodexPatch(cwd: string, patch: string): string[] {
       }
     }
     retainBackups = failures.length > 0;
-    throw new CodexPatchError(`${error instanceof Error ? error.message : String(error)}${failures.length ? `; rollback incompleto, backups conservados: ${failures.join(", ")}` : ""}`);
+    throw new CodexPatchError(`${error instanceof Error ? error.message : String(error)}${failures.length ? `; rollback incompleto, backups conservados: ${
+      failures.join(", ")}` : ""}`);
   } finally {
     for (const path of scratch) {
       if (retainBackups && path.includes(".isymcp-backup-")) continue;

@@ -58,7 +58,7 @@ test("observed additional_tools namespace/custom declarations stay separate and 
 const config = () => loadConfig({ CODEX_WEB_HTTP_PORT: "0", CODEX_WEB_HTTP_WEB_MODELS: "on", CODEX_WEB_HTTP_STATE_PATH: "/nonexistent/M7-no-browser-state.json" });
 for (const input of [[user([text("partial"), { type: "input_image", image_url: "untransported" }])], [user(7)]]) {
   test("real HTTP handler rejects unsupported/malformed input before browser submission", async () => {
-    const res = await createHandler(config())(request(input));
+    const res = await createHandler(config(), { requireToken: false })(request(input));
     expect(res.status).toBe(400);
     expect((await res.json()).error.type).toBe(input[0].content === 7 ? "web_invalid_input" : "web_unsupported_input");
   });
@@ -67,7 +67,7 @@ test("HTTP native input stays untouched even when Web parser cannot handle it", 
   const body = { model: "native-fixture", input: [{ type: "future_native_item", data: "preserved" }] };
   const upstream = Bun.serve({ port: 0, fetch: async (req) => Response.json(await req.json()) });
   try {
-    const res = await createHandler({ ...config(), upstreamBase: `http://127.0.0.1:${upstream.port}` })(new Request("http://127.0.0.1/v1/responses", {
+    const res = await createHandler({ ...config(), upstreamBase: `http://127.0.0.1:${upstream.port}` }, { requireToken: false })(new Request("http://127.0.0.1/v1/responses", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     }));
     expect(await res.json()).toEqual(body);
@@ -81,7 +81,7 @@ test("WebSocket structured user input preserves text and declarations", () => {
   expect(parseWsTurn(JSON.stringify({ model: "native-fixture", input: [{ type: "unknown-native" }] }))?.web).toBe(false);
 });
 test("real WebSocket returns typed validation error without launching a browser", async () => {
-  const server = startServer(config());
+  const server = startServer(config(), { requireToken: false });
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}/v1/responses`);
   let timer: ReturnType<typeof setTimeout>;
   try {

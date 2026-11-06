@@ -3,7 +3,7 @@
 // verificado) e instala el runtime key + tunnel id en ~/.codex-web-http/.
 //
 // Port del comportamiento de codex-chatgpt-web (MIT): descarga el asset del
-// release, valida SHA256SUMS, extrae el binario, verifica --version, instala
+// release, valida un sha256 fijado en el codigo, extrae el binario, verifica --version, instala
 // atomico y guarda la key con permisos 0600. NUNCA imprime secretos.
 //
 //   bun run scripts/install-tunnel.ts
@@ -18,6 +18,19 @@ import { securePrivatePath } from "../src/platform/private-path";
 export const TUNNEL_VERSION = "0.0.12";
 const RELEASE_BASE = `https://github.com/openai/tunnel-client/releases/download/v${TUNNEL_VERSION}`;
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
+/**
+ * Hashes fijados en el codigo (de SHA256SUMS.txt de v0.0.12): un SHA256SUMS
+ * bajado del mismo release solo detecta corrupcion, no un release alterado.
+ * Subir TUNNEL_VERSION obliga a actualizar esta tabla a mano.
+ */
+const PINNED_ARCHIVE_SHA256: Record<string, string> = {
+  "tunnel-client-v0.0.12-darwin-amd64.zip": "33de53aec680faafedc795f8f8268d6861577bddb871cb2d49529c91f88c2009",
+  "tunnel-client-v0.0.12-darwin-arm64.zip": "42fb3138dc9c081d5777cb7e8bd1e041cc48b67c4978dbab3c5167ca1aabca02",
+  "tunnel-client-v0.0.12-linux-amd64.zip": "2bb693bd7b5cd28da7ce09cd9e309529dbb33b7cc9dc0058e62a064688f92c81",
+  "tunnel-client-v0.0.12-linux-arm64.zip": "6813878a3edb82ebebb32fe5a859bc6327a81cce5bc7b635a2313174d26365d6",
+  "tunnel-client-v0.0.12-windows-amd64.zip": "2a2804933924e38a502d62b61f0266cb80d56d65744f4c29876b2bf9c1544356",
+  "tunnel-client-v0.0.12-windows-arm64.zip": "65ab54221554481bb1c23b6015b99abe0b7f79b08593f4fb17a9e2e25532281d",
+};
 
 function home(): string {
   return process.env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
@@ -93,13 +106,9 @@ export async function installTunnelClient(force = false): Promise<string> {
   }
 
   const asset = platformAsset();
-  const [archive, sums] = await Promise.all([
-    fetchBytes(`${RELEASE_BASE}/${asset}`),
-    fetchBytes(`${RELEASE_BASE}/SHA256SUMS.txt`),
-  ]);
-  const line = new TextDecoder().decode(sums).split(/\r?\n/).find((l) => l.trim().endsWith(asset));
-  const expected = line?.trim().split(/\s+/)[0]?.toLowerCase();
-  if (!expected || !/^[a-f0-9]{64}$/.test(expected)) throw new Error(`SHA256SUMS sin entrada valida para ${asset}`);
+  const expected = PINNED_ARCHIVE_SHA256[asset];
+  if (!expected) throw new Error(`sin hash fijado para ${asset}; actualiza PINNED_ARCHIVE_SHA256`);
+  const archive = await fetchBytes(`${RELEASE_BASE}/${asset}`);
   const archiveHash = sha256(archive);
   if (archiveHash !== expected) throw new Error(`checksum mismatch para ${asset}`);
 

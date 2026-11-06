@@ -61,17 +61,21 @@ export async function openNormalBrowserHost(options:{profileDir:string;launchId:
  };
  const prior=fingerprint();
 function renderHostLandingHtml(options: { launchId: string; profileDir: string }): string {
-  return `<!doctype html>
+  return (`<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ISyMCP — Browser Host</title>
   <style>
-    :root{--bg:#090b0a;--panel:#101412;--line:#1d2420;--ink:#d9e4dc;--mute:#6f8076;--ok:#7cff9b;--warn:#ffcc66;--mono:"JetBrains Mono","Fira Code",ui-monospace,Menlo,monospace;--sans:Inter,"Segoe UI",system-ui,sans-serif}
+    :root{--bg:#090b0a;--panel:#101412;--line:#1d2420;--ink:#d9e4dc;--mute:#6f8076;--ok:#7cff9b;--warn:#ffcc66;--mono:"JetBrains Mono","Fira Code",` +
+    `ui-monospace,Menlo,monospace;--sans:Inter,"Segoe UI",system-ui,sans-serif}
     *{box-sizing:border-box;margin:0;padding:0}
-    body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;background-image:linear-gradient(rgba(124,255,155,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(124,255,155,.03) 1px,transparent 1px);background-size:28px 28px}
-    .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;max-width:580px;width:100%;padding:28px 32px;box-shadow:0 16px 40px rgba(0,0,0,.6);position:relative;overflow:hidden}
+    body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);display:flex;align-items:center;justify-content:center;min-height:100vh;` +
+    `padding:20px;background-image:linear-gradient(rgba(124,255,155,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(124,255,155,.03) 1px,` +
+    `transparent 1px);background-size:28px 28px}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;max-width:580px;width:100%;padding:28px 32px;` +
+    `box-shadow:0 16px 40px rgba(0,0,0,.6);position:relative;overflow:hidden}
     .card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--ok)}
     .header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
     .pulse{width:10px;height:10px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok);animation:pulse 2s infinite}
@@ -83,8 +87,10 @@ function renderHostLandingHtml(options: { launchId: string; profileDir: string }
     .lbl{color:var(--mute)}
     .val{color:var(--ink);text-align:right;word-break:break-all}
     .val.ok{color:var(--ok)}
-    .badge{display:inline-block;padding:2px 8px;border-radius:6px;font:600 11px var(--mono);background:color-mix(in srgb,var(--ok) 15%,transparent);border:1px solid color-mix(in srgb,var(--ok) 35%,transparent);color:var(--ok)}
-    .notice{border-left:3px solid var(--warn);padding:8px 12px;background:color-mix(in srgb,var(--warn) 8%,transparent);border-radius:0 8px 8px 0;font:12px var(--sans);color:#e5ded0;margin-top:18px}
+    .badge{display:inline-block;padding:2px 8px;border-radius:6px;font:600 11px var(--mono);background:color-mix(in srgb,var(--ok) 15%,transparent);` +
+    `border:1px solid color-mix(in srgb,var(--ok) 35%,transparent);color:var(--ok)}
+    .notice{border-left:3px solid var(--warn);padding:8px 12px;background:color-mix(in srgb,var(--warn) 8%,transparent);border-radius:0 8px 8px 0;` +
+    `font:12px var(--sans);color:#e5ded0;margin-top:18px}
     .footer{margin-top:20px;text-align:center;font:11px var(--mono);color:var(--mute)}
   </style>
 </head>
@@ -106,14 +112,15 @@ function renderHostLandingHtml(options: { launchId: string; profileDir: string }
       <div class="row"><span class="lbl">Destino:</span><span class="val ok">https://chatgpt.com/</span></div>
     </div>
     <div class="notice">
-      <b>Modo Seguro Activo (Compliance P0):</b> Utiliza esta ventana a mano con tu sesión. Los comandos solicitados por ChatGPT se ejecutan bajo sandbox local aislado. La automatización desatendida de la interfaz de usuario está deshabilitada para proteger tu cuenta de OpenAI.
+      <b>Modo Seguro Activo (Compliance P0):</b> Utiliza esta ventana a mano con tu sesión. Los comandos solicitados por ChatGPT se ejecutan bajo sandbox ` +
+    `local aislado. La automatización desatendida de la interfaz de usuario está deshabilitada para proteger tu cuenta de OpenAI.
     </div>
     <div class="footer">
       ISyMCP · Protocolo de Aislamiento de Procesos Locales · Loopback Only
     </div>
   </div>
 </body>
-</html>`;
+</html>`);
 }
 
  // A real local landing document is retained by normal Chrome at startup;
@@ -154,11 +161,14 @@ function renderHostLandingHtml(options: { launchId: string; profileDir: string }
    async close(){await closeOwnedBrowser(connection,child);},
   };
  } catch(error){
-  const safeUrl=(value:string)=>{try{const u=new URL(value);return u.origin==='null'?u.protocol+'//'+u.host+u.pathname:u.origin+u.pathname;}catch{return 'invalid';}};
-  const observation:any={error:error instanceof Error?error.message:'visible_host_failed',pid:child.pid,pages:browser?.contexts().flatMap(c=>c.pages().map(p=>safeUrl(p.url())))??[]};
+  const safeUrl=(value:string)=>{try{const u=new URL(value);return u.origin==='null'?u.protocol+'//'+u.host+u.pathname:u.origin+u.pathname;
+    }catch{return 'invalid';}};
+  const observation:any={error:error instanceof Error?error.message:'visible_host_failed',pid:child.pid,pages:browser?.contexts().flatMap(c=>c.pages().map(p=>
+    safeUrl(p.url())))??[]};
   if(browser){
    const session=await browser.newBrowserCDPSession().catch(()=>undefined);
-   if(session)try{const targets=await session.send('Target.getTargets');observation.targets=targets.targetInfos.map(t=>({type:t.type,url:safeUrl(t.url)}));}finally{await session.detach().catch(()=>{});}
+   if(session)try{const targets=await session.send('Target.getTargets');observation.targets=targets.targetInfos.map(t=>({type:t.type,url:safeUrl(t.url)}));
+     }finally{await session.detach().catch(()=>{});}
   }
   const failurePath=join(dirname(options.profileDir),'host-failure-'+randomUUID()+'.json');
   writeFileSync(failurePath,JSON.stringify(observation,null,2),{mode:0o600,flag:'wx'});

@@ -10,7 +10,8 @@
 // Regla de secretos: el token completo solo se muestra al crearlo. En
 // receipts, listados y logs se usa siempre el fingerprint sha256[:12].
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync,
+  writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter as pathDelimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { buildCodexWindowsSandboxPlan, cleanupCodexWindowsSandboxPath, findCodexWindowsCli } from "./platform/codex-windows-sandbox";
@@ -25,6 +26,8 @@ export interface CodexSession {
     phase: "prepared" | "active" | "completed";
     source?: { url: string; messageId: string };
     response?: string;
+    /** Fixed diagnostic operation, not an expanded general execution grant. */
+    canary?: { marker: string; hostSandbox: "dangerFullAccess" };
   };
   token: string;
   fp: string;
@@ -56,10 +59,10 @@ interface Registry {
 const SCHEMA = "codex-web-http.codex-sessions/1";
 
 /** Caducidad por defecto de un session token (horas). */
-export const DEFAULT_TTL_HOURS = 24 * 7;
+export const DEFAULT_TTL_HOURS = 24;
 
-export function bridgeHome(): string {
-  return process.env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
+export function bridgeHome(env: Record<string, string | undefined> = process.env): string {
+  return env.CODEX_WEB_HTTP_HOME?.trim() || join(homedir(), ".codex-web-http");
 }
 
 export function registryPath(): string {
@@ -100,6 +103,41 @@ function writeRegistry(reg: Registry): void {
   securePrivatePath(path, false);
 }
 
+const REGISTRY_LOCK_WAIT_MS = 10_000;
+const REGISTRY_LOCK_STALE_MS = 30_000;
+
+/**
+ * Exclusion entre procesos para leer-modificar-escribir el registro: el bridge
+ * acuña y revoca tokens de turno, el MCP marca sesiones nativas y el CLI
+ * revoca. Sin lock, la ultima copia escrita pisa a las demas y un revoke
+ * puede deshacerse. Un lock abandonado (proceso muerto) caduca a los 30 s.
+ */
+function withRegistryLock<T>(work: () => T): T {
+  mkdirSync(bridgeHome(), { recursive: true });
+  securePrivatePath(bridgeHome(), true);
+  const lock = `${registryPath()}.lock`;
+  const deadline = Date.now() + REGISTRY_LOCK_WAIT_MS;
+  let fd: number | null = null;
+  while (fd === null) {
+    try {
+      fd = openSync(lock, "wx", 0o600);
+    } catch (error: any) {
+      if (error?.code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > REGISTRY_LOCK_STALE_MS) { unlinkSync(lock); continue; }
+      } catch { continue; /* el dueño lo solto entre medias */ }
+      if (Date.now() > deadline) throw new Error(`registro de sesiones bloqueado (${lock}); si ningun isymcp esta corriendo, borra ese archivo`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try {
+    return work();
+  } finally {
+    closeSync(fd);
+    try { unlinkSync(lock); } catch { /* ya no existe */ }
+  }
+}
+
 export function mintSession(
   cwd: string,
   options: { label?: string; writable?: boolean; ttlHours?: number; requestFile?: string } = {},
@@ -128,9 +166,11 @@ export function mintSession(
     const local = readLocalRequest(session, filename);
     session.request = { filename, sha256: local.sha256 };
   }
-  const reg = readRegistry();
-  reg.sessions.push(session);
-  writeRegistry(reg);
+  withRegistryLock(() => {
+    const reg = readRegistry();
+    reg.sessions.push(session);
+    writeRegistry(reg);
+  });
   return session;
 }
 
@@ -181,10 +221,12 @@ export function readSessions(): CodexSession[] {
 
 /** Local controller only. This function is not exposed as an MCP tool. */
 export function updateSession(fp: string, update: (session: CodexSession) => void): CodexSession {
-  const registry = readRegistry();
-  const session = registry.sessions.find(s => s.fp === fp);
-  if (!session) throw new Error("session_not_registered");
-  update(session); writeRegistry(registry); return session;
+  return withRegistryLock(() => {
+    const registry = readRegistry();
+    const session = registry.sessions.find(s => s.fp === fp);
+    if (!session) throw new Error("session_not_registered");
+    update(session); writeRegistry(registry); return session;
+  });
 }
 
 /** Sesiones que crea el usuario (sin los tokens efimeros de turno). */
@@ -200,6 +242,10 @@ export const TURN_TOKEN_TTL_MINUTES = 15;
  * de dias, no sale). Limpia de paso los tokens de turno caducados.
  */
 export function mintTurnToken(parentFp: string, turnId: string, ttlMinutes = TURN_TOKEN_TTL_MINUTES): CodexSession {
+  return withRegistryLock(() => mintTurnTokenLocked(parentFp, turnId, ttlMinutes));
+}
+
+function mintTurnTokenLocked(parentFp: string, turnId: string, ttlMinutes: number): CodexSession {
   const reg = readRegistry();
   const parent = reg.sessions.find((s) => s.fp === parentFp && s.kind !== "turn");
   if (!parent) throw new Error("sesion desconocida");
@@ -227,10 +273,12 @@ export function mintTurnToken(parentFp: string, turnId: string, ttlMinutes = TUR
 
 /** Revoca un token de turno por fp exacto (fin del turno). */
 export function revokeTurnToken(fp: string): void {
-  const reg = readRegistry();
-  const before = reg.sessions.length;
-  reg.sessions = reg.sessions.filter((s) => !(s.kind === "turn" && s.fp === fp));
-  if (reg.sessions.length !== before) writeRegistry(reg);
+  withRegistryLock(() => {
+    const reg = readRegistry();
+    const before = reg.sessions.length;
+    reg.sessions = reg.sessions.filter((s) => !(s.kind === "turn" && s.fp === fp));
+    if (reg.sessions.length !== before) writeRegistry(reg);
+  });
 }
 
 /** Prefijo minimo para revocar: con menos, un typo se lleva sesiones ajenas. */
@@ -242,6 +290,10 @@ export function revokeSession(prefixOrFp: string): number {
   if (needle.length < MIN_REVOKE_PREFIX) {
     throw new Error(`revoke requiere al menos ${MIN_REVOKE_PREFIX} caracteres de token o fingerprint`);
   }
+  return withRegistryLock(() => revokeSessionLocked(needle));
+}
+
+function revokeSessionLocked(needle: string): number {
   const reg = readRegistry();
   const matches = reg.sessions.filter((s) => s.token.startsWith(needle) || s.fp.startsWith(needle));
   if (matches.length > 1) {
@@ -310,7 +362,7 @@ export function resolveWithinReal(root: string, candidate: string): string | nul
 }
 
 export const BWRAP = "/usr/bin/bwrap";
-export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.0-rc.2";
+export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.1";
 
 export interface SandboxPlan {
   argv: string[];
@@ -444,6 +496,45 @@ function toolchainBinds(home: string): string[] {
   return out;
 }
 
+/**
+ * Rutas del host tapadas con tmpfs encima de `--ro-bind / /`.
+ *
+ * /run y /var/run guardan sockets Unix con ruta (D-Bus de sesion y de sistema,
+ * systemd --user, docker.sock). --unshare-net no los corta y conectar a un
+ * socket no es "escribir", asi que el ro-bind no protegia: un comando llegaba
+ * a `systemd-run --user` (ejecutar fuera de la burbuja) o a docker (root si el
+ * usuario esta en el grupo docker). Tapado en #35 (2026-10-23), demostrado otra
+ * vez 2026-10-28. Tambien: /var/log (se lee con el grupo adm) y, con red
+ * opt-in, el resolv.conf que vive bajo /run.
+ */
+const HOST_MASKS = ["/run", "/var/run", "/var/log"];
+
+export function hostSocketMasks(shareNet = false): string[] {
+  const masked = new Set<string>();
+  for (const path of HOST_MASKS) {
+    let real: string;
+    try {
+      real = realpathSync(path); // /var/run -> /run en Ubuntu: un solo tmpfs
+    } catch {
+      continue;
+    }
+    if (statSync(real).isDirectory()) masked.add(real);
+  }
+  const out: string[] = [];
+  for (const dir of masked) out.push("--tmpfs", dir);
+  // Con red opt-in, /etc/resolv.conf suele apuntar a /run/systemd/resolve/:
+  // re-exponer solo ese archivo (ro), no el directorio ni su socket.
+  if (shareNet) {
+    try {
+      const resolv = realpathSync("/etc/resolv.conf");
+      if ([...masked].some((dir) => resolveWithin(dir, resolv) !== null)) out.push("--ro-bind", resolv, resolv);
+    } catch {
+      // sin resolv.conf no hay nada que re-exponer
+    }
+  }
+  return out;
+}
+
 /** Variables que el comando ve dentro de la burbuja (el resto se borra). */
 const SANDBOX_ENV_KEEP = ["PATH", "LANG", "LC_ALL", "TERM", "TZ"];
 
@@ -525,6 +616,7 @@ export function sandboxPlan(
     }
   }
   const home = homedir();
+  const shareNet = process.env.CODEX_WEB_HTTP_SANDBOX_NET?.trim() === "1";
   const args = [
     BWRAP,
     "--ro-bind", "/", "/",
@@ -532,6 +624,7 @@ export function sandboxPlan(
     "--proc", "/proc",
     "--tmpfs", "/tmp",
     "--tmpfs", home,
+    ...hostSocketMasks(shareNet),
   ];
   // Secretos del bridge fuera de $HOME (CODEX_WEB_HTTP_HOME) tambien se tapan.
   const secrets = bridgeHome();
@@ -540,7 +633,7 @@ export function sandboxPlan(
   }
   args.push(...toolchainBinds(home));
   args.push("--unshare-all");
-  if (process.env.CODEX_WEB_HTTP_SANDBOX_NET?.trim() === "1") args.push("--share-net");
+  if (shareNet) args.push("--share-net");
   args.push("--die-with-parent", "--new-session", "--clearenv", ...sandboxEnv(home));
   // Re-exponer el workspace DESPUES de los tmpfs: si vive bajo /tmp o $HOME
   // el tmpfs lo taparia y --chdir fallaria.

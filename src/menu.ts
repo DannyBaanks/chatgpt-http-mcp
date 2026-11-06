@@ -15,6 +15,7 @@ export const MENU: MenuItem[] = [
   { id: "down", group: "PUENTE", label: "■ Detener todo", hint: "cierre del server y del tunel" },
   { id: "restart", group: "PUENTE", label: "↻ Reiniciar", hint: "down + up" },
   { id: "status", group: "PUENTE", label: "○ Estado", hint: "server, tunel, panel, canario" },
+  { id: "doctor", group: "PUENTE", label: "✚ Diagnóstico local", hint: "binarios, sandbox, disco, último fallo" },
   { id: "panel-open", group: "USAR", label: "◧ Abrir panel", hint: "chat + estado en el navegador" },
   { id: "ask", group: "USAR", label: "✎ Preguntar a ChatGPT…", hint: "turno real desde la terminal" },
   { id: "media-prepare", group: "USAR", label: "Preparar video de YouTube…", hint: "pega URL, elige carpeta y confirma" },

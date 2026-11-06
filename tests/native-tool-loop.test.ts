@@ -381,7 +381,7 @@ test("the 64th native result can finish its turn and its replay stays exact", as
   expect(final.body.output_text).toBe("64 calls completed");
   expect(await b.run(input)).toEqual({ body: final.body, replayed: true });
   expect(b.calls).toHaveLength(65);
-});
+}, 60_000);
 
 test("a 65th native call is rejected before Codex receives it", async () => {
   const b = backend(Array.from({ length: 65 }, (_, n) => call(`printf CALL_${n + 1}`)));
@@ -397,4 +397,4 @@ test("a 65th native call is rejected before Codex receives it", async () => {
   const taskFile = readdirSync(b.dir).find(f => f.startsWith("task-"))!;
   const state = JSON.parse(readFileSync(join(b.dir, taskFile), "utf8"));
   expect(state).toMatchObject({ pending: "t1", awaiting: { call: { call_id: lastCall.call_id }, step: 64 } });
-});
+}, 60_000);

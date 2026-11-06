@@ -1,0 +1,9 @@
+Command: bun test --timeout 60000
+Host: Windows, Bun 1.4.2
+Result: 582 tests across 87 files; 490 passed, 7 skipped, 85 failed; 2,228 assertions; exit 1.
+The panel browser E2E passed in this run. The focused panel/chat suite passed separately (58 tests, 0 failures).
+
+Observed unrelated host blockers include missing ffmpeg, missing Docker Desktop or the sandbox image, missing codex on PATH, POSIX-only commands and paths, a hard-coded /usr/bin/google-chrome lookup, denied symlink creation, and POSIX file-mode assertions on Windows.
+
+Raw, unedited Bun output is preserved locally at D:\CodexTemp\isymcp-full-tests.txt.
+SHA-256: F3A60F2AB0A2A1863AADFECEA7DB9BDC9797338D8437E522C51FECA26B6B687E
