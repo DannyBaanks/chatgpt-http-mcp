@@ -121,15 +121,20 @@ isymcp tunnel connect
 isymcp status
 ```
 
-The first tunnel connection needs the tunnel ID and runtime API key files
-issued for your account. Keep those files in your Windows user profile, then
-install the pinned Windows client and copy the credentials into ISyMCP's ACL
-protected home:
+To configure the first connection, run the interactive setup. It opens your
+browser at the OpenAI organization settings page, then asks for the tunnel ID
+and runtime API key. Paste each value and press Enter; both fields are hidden.
+The command validates the values, installs the pinned client if needed, stores
+the ID and key separately under ISyMCP's ACL-protected home, starts the bridge
+if it is down, and connects the tunnel:
 
 ```powershell
-bun run scripts/install-tunnel.ts --tunnel-file "$env:USERPROFILE\Development\tunnel.txt" --key-file "$env:USERPROFILE\Development\runtime-key.txt"
-isymcp tunnel connect
+isymcp tunnel setup
+isymcp status
 ```
+
+The runtime key is never placed in command arguments, terminal echo, or logs.
+On Windows, the credential directory and files receive private NTFS ACLs.
 
 Use `isymcp tunnel stop` and `isymcp server stop` to stop services. Session
 registries and visible-browser credentials are protected with Windows ACLs;
@@ -203,3 +208,103 @@ outside the workspace and in a read-only session, and blocked an external TCP
 connection after a successful host-side control. The Windows-host CI suite also
 passes; the Linux CI suite exercises bubblewrap. Docker-backed execution on this
 host remains **NOT_DEMONSTRATED** because its daemon storage is read-only.
+
+Re-verified 2026-11-05 on this host: the sentence above no longer holds, and it is
+kept as the historical record of that day's state rather than rewritten. Docker-backed
+execution ran against the real image `isymcp-sandbox:1.0.0-rc.2` and passed the live
+sandbox suites — `sandbox: aislamiento de secretos` (5), `TEST A`–`TEST D` of the
+native tool surface, `MCP con session tokens` (6) and `M4: boundary de autoridad` (4).
+Those tests now address the workspace with **relative** command arguments and check the
+result through the host path, which is the contract in *Platform boundary* above: the
+container sees `/workspace`, bubblewrap sees the same absolute path as the host, and
+`codex_exec` arguments are never rewritten. A read-only session still cannot write
+(`echo pwn > pwn.txt` exits non-zero against the `readonly` bind), and every DENY is
+still verified by the absence of an observable mutation.
+
+Also re-verified 2026-11-05: the Video Vision provider above now installs and
+`video_frame` is **demonstrated** on this host rather than assumed. `npm view
+video-vision-mcp version` still returns 404, so the source commit in the install block
+remains the only route. This host runs Node 24.18.0 (module ABI 137, x64) and both
+`node` on `PATH` and `ISYMCP_VIDEO_VISION_NODE` resolve to that one binary, so install
+time and run time share an ABI. `npm ci` failed three times with `ECONNRESET` because
+`onnxruntime-node@1.21.0` is a 217,912,684-byte tarball and npm does not retry a reset
+that happens partway through the body — it only removes `node_modules` and aborts. The
+workaround that completed the install was `npm ci --registry=https://registry.npmmirror.com`;
+npm still validates every tarball against the `integrity` recorded in `package-lock.json`,
+so the bytes stay pinned to the published ones. `approve-scripts`, `rebuild` and
+`npm run build` then succeeded, `dist/index.js` came up in 950 ms exposing
+`extract_frame_at`, and `bun test tests/media-video.test.ts` passes by returning a real
+frame from a real FFmpeg fixture. One caveat measured on the provider's bundled
+`ffmpeg.exe` (N-92722): it prints `Fontconfig error: Cannot load default config file`
+because it is built with fontconfig but the host ships no default config, yet it still
+writes the frame and exits 0. The host's own FFmpeg 9.0.2 takes the same filter string
+and produces nothing at all, so a frame extracted through a different FFmpeg binary is
+not equivalent evidence.
+
+## Windows CI coverage
+
+Updated 2026-11-05: the `windows-host` job no longer runs a hand-picked five files. It
+now runs **everything under `tests/` except seven files that this runner cannot satisfy**,
+so a new test file is covered on Windows by default instead of by memory.
+
+Why those seven, and nothing else:
+
+| Excluded | Missing capability | Measured consequence |
+|---|---|---|
+| `authority-boundary`, `mcp-native-tools`, `mcp-session`, `mcp-tool-call-retry`, `chat-phase2-tools` | a real sandbox backend | `sandboxBackend()` fails closed to `"none"`, `runExec` refuses, so the precondition `executed: true` is unreachable |
+| `media-export` | `mv` on the Windows PATH | `src/media/export.ts:62` publishes with `mv -T -n --`; the spawn throws `ENOENT` |
+| `exec-registry-retry` | `sleep` on the Windows PATH | the test spawns `sleep 60` unsandboxed, same `ENOENT` |
+
+`tests/sandbox-isolation.test.ts`, `tests/windows-native-e2e.test.ts` and
+`tests/codex-entry-isolation.test.ts` are **included** even though they need capabilities
+too: they gate themselves (`describe.skipIf(!sandboxAvailable())`, the
+`ISYMCP_WINDOWS_NATIVE_E2E=1` opt-in) and a reasoned skip in the CI log is information,
+while an absent capability that is not probed is just a red run.
+
+Runner facts taken from the image READMEs of `actions/runner-images` (Windows2022 and
+Windows2025, `windows-latest` = Windows 2025): no `ffmpeg`/`ffprobe` anywhere in the image,
+Docker present as the Moby **Windows-container** daemon (Docker Desktop is not installed and
+the pre-pulled bases are `servercore`/`nanoserver`), Chrome/Edge with their drivers on PATH,
+Node 22.x, Git, Python. GitHub-hosted Windows runners are 4 vCPU/16 GB on public repos and
+2 vCPU/8 GB on private ones. Two consequences are handled in the job rather than in the
+tests: FFmpeg is installed with `choco install ffmpeg` (bounded step, mirroring the Ubuntu
+job's rule that the toolchain is provisioned, not simulated) and it is asserted to carry the
+`drawtext` filter, because `src/media/contact-sheet.ts:27` builds contact sheets with it; a
+build without that filter would otherwise fail tests for a reason that is not the product's.
+`timeout-minutes` went 15 → 30 to leave room for the slower runner.
+
+Evidence for the exclusion list, obtained on this host by **simulating** the runner
+environment rather than by reading the code: every `Docker` and every `Git\usr\bin` entry
+was removed from the process PATH (probe line `docker=NO mv=NO sleep=NO ffmpeg=SI`), then
+each file was run alone — 78 of the 85 files exited 0 and the 7 above exited 1 — and finally the exact
+CI command was run as one process:
+
+```
+500 pass / 15 skip / 0 fail
+Ran 515 tests across 78 files. [139.73s]        exit 0
+/tmp/ci-cmd.log  sha256 aecd37aa0b4ffa0667fb89921f6b4b1f40fe71cd862a40ce46fb1e68ffd09f6f
+/tmp/ci-sim.log  sha256 f39beb1de2d0c166aaafe7cf9e917af211a697783f3f51d6095018c71b63c613
+```
+
+The two causes in the table were separated by a control run, because both are absent
+together in the simulation: with Docker removed but `Git\usr\bin` kept,
+`media-export` and `exec-registry-retry` pass 9/9 in 17.11 s. So those two fail over
+coreutils alone, and the five sandbox files fail over the backend alone.
+
+The 15 skips here against 10 on the full local suite are exactly the
+`sandbox: aislamiento de secretos` cluster: with no backend available,
+`describe.skipIf(!sandboxAvailable())` skips those five live tests. Nothing was deleted
+from the assertions; the capability was removed and the suite said so out loud.
+
+`NOT_DEMONSTRATED`: no GitHub Actions run of this widened job has been observed yet —
+that requires a push, and the first real run is what will confirm two things the image
+README cannot confirm from here: that the Chocolatey FFmpeg build behaves like the host's
+for these tests, and that the runner's PATH really lacks `mv`/`sleep`. The exclusion list
+above is a simulation of that environment, not a measurement of the runner itself.
+
+Open defect surfaced by this work, recorded rather than worked around: the atomic
+no-replace publisher in `src/media/export.ts:62` shells out to GNU `mv`, so on Windows
+media-package publishing depends on coreutils being on `PATH` — which is true on this
+workstation only because Git for Windows put `usr\bin` there, and is not a documented
+requirement in *Requirements* above. A native no-replace rename would remove the
+dependency and let both excluded files back into the job.

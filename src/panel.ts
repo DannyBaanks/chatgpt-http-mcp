@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isExpired, listUserSessions, sandboxLabel } from "./codex-sessions";
-import { processMatches } from "./platform/process";
+import { processMatches, processMatchesTable } from "./platform/process";
 import { bridgeAuthHeaders, guardLocalRequest } from "./local-guard";
 import { readLatestCanary, type CanaryResult } from "./canary";
 import { canaryScheduled, listCodexTasks, type CodexTaskView } from "./codex-tasks";
@@ -156,8 +156,13 @@ export async function buildPanelState(bridgePort = "8791"): Promise<PanelState> 
     /* visible check opcional */
   }
 
-  const tunnel = pgrep("tunnel-client") ? "ready" : "stopped";
-  const mcp = pgrep("mcp/main.ts --contract native --broker") || pgrep("isymcp-broker") || pgrep("broker.sock") ? "up" : "down";
+  // Una sola enumeracion de procesos para los cuatro patrones: en Windows cada
+  // sondeo cuesta ~1 s y el CLI solo da 1500 ms para confirmar que el panel escucha.
+  const [tunnelUp, brokerMain, brokerName, brokerSock] = processMatchesTable([
+    "tunnel-client", "mcp/main.ts --contract native --broker", "isymcp-broker", "broker.sock",
+  ]);
+  const tunnel = tunnelUp ? "ready" : "stopped";
+  const mcp = brokerMain || brokerName || brokerSock ? "up" : "down";
 
   return {
     ts: new Date().toISOString(),
@@ -609,6 +614,12 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       const denied = guardLocalRequest(req, { requireJsonBody: true, loopbackOnly: true });
       if (denied) return denied;
       const url = new URL(req.url);
+      // Sondeo de disponibilidad: ni estado ni pgrep. buildPanelState cuesta
+      // segundos en Windows y panelUp() solo da 1500 ms, asi que sin esta ruta el
+      // CLI nunca puede confirmar que el panel escucha.
+      if (url.pathname === "/ready" && req.method === "GET") {
+        return new Response("ok", { status: 200, headers: { "cache-control": "no-store" } });
+      }
       if (url.pathname.startsWith("/api/chat")) return handleChatApi(req, url, bridgePort);
       if (url.pathname.startsWith("/api/settings")) return handleSettingsApi(req, url, bridgePort);
       if (url.pathname === "/api/sessions" && req.method === "GET") return Response.json(publicSessions());

@@ -18,5 +18,12 @@ describe("Unified E2E Smoke Suite", () => {
     for (const check of result.checks) {
       expect(check.ok).toBe(true);
     }
-  }, 30_000); // Native harness probes can each take five seconds; keep the integration gate bounded.
+  // Native harness probes can each take five seconds; keep the integration gate bounded.
+  // En Windows el presupuesto tiene que ser otro, y no por holgura: medido aqui, la
+  // corrida completa dura 18.07 s y 18.06 s de eso es el check "harnesses", porque
+  // detect() ahora si encuentra los CLI instalados (14 en esta maquina) y los sondea
+  // uno por uno; antes de ese arreglo el check pasaba en 106 ms porque no detectaba
+  // ninguno. Con la suite encima se queda por encima de 30 s, asi que aqui se acota
+  // tres veces el coste medido. Abatar el sondeo (en paralelo) devolveria esto a 30 s.
+  }, process.platform === "win32" ? 60_000 : 30_000);
 });

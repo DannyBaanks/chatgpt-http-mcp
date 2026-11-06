@@ -1,7 +1,8 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveTaskIdentity, runTaskTurn } from "../src/responses/task-turn";
+import { expectPrivate } from "./helpers/private-mode";
 import { assertWebSelection } from "../src/responses/selection";
 import { findConversation, writeLaunchIntent } from "../src/codex-conversation";
 import { expect, test } from "bun:test";
@@ -112,7 +113,7 @@ test("a pre-submit browser failure retains its cause privately and never retries
   const saved = JSON.parse(readFileSync(path, "utf8"));
   expect(saved.diagnostic).toEqual({ name: "Error", message: "composer insertion failed at selector XYZ" });
   expect(saved.error.message).not.toContain("XYZ");
-  expect(statSync(path).mode & 0o777).toBe(0o600);
+  expectPrivate(path, false);
   expect(attempts).toBe(1);
 });
 
@@ -154,8 +155,8 @@ test("a launch header without an intent fails closed and does not resubmit", asy
 test("private state stays private; corrupt state and stale crash leases fail closed", async () => {
   const backend = fakeBackend();
   await backend.run(req("A", "a1", "remember ALPHA"));
-  expect(statSync(backend.dir).mode & 0o777).toBe(0o700);
-  for (const name of readdirSync(backend.dir)) expect(statSync(join(backend.dir, name)).mode & 0o777).toBe(0o600);
+  expectPrivate(backend.dir, true);
+  for (const name of readdirSync(backend.dir)) expectPrivate(join(backend.dir, name), false);
   const task = readdirSync(backend.dir).find((n) => n.startsWith("task-"))!;
   writeFileSync(join(backend.dir, task), JSON.stringify({ url: "https://evil.example", input: [], instructions: "" }));
   await expect(backend.run(req("A", "a2", "hello"))).rejects.toThrow("web_task_state_invalid");

@@ -1,5 +1,12 @@
 import {run} from './process';
 import {probe,windowRange} from './audio';
+import {join} from 'node:path';
+// Los builds de FFmpeg para Windows suelen traer fontconfig sin config: drawtext
+// sin fontfile muere con "Cannot load default config file". Arial esta presente
+// en todo Windows 10/11 y el ':' del lector de unidad va escapado.
+const winFont = process.platform === 'win32'
+  ? `:fontfile='${join(process.env.SystemRoot ?? 'C:\\Windows', 'Fonts', 'arial.ttf').replaceAll('\\', '/').replace(':', '\\:')}'`
+  : '';
 export function sampleTimes(start:number,end:number,count:number,duration:number) {
  windowRange(start,end,duration);
  if(![9,16,36].includes(count))throw Error('Contact sheet requires 9, 16 or 36 frames');
@@ -17,7 +24,7 @@ export async function contactSheet(path:string,start:number,end:number,columns=4
  const canvas=Buffer.alloc(1920*1080*3);const samples=[];
  for(let index=0;index<times.length;index++) {
   const t=times[index],label=`${String(index+1).padStart(2,'0')}  t=${t.toFixed(3)}s`;
-  const filter=`scale=${width}:${height-band}:force_original_aspect_ratio=decrease,pad=${width}:${height-band}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,pad=${width}:${height}:0:0:black,drawtext=text='${label}':fontsize=16:fontcolor=white:x=8:y=${height-band+3}`;
+  const filter=`scale=${width}:${height-band}:force_original_aspect_ratio=decrease,pad=${width}:${height-band}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,pad=${width}:${height}:0:0:black,drawtext=text='${label}':fontsize=16:fontcolor=white${winFont}:x=8:y=${height-band+3}`;
   const cell=await run('ffmpeg',['-v','error','-nostdin','-protocol_whitelist','file,pipe','-ss',String(t),'-i',path,'-map','0:v:0','-an','-vf',filter,'-frames:v','1','-threads','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'],width*height*3);
   if(cell.length!==width*height*3)throw Error('Requested frame could not be decoded; no sheet returned');
   const column=index%columns,row=Math.floor(index/columns);

@@ -3,9 +3,10 @@
 // launcher. Native Codex configuration, cache and other applications' journals
 // are read-only. Restore checks ownership and never rolls back global settings.
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { securePrivatePath } from "../src/platform/private-path";
 import { parseCapabilities } from "../src/config";
 import { augmentCatalog, availableRoutes, CHATGPT_WEB_MODEL_PREFIX, VERIFIED_WEB_ROUTES, type CodexEffort } from "../src/web-models";
 import { bridgeToken, TOKEN_HEADER } from "../src/local-guard";
@@ -105,10 +106,11 @@ export function buildIsolatedCodexArgs(
 
 function privateWrite(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  securePrivatePath(dirname(path), true);
   const temporary = `${path}.tmp-${randomUUID()}`;
   writeFileSync(temporary, text, { mode: 0o600, flag: "wx" });
   renameSync(temporary, path);
-  chmodSync(path, 0o600);
+  securePrivatePath(path, false);
 }
 
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");

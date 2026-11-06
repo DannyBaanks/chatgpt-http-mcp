@@ -11,6 +11,9 @@ const entry=process.env.ISYMCP_VIDEO_VISION_ENTRY;
  await run('ffmpeg',['-v','error','-f','lavfi','-i','testsrc=size=128x128:rate=2:duration=2','-c:v','mpeg4',file]);
  const c=new MediaCatalog(join(root,'state'));const a=await c.add(file);const service=new MediaService(c);
  const result=await service.call('video_frame',{asset_id:a.id,timestamp_seconds:0.5});
- expect(result.isError).not.toBe(true);expect(result.content[1].type).toBe('image');
+ // src/media/service.ts convierte el error del proveedor en texto de contenido: sin
+ // sacar ese texto a la luz, un proveedor mal instalado o roto falla sin decir nada.
+ if(result.isError) throw new Error(`video_frame: ${result.content[0]?.text??'(sin texto)'}`);
+ expect(result.content[1].type).toBe('image');
  const audio=await service.call('audio_analyze',{asset_id:a.id,start_seconds:0,end_seconds:1});expect(audio.isError).toBe(true);expect(audio.content[0].text).toContain('no audio');
 },65000);

@@ -26,11 +26,9 @@ export interface TuiInfo {
 const HOME = homedir();
 
 function which(bin: string): string | undefined {
-  for (const dir of (process.env.PATH ?? "").split(":")) {
-    const full = join(dir, bin);
-    if (full && existsSync(full)) return full;
-  }
-  return undefined;
+  // Bun.which ya aplica el separador de PATH y, en Windows, PATHEXT: splitear ":"
+  // aqui devolvía undefined para cualquier binario instalado.
+  return Bun.which(bin, { PATH: process.env.PATH ?? "" }) ?? undefined;
 }
 
 /** Inventario: config dir y/o binario en PATH. Solo opencode es instalable. */

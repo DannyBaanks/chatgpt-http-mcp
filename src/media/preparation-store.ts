@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { digest } from './catalog';
+import { securePrivatePath } from '../platform/private-path';
 
 export type ArtifactKind = 'audio_scan' | 'contact_sheet';
 export type PreparationStatus = 'preparing' | 'partial' | 'failed' | 'ready';
@@ -73,6 +74,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+// securePrivatePath levanta icacls en Windows; se aplica una vez por directorio
+// por proceso para no convertir cada lectura en varios spawns.
+const securedDirectories = new Set<string>();
+
 export class MediaPreparationStore {
   constructor(public readonly catalogHome: string) {}
 
@@ -103,14 +108,22 @@ export class MediaPreparationStore {
     if (!existsSync(path)) throw Error('Preparation generation not found');
     const info = lstatSync(path);
     if (!info.isDirectory() || info.isSymbolicLink()) throw Error('Invalid preparation directory');
-    chmodSync(path, 0o700);
+    if (process.platform === 'win32') {
+      const key = path.toLowerCase();
+      if (!securedDirectories.has(key)) {
+        securePrivatePath(path, true);
+        securedDirectories.add(key);
+      }
+    } else {
+      securePrivatePath(path, true);
+    }
   }
   private atomicWrite(path: string, data: Buffer | string): void {
     const temp = `${path}.${randomUUID()}.tmp`;
     writeFileSync(temp, data, { mode: 0o600, flag: 'wx' });
     try {
       renameSync(temp, path);
-      chmodSync(path, 0o600);
+      securePrivatePath(path, false);
     } catch (error) {
       // Keep failed writes as evidence for recovery; no cleanup is performed.
       throw error;

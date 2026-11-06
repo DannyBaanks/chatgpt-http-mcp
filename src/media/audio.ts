@@ -112,7 +112,8 @@ function waveformPng(pcm:Buffer,start:number,channel:AudioChannel){
 export async function analyzeAudio(path:string,start:number,end:number,channel:AudioChannel='mix') {
  const info=await probe(path);windowRange(start,end,info.duration_seconds,MAX_AUDIO_CHUNK_SECONDS);
  const {channels:sourceChannels,channelLayout}=audioStream(info);
- if(channel==='left'||channel==='right'||channel==='separate')if(sourceChannels!==2||channelLayout!=='stereo')throw Error('Left/right inspection requires a two-channel stereo source');
+ // FFmpeg 8+/9 ya no reporta channel_layout (o lo llama "2.0"); con 2 canales la garantia L/R es el conteo.
+ if(channel==='left'||channel==='right'||channel==='separate')if(sourceChannels!==2||!['stereo','2.0','unknown'].includes(channelLayout))throw Error('Left/right inspection requires a two-channel stereo source');
  const mixedPcm=await decode(path,start,end,'mix'),mixed=measure(mixedPcm,start);
  const selected:('left'|'right')[]=channel==='separate'?['left','right']:channel==='left'||channel==='right'?[channel]:[];
  const channelPcms=new Map<'left'|'right',Buffer>(),perChannel=[];

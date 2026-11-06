@@ -208,6 +208,10 @@ function shellBinary(): string {
  * y con la feature AutomationControlled apagada.
  */
 function chromeVersion(bin: string): string {
+  // On Windows, running chrome.exe --version opens a browser window instead
+  // of printing a version. Importing this module during bridge startup must
+  // never launch Chrome or block the server while that window stays open.
+  if (process.platform === "win32") return "153.0.0.0";
   try {
     const out = Bun.spawnSync([bin, "--version"]).stdout.toString();
     return /(\d+\.\d+\.\d+\.\d+)/.exec(out)?.[1] ?? "153.0.0.0";

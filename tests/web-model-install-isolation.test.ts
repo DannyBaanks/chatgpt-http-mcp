@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildIsolatedCodexArgs, installWebModels } from "../scripts/install-web-models";
+import { expectPrivate } from "./helpers/private-mode";
 import { buildCodexArgs } from "../src/codex-launcher";
 
 function fixture() {
@@ -34,7 +35,7 @@ test("models apply prepares an isolated provider and leaves native Codex bytes u
   expect(result.launcherArgs).toContain('model_provider="isymcp_web"');
   expect(result.launcherArgs).not.toContain('openai_base_url="http://127.0.0.1:8791/v1"');
   expect(JSON.parse(readFileSync(result.catalogPath, "utf8")).models.map((m: any) => m.slug)).toEqual(["chatgpt-web/gpt-5.6-sol"]);
-  for (const path of [result.profilePath, result.catalogPath, result.journalPath]) expect(statSync(path).mode & 0o777).toBe(0o600);
+  for (const path of [result.profilePath, result.catalogPath, result.journalPath]) expectPrivate(path, false);
 });
 
 test("Web profiles disable backend web_search while native search settings and launches stay intact", () => {
@@ -82,7 +83,7 @@ test("restore returns a previous isolated profile and backups are private", () =
   const original = readFileSync(first.profilePath, "utf8");
   const second = installWebModels({ ...f, apply: true, url: "http://127.0.0.1:9999/v1" });
   expect(second.backups?.profile).toBeTruthy();
-  for (const path of [second.backups!.profile!, second.backups!.catalog!]) expect(statSync(path).mode & 0o777).toBe(0o600);
+  for (const path of [second.backups!.profile!, second.backups!.catalog!]) expectPrivate(path, false);
   installWebModels({ ...f, restore: true });
   expect(readFileSync(first.profilePath, "utf8")).toBe(original);
   expect(readFileSync(f.configPath, "utf8")).toBe(f.config);

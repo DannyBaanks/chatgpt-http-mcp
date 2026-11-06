@@ -16,7 +16,11 @@ test('host waits for its exact new page instead of adopting a restored page',asy
  expect(found.page).toBe(owned);expect(reads).toBeGreaterThan(1);
  await expect(selectOwnedHostPage({contexts:()=>[{pages:()=>[other]}]} as any,landing,1)).rejects.toThrow('unbound');
 });
-test('normal host does not adopt another browser when its own process exits',async()=>{
+// Motivo del skip en Windows: los flags se observan lanzando el ejecutable, y
+// src/visible/browser-host.ts:1,125 usa spawn de node:child_process, que rechaza un
+// lanzador .cmd (mitigacion CVE-2024-27980); un .exe falso exigiria compilar por test.
+// Lo demostrable sin proceso de navegador queda en los otros tres tests del fichero.
+test.skipIf(process.platform === "win32")('normal host does not adopt another browser when its own process exits',async()=>{
  const directory=mkdtempSync(join(tmpdir(),'isymcp-host-exit-')),log=join(directory,'args'),executable=join(directory,'chrome');
  writeFileSync(executable,'#!/bin/sh\nprintf "%s\\n" "$@" > "'+log+'"\nexit 7\n',{mode:0o700});
  await expect(openNormalBrowserHost({profileDir:join(directory,'profile'),launchId,executablePath:executable})).rejects.toThrow('visible_host_process_exited');

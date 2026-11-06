@@ -92,6 +92,7 @@ export const MENU: MenuItem[] = [
       { id: "server-stop", group: "SERVER", label: "■ Detener server" },
       { id: "panel-start", group: "PANEL", label: "▶ Iniciar panel", hint: "detached :8798, sin abrir" },
       { id: "panel-stop", group: "PANEL", label: "■ Detener panel" },
+      { id: "tunnel-setup", group: "TUNEL", label: "⚙ Configurar túnel…", hint: "pega ID + API key; entrada oculta" },
       { id: "tunnel-connect", group: "TUNEL", label: "▶ Conectar tunel" },
       { id: "tunnel-stop", group: "TUNEL", label: "■ Detener tunel" },
       { id: "tunnel-status", group: "TUNEL", label: "○ Estado del tunel" },

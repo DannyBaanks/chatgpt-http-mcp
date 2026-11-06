@@ -5,9 +5,10 @@
 // recuerda los prompts por conversacion, asi que puede responder "que te dije
 // primero" y demostrar continuidad/aislamiento sin red.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expectPrivate } from "./helpers/private-mode";
 import { loadConfig } from "../src/config";
 import { chatPath, chatsDir, createChat, listChats, loadChat, publicChat } from "../src/chats";
 import { chatStatus, isProviderBlock, runChatTurn } from "../src/chat-turn";
@@ -85,8 +86,8 @@ describe("registro de chats", () => {
 
   test("T12 recarga: el listado se reconstruye del disco, privado y sin secretos", () => {
     const chat = createChat();
-    expect(statSync(chatsDir()).mode & 0o777).toBe(0o700);
-    expect(statSync(chatPath(chat.id)!).mode & 0o777).toBe(0o600);
+    expectPrivate(chatsDir(), true);
+    expectPrivate(chatPath(chat.id)!, false);
     const listed = listChats().map((c) => publicChat(c, true));
     expect(listed.some((c) => c.id === chat.id)).toBe(true);
     const wire = JSON.stringify(listed);

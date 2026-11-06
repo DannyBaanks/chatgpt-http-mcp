@@ -1,13 +1,21 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright-core";
 import * as settings from "../src/chatgpt-settings";
+import { defaultBrowserExecutable } from "../src/platform/browser";
+
+// El mismo resolutor del producto (src/web-turn.ts:223): en Linux sigue siendo
+// /usr/bin/google-chrome y en Windows busca Chrome/Edge instalados.
+const chrome = defaultBrowserExecutable();
+// Sin navegador en el host no hay DOM que ejercitar: son saltos con motivo, no fallos.
+const browserTest = test.skipIf(!chrome);
 
 let browser: Browser;
 // A cold runner can take longer than Bun's default five-second hook budget.
 // Keep startup bounded inside the hook so Playwright can report launch errors.
 beforeAll(async () => {
+  if (!chrome) return; // sin navegador: los unicos tests del fichero ya estan saltados
   browser = await chromium.launch({
-    executablePath: process.env.CODEX_WEB_HTTP_CHROME || "/usr/bin/google-chrome",
+    executablePath: chrome,
     headless: true,
     timeout: 20_000,
   });
@@ -39,7 +47,7 @@ async function composer(highLabel = "High"): Promise<Page> {
   return page;
 }
 
-test("settings read waits for the usable composer control and ignores model buttons outside its form", async () => {
+browserTest("settings read waits for the usable composer control and ignores model buttons outside its form", async () => {
   const page = await composer();
   try {
     expect(await settings.readComposerSettings(page, { timeoutMs: 1000 })).toMatchObject({ model: "GPT-6", effort: "Medium", effortPosition: 2, effortSteps: 3 });
@@ -48,7 +56,7 @@ test("settings read waits for the usable composer control and ignores model butt
   } finally { await page.close(); }
 }, 20000);
 
-test("explicit model selection sets High and confirms the exact model in the composer", async () => {
+browserTest("explicit model selection sets High and confirms the exact model in the composer", async () => {
   const page = await composer();
   try {
     expect(await settings.selectComposerSettings(page, "GPT-5.6 Sol", "high", { timeoutMs: 3000 })).toMatchObject({ model: "GPT-5.6 Sol", effort: "High", effortPosition: 3, effortSteps: 3 });
@@ -57,7 +65,7 @@ test("explicit model selection sets High and confirms the exact model in the com
   } finally { await page.close(); }
 });
 
-test("explicit GPT-5.6 selection accepts the UI's version-prefixed High effort label", async () => {
+browserTest("explicit GPT-5.6 selection accepts the UI's version-prefixed High effort label", async () => {
   const page = await composer("5.6 High");
   try {
     expect(await settings.selectComposerSettings(page, "GPT-5.6 Sol", "high", { timeoutMs: 3000 })).toMatchObject({
@@ -93,7 +101,7 @@ async function delayedSliderComposer(): Promise<Page> {
   return page;
 }
 
-test("reasoning selection waits until the owned slider is usable", async () => {
+browserTest("reasoning selection waits until the owned slider is usable", async () => {
   const page = await delayedSliderComposer();
   try {
     expect(await settings.selectComposerSettings(page, "GPT-6", "high", { timeoutMs: 3000 })).toMatchObject({ model: "GPT-6", effort: "High", effortPosition: 3, effortSteps: 3 });
@@ -101,7 +109,7 @@ test("reasoning selection waits until the owned slider is usable", async () => {
   } finally { await page.close(); }
 }, 20000);
 
-test("an unavailable requested model fails without selecting a different model", async () => {
+browserTest("an unavailable requested model fails without selecting a different model", async () => {
   const page = await composer();
   try {
     let failure: unknown;

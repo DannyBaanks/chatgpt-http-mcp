@@ -272,7 +272,7 @@ Process explicitly registered audio and video locally, then inspect the evidence
 | **Prepare a reusable YouTube analysis** | Run `isymcp media prepare` (or `bun src/isymcp.ts media prepare`) to paste a URL, choose a folder, review metadata and confirm before download. It creates a hash-verified package and keeps the private catalog. |
 | **Script an existing flow** | Keep using `isymcp media prepare <url>` for the existing noninteractive JSON command; it does not open the picker or export a package. |
 | **Look up a YouTube source in ChatGPT** | Call read-only `media_lookup(url)` first. If it is `ready`, inspect its stored audio results and request one relevant sheet with `sheet_index`; `not_found` and `not_prepared` never download or analyze. |
-| **One-off public YouTube video or Short** | Call `media_import(url)`, poll `media_import_status(job_id, wait_seconds: 10)` until `complete`, and use `asset.id`. |
+| **One-off public YouTube video, Short or TikTok** | Call `media_import(url)`, poll `media_import_status(job_id, wait_seconds: 10)` until `complete`, and use `asset.id`. TikTok direct URLs and `vt.tiktok.com`/`vm.tiktok.com` share links are accepted. |
 | **Inspect video** | Use `media_info`, `video_contact_sheet` for an overview and `video_frame` for a specific timestamp. |
 | **Inspect audio** | Use `audio_scan` to scan the complete track in chunks of at most 120 seconds, then `audio_analyze` to zoom into a selected waveform, spectrogram or stereo measurement. |
 
@@ -296,9 +296,9 @@ The MCP itself is a tool server, not a standalone chat model. The selected ChatG
 
 The standalone media stdio entry point has local compatibility coverage. Remote GPT.com calls documented below used the main Codex ISyMCP connection; they do not establish remote E2E compatibility for every standalone media tool.
 
-### YouTube URL imports
+### Public video URL imports
 
-`media_import(url)` starts an asynchronous local download of an individual public YouTube video or Short; `media_import_status` reports progress. **yt-dlp** is sourced from the Video Vision installation, `PATH` or `ISYMCP_YTDLP_BIN`, without browser cookies, configuration or plugins. Video Vision supplies frames and FFmpeg supplies audio graphics and measurements.
+`media_import(url)` starts an asynchronous local download of an individual public YouTube video, Short or TikTok video; TikTok direct URLs and `vt.tiktok.com`/`vm.tiktok.com` share links are accepted. `media_import_status` reports progress. **yt-dlp** is sourced from the Video Vision installation, `PATH` or `ISYMCP_YTDLP_BIN`, without browser cookies, configuration or plugins. YouTube and TikTok download identities are verified before registration. Video Vision supplies frames and FFmpeg supplies audio graphics and measurements.
 
 Import limits: **500 MiB**, **30 minutes**, a **180-second import deadline**, and one shared download/analysis worker. Sources and SHA-256 are recorded. Completed downloads persist; partial files are retained, while in-memory job status resets when the server restarts. See [GUIA.md](GUIA.md) for the verified Angel Engine import workflow.
 
@@ -357,6 +357,7 @@ The protocol report is user-provided rather than a captured raw protocol transcr
 | `isymcp version` / `--version` | Display installed package version |
 | `isymcp up` / `down` / `status` | Server + tunnel lifecycle and honest status |
 | `isymcp server start` / `stop` | Starts or stops the HTTP bridge |
+| `isymcp tunnel setup` | Opens OpenAI organization settings, prompts for a hidden tunnel ID and runtime API key, stores them privately, starts the bridge if needed, and connects |
 | `isymcp tunnel connect` / `stop` / `status` | MCP tunnel for ChatGPT tools |
 | `isymcp session mint --cwd <dir> [--write] [--ttl h]` | Creates a scoped session folder (read-only by default, 7-day TTL) |
 | `isymcp session list` / `revoke <fp>` | Audits or revokes tool session tokens |

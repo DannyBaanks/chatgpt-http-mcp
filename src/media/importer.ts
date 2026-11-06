@@ -4,17 +4,24 @@ import { join, dirname } from 'node:path';
 import { MediaCatalog, MediaDownloadReceipt } from './catalog';
 import { withinDeadline, remaining } from './deadline';
 import { probe } from './audio';
-import { downloadYouTube, YouTubeDownloadResult, verifyDownloadedYouTubeId } from './youtube';
+import { downloadTikTok, downloadYouTube, TikTokDownloadResult, YouTubeDownloadResult, verifyDownloadedYouTubeId } from './youtube';
 import { youtubeSource } from './youtube-url';
+import { mediaSource } from './video-url';
+import { verifyDownloadedTikTok } from './tiktok-url';
 export { youtubeSource } from './youtube-url';
+export { mediaSource } from './video-url';
+export { verifyDownloadedTikTok } from './tiktok-url';
 export type ImportJob={job_id:string,state:'running'|'complete'|'failed',source_url:string,phase:string,asset?:{id:string,name:string,bytes:number,sha256:string},error?:string};
-export type Downloader=(url:string,dir:string,maxBytes:number)=>Promise<string|YouTubeDownloadResult>;
+export type Downloader=(url:string,dir:string,maxBytes:number)=>Promise<string|YouTubeDownloadResult|TikTokDownloadResult>;
+async function downloadPublicVideo(url:string,dir:string,maxBytes:number):Promise<YouTubeDownloadResult|TikTokDownloadResult> {
+ return mediaSource(url).platform==='tiktok'?downloadTikTok(url,dir,maxBytes):downloadYouTube(url,dir,maxBytes);
+}
 export class MediaImporter {
  private jobs=new Map<string,{view:ImportJob,done:Promise<void>}>();
  active=false;
- constructor(private catalog:MediaCatalog,private downloader:Downloader=downloadYouTube,private limits:{maxBytes:number,timeoutMs?:number}={maxBytes:500*1024*1024,timeoutMs:180000}){}
+ constructor(private catalog:MediaCatalog,private downloader:Downloader=downloadPublicVideo,private limits:{maxBytes:number,timeoutMs?:number}={maxBytes:500*1024*1024,timeoutMs:180000}){}
  start(input:string):ImportJob {
-  const source_url=youtubeSource(input);if(this.active)throw Error('Media worker busy; retry after current query finishes');
+  const source=mediaSource(input),source_url=source.source_url;if(this.active)throw Error('Media worker busy; retry after current query finishes');
   if(this.jobs.size>=50) {const oldest=[...this.jobs].find(([,j])=>j.view.state!=='running');if(oldest)this.jobs.delete(oldest[0]);}
   const job_id='import_'+randomUUID();const view:ImportJob={job_id,state:'running',source_url,phase:'downloading'};
   const downloads=join(this.catalog.home,'downloads');mkdirSync(downloads,{recursive:true,mode:0o700});
@@ -24,10 +31,18 @@ export class MediaImporter {
    try {
     const downloaded=await this.downloader(source_url,dir,this.limits.maxBytes);
     let file:string,receipt:MediaDownloadReceipt|undefined;
-    if(typeof downloaded==='string')file=downloaded;
-    else {
+    if(typeof downloaded==='string') {
+     if(source.platform==='tiktok')throw Error('TikTok download did not include a verifiable video identity');
+     file=downloaded;
+    } else if(source.platform==='youtube') {
+     if('platform' in downloaded)throw Error('Downloaded video platform did not match the requested URL');
      const verified=verifyDownloadedYouTubeId(source_url,downloaded.video_id);
      if(downloaded.source_url!==verified.source_url)throw Error('Downloaded YouTube video identity did not match the canonical URL');
+     file=downloaded.path;receipt=verified;
+    } else {
+     if(!('platform' in downloaded)||downloaded.platform!=='tiktok')throw Error('Downloaded video platform did not match the requested URL');
+     const verified=verifyDownloadedTikTok(source_url,downloaded.video_id,downloaded.canonical_url);
+     if(downloaded.source_url!==verified.source_url)throw Error('Downloaded TikTok video identity did not match the canonical URL');
      file=downloaded.path;receipt=verified;
     }
     remaining();if(dirname(realpathSync(file))!==realpathSync(dir))throw Error('Downloader returned an unauthorized path');
