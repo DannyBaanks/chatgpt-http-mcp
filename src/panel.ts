@@ -5,11 +5,12 @@
 // acciones via isymcp; /api/chats* -> chat local (los turnos van al bridge).
 // Todo es local: sin fuentes, scripts ni imagenes de internet.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isExpired, listUserSessions, sandboxLabel } from "./codex-sessions";
 import { processMatches, processMatchesTable } from "./platform/process";
-import { bridgeAuthHeaders, guardLocalRequest } from "./local-guard";
+import { bridgeAuthHeaders, bridgeToken, guardLocalRequest, panelSessionCookie } from "./local-guard";
 import { readLatestCanary, type CanaryResult } from "./canary";
 import { canaryScheduled, listCodexTasks, type CodexTaskView } from "./codex-tasks";
 import { chatPath, createChat, listChats, loadChat, publicChat, saveChat, MAX_DRAFT_LENGTH } from "./chats";
@@ -603,6 +604,68 @@ body:not(.tab-chat) #view-chat,body.tab-chat #view-estado{display:none}
 @media (max-width:520px){.top{gap:8px;padding:0 10px}.top .logo{font-size:14px}.tabs{margin-left:0}.tabs a{padding:6px 8px}.live span.lbl{display:none}}
 `);
 
+const bootstrapTickets = new Map<string, number>();
+
+export function mintPanelTicket(ttlMs = 30_000): string {
+  const ticket = randomUUID();
+  bootstrapTickets.set(ticket, Date.now() + ttlMs);
+  return ticket;
+}
+
+export function redeemPanelTicket(ticket: string): boolean {
+  const exp = bootstrapTickets.get(ticket);
+  if (!exp) return false;
+  bootstrapTickets.delete(ticket);
+  return exp > Date.now();
+}
+
+export function renderLoginCard(errorMsg?: string): string {
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ISyMCP Panel · Acceso Protegido</title>
+<style>
+:root{--bg:#090b0a;--card:#101412;--line:#1c2420;--ink:#e6ede8;--mute:#7a8a80;--btn:#1d2922;--btn-h:#283a30;--ok:#5cdb80;--err:#ff6b6b;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--sans:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans);display:grid;min-height:100vh;place-items:center;padding:16px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px 24px;width:100%;max-width:400px;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+h1{margin:0 0 8px;font:700 18px var(--mono);color:var(--ok);letter-spacing:.08em}
+p{margin:0 0 16px;color:var(--mute);font-size:13px}
+input{width:100%;padding:10px 12px;background:#060807;border:1px solid var(--line);border-radius:8px;color:var(--ink);font:13px var(--mono);margin-bottom:12px;outline:none}
+input:focus{border-color:var(--ok)}
+button{width:100%;padding:10px;background:var(--btn);color:var(--ok);border:1px solid var(--line);border-radius:8px;font:600 13px var(--mono);cursor:pointer;transition:all .15s}
+button:hover{background:var(--btn-h);border-color:var(--ok)}
+.hint{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font:12px var(--mono);color:var(--mute)}
+.hint code{color:var(--ink);background:#151b18;padding:2px 6px;border-radius:4px}
+.err{color:var(--err);font-size:12px;margin-bottom:10px}
+</style></head>
+<body>
+<div class="box">
+  <h1>ISyMCP PANEL</h1>
+  <p>Acceso administrativo protegido. Ingresa tu token local del bridge para abrir una sesión:</p>
+  ${errorMsg ? `<div class="err">${errorMsg}</div>` : ""}
+  <form id="f" method="POST" action="/api/login">
+    <input type="password" id="t" name="token" placeholder="Token del bridge" required autofocus>
+    <button type="submit" id="b">Acceder al panel</button>
+  </form>
+  <div class="hint">
+    O ejecuta en tu terminal:<br>
+    <code>isymcp panel</code><br>
+    (abre sesión automáticamente)
+  </div>
+</div>
+<script>
+document.getElementById('f').onsubmit=async(e)=>{
+  e.preventDefault();
+  const t=document.getElementById('t').value.trim();
+  const b=document.getElementById('b');
+  b.disabled=true;b.textContent='Verificando…';
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:t})});
+    if(r.ok){location.href='/';}else{const j=await r.json().catch(()=>({}));alert('Token inválido: '+(j.error?.message||r.statusText));b.disabled=false;b.textContent='Acceder al panel';}
+  }catch(err){alert('Error de conexión');b.disabled=false;b.textContent='Acceder al panel';}
+};
+</script>
+</body></html>`;
+}
+
 export function renderPanel(state: PanelState): string {
   return (`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ISyMCP</title><style>${STYLE}${SHELL_STYLE}${CHAT_STYLE}</style></head>
@@ -666,30 +729,111 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
     hostname: "127.0.0.1",
     port,
     async fetch(req) {
-      // Host/Origin loopback + JSON en POST: sin esto cualquier pagina web
-      // podia disparar acciones (CSRF) o leer /api/state (DNS rebinding).
-      const denied = guardLocalRequest(req, { requireJsonBody: true, loopbackOnly: true });
-      if (denied) return denied;
       const url = new URL(req.url);
+      // Bloqueo inmediato de host no-loopback para cualquier ruta (DNS rebinding / Host injection)
+      const hostDenied = guardLocalRequest(req, { loopbackOnly: true });
+      if (hostDenied) return hostDenied;
+
       // Sondeo de disponibilidad: ni estado ni pgrep. buildPanelState cuesta
       // segundos en Windows y panelUp() solo da 1500 ms, asi que sin esta ruta el
       // CLI nunca puede confirmar que el panel escucha.
       if (url.pathname === "/ready" && req.method === "GET") {
         return new Response("ok", { status: 200, headers: { "cache-control": "no-store" } });
       }
-      if (url.pathname === "/api/native-browser/status") {
-        if (req.method !== "GET") return apiError(405, "method_not_allowed", "GET");
-        return Response.json(nativeBrowserStatus(), { headers: { "cache-control": "no-store" } });
+
+      // 1. Canje de ticket efímero de bootstrap (?ticket=<uuid>):
+      // Quema el ticket inmediatamente, emite cookie HttpOnly firmada y redirige a / limpia.
+      const ticket = url.searchParams.get("ticket");
+      if (ticket && redeemPanelTicket(ticket)) {
+        let cookie = "";
+        try { cookie = panelSessionCookie(bridgeToken()); } catch {}
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: "/",
+            "set-cookie": `isymcp_session=${cookie}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`,
+          },
+        });
       }
+
+      // 2. Endpoint para mintear ticket: solo invocable con token del bridge (CLI isymcp panel)
+      if (url.pathname === "/api/ticket" && req.method === "POST") {
+        const denied = guardLocalRequest(req, { requireToken: true, loopbackOnly: true });
+        if (denied) return denied;
+        return Response.json({ ticket: mintPanelTicket() });
+      }
+
+      // 3. Login manual vía UI: verifica token y emite cookie
+      if (url.pathname === "/api/login" && req.method === "POST") {
+        const denied = guardLocalRequest(req, { requireJsonBody: true, loopbackOnly: true });
+        if (denied) return denied;
+        const body = (await req.json().catch(() => ({}))) as { token?: string };
+        let expected = "";
+        try { expected = bridgeToken(); } catch {}
+        if (!body.token || body.token !== expected) {
+          return Response.json({ error: { type: "unauthorized", message: "token incorrecto" } }, { status: 401 });
+        }
+        const cookie = panelSessionCookie(expected);
+        return Response.json({ ok: true }, {
+          headers: {
+            "set-cookie": `isymcp_session=${cookie}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`,
+          },
+        });
+      }
+
+      // 4. Recursos estáticos públicos (logo Blossom)
       if (url.pathname === "/assets/openai-white-monoblossom.png" && req.method === "GET") {
         try {
-          return new Response(readFileSync(BLOSSOM_ASSET), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400",
-            "x-content-type-options": "nosniff" } });
+          return new Response(readFileSync(BLOSSOM_ASSET), {
+            headers: {
+              "content-type": "image/png",
+              "cache-control": "public, max-age=86400",
+              "x-content-type-options": "nosniff",
+            },
+          });
         } catch {
           return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
         }
       }
-      if (url.pathname.startsWith("/assets/")) return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+      if (url.pathname.startsWith("/assets/")) {
+        return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+      }
+
+      // 5. Verificación de seguridad para UI y APIs
+      const authStrict = process.env.CODEX_WEB_HTTP_PANEL_AUTH !== "off" &&
+        process.env.CODEX_WEB_HTTP_SECURITY_PROFILE !== "v1_compat";
+
+      // 6. Carga de la UI (GET / y GET /fragment)
+      if (url.pathname === "/" || url.pathname === "/fragment") {
+        const denied = guardLocalRequest(req, { requireToken: authStrict, allowCookie: true, loopbackOnly: true });
+        if (denied) {
+          if (url.pathname === "/fragment") return denied;
+          // Renderiza pantalla de acceso limpia: CERO secretos ni tokens en el DOM
+          return new Response(renderLoginCard(), {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+          });
+        }
+        const state = await buildPanelState(bridgePort);
+        const html = url.pathname === "/fragment" ? renderMain(state) : renderPanel(state);
+        return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
+
+      // 7. Endpoints de la API (/api/*): mutaciones y lecturas
+      const isMutating = req.method !== "GET" && req.method !== "HEAD";
+      const requireToken = authStrict && isMutating;
+      const denied = guardLocalRequest(req, {
+        requireToken,
+        allowCookie: true,
+        requireJsonBody: isMutating,
+        loopbackOnly: true,
+      });
+      if (denied) return denied;
+
+      if (url.pathname === "/api/native-browser/status") {
+        if (req.method !== "GET") return apiError(405, "method_not_allowed", "GET");
+        return Response.json(nativeBrowserStatus(), { headers: { "cache-control": "no-store" } });
+      }
       if (url.pathname.startsWith("/api/chat")) return handleChatApi(req, url, bridgePort);
       if (url.pathname.startsWith("/api/settings")) return handleSettingsApi(req, url, bridgePort);
       if (url.pathname === "/api/sessions" && req.method === "GET") return Response.json(publicSessions());
@@ -700,10 +844,11 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       }
       const state = await buildPanelState(bridgePort);
       if (url.pathname === "/api/state") return Response.json(state);
-      const html = url.pathname === "/fragment" ? renderMain(state) : renderPanel(state);
-      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+
+      return apiError(404, "not_found", "ruta desconocida");
     },
   });
+  (server as any).mintTicket = () => mintPanelTicket();
   return server;
 }
 

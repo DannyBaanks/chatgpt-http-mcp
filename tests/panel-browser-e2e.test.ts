@@ -12,6 +12,14 @@ if (!browserAvailable) {
   test.skip("panel chat browser E2E (requiere Chrome o Edge local)", () => {});
 } else {
   const bridgeToken = "isymcp-panel-e2e-fake-bridge-token";
+  const authFetch = (url: URL | string, init: RequestInit = {}) =>
+    fetch(url, {
+      ...init,
+      headers: {
+        "x-isymcp-token": bridgeToken,
+        ...(init.headers ?? {}),
+      },
+    });
   const runningToolCard = {
     tool: "test.fake_tool",
     summary: "E2E synthetic fixture only; no command executed",
@@ -135,7 +143,9 @@ if (!browserAvailable) {
         return setItem.call(this, key, value);
       };
     });
-    await page.goto(panelUrl, { waitUntil: "domcontentloaded" });
+    const ticket = (panel as any).mintTicket?.() ?? "";
+    const launchUrl = ticket ? `${panelUrl}?ticket=${ticket}` : panelUrl;
+    await page.goto(launchUrl, { waitUntil: "domcontentloaded" });
     await page.locator("#input").waitFor({ state: "visible" });
   }, 60_000);
 
@@ -184,7 +194,7 @@ if (!browserAvailable) {
           selectionTrace: (window as Window & { __isymcpChatSelectionTrace?: string[] }).__isymcpChatSelectionTrace ?? [],
         }));
         const savedChat = pageState.activeChatId
-          ? await (await fetch(new URL(`/api/chats/${pageState.activeChatId}`, panelUrl))).json()
+          ? await (await authFetch(new URL(`/api/chats/${pageState.activeChatId}`, panelUrl))).json()
           : null;
         const recentChatRequests = browserRequestDetails
           .filter(({ url }) => new URL(url).pathname.startsWith("/api/chats/"))
@@ -240,7 +250,7 @@ if (!browserAvailable) {
     });
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
     expect((await pagehideWrite).status()).toBe(200);
-    expect((await (await fetch(new URL(`/api/chats/${chatId}`, panelUrl))).json()).draft)
+    expect((await (await authFetch(new URL(`/api/chats/${chatId}`, panelUrl))).json()).draft)
       .toBe("Draft A survives a chat switch and reload");
     const staleWrite = page.waitForResponse((response) => {
       if (!new URL(response.url()).pathname.endsWith("/draft") || response.request().method() !== "POST") return false;
@@ -322,7 +332,7 @@ if (!browserAvailable) {
     );
     await page.locator("#tools-session").selectOption(sessionOption!);
     expect((await configResponse).status()).toBe(200);
-    expect((await (await fetch(new URL(`/api/chats/${chatId}`, panelUrl))).json()).session_fp).toBe(sessionFp);
+    expect((await (await authFetch(new URL(`/api/chats/${chatId}`, panelUrl))).json()).session_fp).toBe(sessionFp);
     expect(await page.locator("#tools-switch").getAttribute("aria-checked")).toBe("false");
 
     let releaseConfigResponse!: () => void;
@@ -341,7 +351,7 @@ if (!browserAvailable) {
     );
     await page.locator("#tools-switch").click();
     await configStarted;
-    expect((await (await fetch(new URL(`/api/chats/${chatId}`, panelUrl))).json()).tools_enabled).toBe(true);
+    expect((await (await authFetch(new URL(`/api/chats/${chatId}`, panelUrl))).json()).tools_enabled).toBe(true);
     await page.locator("#chatlist button").filter({ hasText: "Nuevo chat" }).click();
     await waitForValue("#input", "B-only draft must stay with chat B");
     expect(await page.locator("#tools-switch").getAttribute("aria-checked")).toBe("false");
@@ -393,7 +403,7 @@ if (!browserAvailable) {
     expect(failedResponse.status()).toBe(502);
     await waitForText("#msgs", "Synthetic bridge failure for E2E");
     await waitForValue("#input", "FAIL E2E preserve this text");
-    const savedChat = await (await fetch(new URL(`/api/chats/${chatId}`, panelUrl))).json();
+    const savedChat = await (await authFetch(new URL(`/api/chats/${chatId}`, panelUrl))).json();
     expect(savedChat.tools_enabled).toBe(false);
     expect(savedChat.session_fp).toBe(sessionFp);
     expect(JSON.stringify(savedChat)).not.toContain(bridgeToken);

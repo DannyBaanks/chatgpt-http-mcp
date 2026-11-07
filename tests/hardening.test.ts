@@ -13,7 +13,7 @@ import {
 } from "../src/codex-sessions";
 import { withWebLock } from "../src/web-turn";
 import { sanitizeEvidenceText } from "../src/sanitize";
-import { assertSafeExposure, guardLocalRequest } from "../src/local-guard";
+import { assertSafeExposure, bridgeAuthHeaders, guardLocalRequest } from "../src/local-guard";
 
 let home: string;
 let workspace: string;
@@ -108,10 +108,19 @@ describe("panel :8798 — CSRF/rebinding/XSS", () => {
     expect(res.status).toBe(415);
   });
 
-  test("el propio panel (Origin loopback + JSON) sigue funcionando", async () => {
+  test("POST /api/action sin token -> 401 (neutraliza confused deputy)", async () => {
     const res = await fetch(url("/api/action"), {
       method: "POST",
       headers: { "content-type": "application/json", origin: `http://127.0.0.1:${server.port}` },
+      body: JSON.stringify({ action: "nope" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  test("el propio panel (Origin loopback + JSON + token) sigue funcionando", async () => {
+    const res = await fetch(url("/api/action"), {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: `http://127.0.0.1:${server.port}`, ...bridgeAuthHeaders() },
       body: JSON.stringify({ action: "nope" }),
     });
     expect(res.status).toBe(200);

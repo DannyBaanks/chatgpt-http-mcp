@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.2] - 2026-11-07
+
+Security boundary hardening release following an architectural review
+using the Elephant-Goldfish Model (EGM) and peer adversarial review.
+
+### Security
+
+- **Panel Credential Isolation & Loopback Hardening**:
+  - Eliminated `window.__ISYMCP_TOKEN__` completely from DOM HTML, templates, and frontend scripts (`src/panel.ts`, `src/panel-chat.ts`).
+  - Added ephemeral single-use bootstrap ticket mechanism (`mintPanelTicket` / `redeemPanelTicket`) exchanged for an HMAC-SHA256 signed `isymcp_session` session cookie (`HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`).
+  - Mutating panel endpoints (`POST /api/action`, `POST /api/harness/apply`, `POST /api/chats/*`, `POST /api/settings/*`) enforce `guardLocalRequest` with token or cookie authorization; unauthenticated requests fail closed with HTTP 401.
+  - Non-loopback Host headers on panel routes are rejected immediately with HTTP 403 (DNS rebinding prevention).
+- **Process Hierarchy Termination on Linux**:
+  - Upgraded `stopProcessTree` and `killUnregisteredProc` to execute `pkill -TERM -P <pid>` while the parent process is alive, followed by process-group kill (`process.kill(-pid, "SIGTERM")`) and hard timeout escalations (`pkill -9 -P <pid>`). Detached background descendant jobs no longer persist as zombies.
+- **Symlink Confinement Hardening**:
+  - Switched `runApplyPatch` target path verification to `resolveWithinReal`, recursively resolving ancestor directory symlinks to block escapes outside workspace root.
+- **Synchronous Session Validation & Multi-Turn Background Tasks**:
+  - Indexed `LiveExec` background process records by root session fingerprint (`session.parent ?? session.fp`) to enable multi-turn prompts to manage background processes across turns.
+  - Synchronously verified active session existence against `codex-sessions.json` on disk in `findLive` and `sweepLiveExecs`, terminating active processes immediately upon revocation or expiration.
+
+### Changed
+
+- Bumped package version to `1.0.2` and Windows sandbox image tag to `isymcp-sandbox:1.0.2`.
+- Added 11 automated adversarial security tests in `tests/security-boundary.test.ts` (`SEC-TEST-01` to `SEC-TEST-11`).
+
 ## [1.0.1] - 2026-10-31
 
 Patch release on top of 1.0.0. It contains a single diagnostics fix and the

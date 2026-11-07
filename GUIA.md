@@ -978,3 +978,12 @@ La versión estable 1.0.0 consolida el token obligatorio del bridge, el freno fa
 ## Release 1.0.1 (parche de diagnóstico) (2026-10-31)
 
 1.0.1 es un parche sobre 1.0.0 con un solo cambio, de diagnóstico: `isymcp doctor` dejaba de marcar un fallo de media obsoleto. Antes, el chequeo del "último fallo" leía el job fallido más reciente aunque después hubiera importes completados, así que dos fallos históricos (anteriores a los códigos de error estables) aparecían siempre como `media_unknown`, y el remedio "reintenta" no los podía limpiar porque un reintento exitoso escribe un job nuevo y deja intacto el viejo. Ahora el fallo solo se reporta si es la actividad más reciente; un catálogo recuperado muestra `ok · sin fallos registrados`. **La evidencia cruda no se toca: ningún `job.json` se borra ni se reescribe, solo cambia la interpretación del doctor.** El puente, las tools MCP, el sandbox y el navegador nativo congelado quedan igual que en 1.0.0. Suite: 706 pass / 3 skip / 0 fail. Registro: `docs/verification/2026-10-31-v1.0.1-doctor-fix.md`. Notas: `docs/releases/v1.0.1.md`.
+
+## Release 1.0.2 (blindaje de fronteras de seguridad) (2026-11-07)
+
+1.0.2 es un release de blindaje de fronteras de seguridad tras auditoría arquitectónica EGM y revisión adversaria:
+1. **Aislamiento de credenciales en el panel**: se erradicó cualquier token o secreto en el DOM (`window.__ISYMCP_TOKEN__` eliminado). La navegación usa tickets de un solo uso canjeados por cookies de sesión `HttpOnly; SameSite=Strict`, cerrando el oráculo local en `GET /`. Las mutaciones administrativas exigen autorización estricta (401 sin token o cookie).
+2. **Terminación de árboles de procesos en Linux**: `stopProcessTree` y el registro de procesos matan de forma exhaustiva los subprocesos desacoplados (`pkill -P` + `SIGKILL` a grupo), impidiendo procesos huérfanos/zombis.
+3. **Confinamiento de enlaces simbólicos**: `apply_patch` resuelve rutas de forma recursiva con `resolveWithinReal`, bloqueando escapes del workspace mediante symlinks en carpetas intermedias.
+4. **Validación sincrónica de sesiones y tareas multiturno**: `findLive` y `sweepLiveExecs` verifican sincrónicamente las sesiones en disco y terminan procesos al revocar, admitiendo indexación por la huella de sesión raíz (`session.parent ?? session.fp`) entre turnos.
+Suite: 718 pass / 3 skip / 0 fail (108 archivos). 11 tests adversarios automatizados (`tests/security-boundary.test.ts`). Notas: `docs/releases/v1.0.2.md`.

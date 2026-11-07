@@ -192,7 +192,21 @@ function openInBrowser(url: string): void {
 
 async function openPanel(): Promise<void> {
   if (!(await serverUp())) console.log(`ojo: el server (:${PORT}) esta abajo; el panel abre igual y lo muestra. Levantalo con: isymcp up`);
-  if (await startPanelDetached()) openInBrowser(PANEL_URL);
+  if (await startPanelDetached()) {
+    let targetUrl = PANEL_URL;
+    try {
+      const res = await fetch(`${PANEL_URL}/api/ticket`, {
+        method: "POST",
+        headers: bridgeAuthHeaders({ "content-type": "application/json" }),
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { ticket?: string };
+        if (data.ticket) targetUrl = `${PANEL_URL}/?ticket=${data.ticket}`;
+      }
+    } catch {}
+    openInBrowser(targetUrl);
+  }
 }
 
 // ── Chat desde la terminal ─────────────────────────────────────────────────
@@ -231,7 +245,7 @@ async function askChatGPT(message: string, fresh = false): Promise<boolean> {
   // Progreso en vivo (stderr): fase y texto parcial, como en el panel.
   const poll = setInterval(async () => {
     try {
-      const st = (await (await fetch(`${BRIDGE}/isymcp/chat/status`, { signal: AbortSignal.timeout(1_500) })).json()) as {
+      const st = (await (await fetch(`${BRIDGE}/isymcp/chat/status`, { headers: bridgeAuthHeaders(), signal: AbortSignal.timeout(1_500) })).json()) as {
         phase: string; chat_id: string | null; queued: number; partial?: string;
       };
       if (!tty) return;
@@ -250,7 +264,7 @@ async function askChatGPT(message: string, fresh = false): Promise<boolean> {
   try {
     const res = await fetch(`${BRIDGE}/isymcp/chat/turn`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: bridgeAuthHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ chat_id: chatId, message }),
       signal: AbortSignal.timeout(15 * 60_000),
     });
@@ -280,9 +294,12 @@ async function askChatGPT(message: string, fresh = false): Promise<boolean> {
 // ── Ajustes de ChatGPT (modelo/reasoning de la cuenta) ─────────────────────
 
 async function bridgeJson(path: string, method = "GET"): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  const headers = method === "POST"
+    ? bridgeAuthHeaders({ "content-type": "application/json" })
+    : bridgeAuthHeaders();
   const res = await fetch(`${BRIDGE}${path}`, {
     method,
-    headers: method === "POST" ? { "content-type": "application/json" } : {},
+    headers,
     body: method === "POST" ? "{}" : undefined,
     signal: AbortSignal.timeout(120_000),
   });

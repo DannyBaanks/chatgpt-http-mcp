@@ -15,7 +15,7 @@
 // lo mandan ellos mismos, asi que el usuario no configura nada.
 
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
 import { ensurePrivatePath, securePrivatePath } from "./platform/private-path";
@@ -56,6 +56,16 @@ export interface GuardOptions {
    * explicitamente (solo pruebas de enrutado).
    */
   requireToken?: boolean;
+  /**
+   * Permitir autenticacion via cookie HttpOnly firmada (isymcp_session)
+   * ademas de la cabecera x-isymcp-token (usado por el panel web).
+   */
+  allowCookie?: boolean;
+}
+
+/** Hash opaco derivado del token para la cookie de sesion del panel (no reversible). */
+export function panelSessionCookie(expectedToken: string): string {
+  return createHash("sha256").update(`isymcp-panel-cookie:${expectedToken}`).digest("hex");
 }
 
 /** Cabecera con el token del bridge (no usa Authorization: esa viaja al upstream). */
@@ -190,6 +200,15 @@ export function guardLocalRequest(req: Request, options: GuardOptions = {}): Res
       return forbidden("forbidden_origin", `Origin no permitido: ${origin}`);
     }
   }
+  if (options.requireJsonBody && req.method === "POST") {
+    const type = (req.headers.get("content-type") ?? "").toLowerCase();
+    if (!type.startsWith("application/json")) {
+      return Response.json(
+        { error: { type: "unsupported_media_type", message: "POST requiere content-type: application/json" } },
+        { status: 415 },
+      );
+    }
+  }
   if (options.requireToken) {
     let expected: string;
     try {
@@ -200,19 +219,23 @@ export function guardLocalRequest(req: Request, options: GuardOptions = {}): Res
         { status: 503 },
       );
     }
-    if (!tokenMatches(req.headers.get(TOKEN_HEADER), expected)) {
-      return Response.json(
-        { error: { type: "unauthorized", message: `falta o es invalido ${TOKEN_HEADER} (CODEX_WEB_HTTP_TOKEN)` } },
-        { status: 401 },
-      );
+    let matched = tokenMatches(req.headers.get(TOKEN_HEADER), expected);
+    if (!matched && options.allowCookie) {
+      const cookieHeader = req.headers.get("cookie") ?? "";
+      const expectedCookie = panelSessionCookie(expected);
+      const m = /(?:^|;\s*)isymcp_session=([^;]+)/.exec(cookieHeader);
+      if (m && m[1]) {
+        try {
+          const b1 = Buffer.from(m[1]);
+          const b2 = Buffer.from(expectedCookie);
+          if (b1.length === b2.length && timingSafeEqual(b1, b2)) matched = true;
+        } catch {}
+      }
     }
-  }
-  if (options.requireJsonBody && req.method === "POST") {
-    const type = (req.headers.get("content-type") ?? "").toLowerCase();
-    if (!type.startsWith("application/json")) {
+    if (!matched) {
       return Response.json(
-        { error: { type: "unsupported_media_type", message: "POST requiere content-type: application/json" } },
-        { status: 415 },
+        { error: { type: "unauthorized", message: `falta o es invalido ${TOKEN_HEADER} o cookie de sesion (CODEX_WEB_HTTP_TOKEN)` } },
+        { status: 401 },
       );
     }
   }
