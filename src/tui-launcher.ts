@@ -11,6 +11,7 @@ export interface SpawnAgyOptions {
   dangerouslySkipPermissions?: boolean;
   terminalPreference?: "auto" | "gui" | "tmux";
   includeMonitorHint?: boolean;
+  dryRun?: boolean;
 }
 
 export interface SpawnAgyResult {
@@ -98,6 +99,17 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         "-e",
         `${agyBin} ${agyArgs.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`,
       ];
+    }
+
+    if (options.dryRun) {
+      return {
+        ok: true,
+        pid: 0,
+        terminal: guiTerm,
+        cwd,
+        command: termCmd,
+        message: "Dry-run: comando preparado exitosamente sin spawn real.",
+      };
     }
 
     try {

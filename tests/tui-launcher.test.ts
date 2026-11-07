@@ -17,18 +17,19 @@ describe("TUI Launcher Suite", () => {
   });
 
   it("TL-03: spawnAgyTui builds options and executes cleanly with detached child", async () => {
-    // Test with dry-run or lightweight prompt
+    // Dry-run para no abrir ventanas reales durante el test suite
     const res = await spawnAgyTui({
       prompt: "Prueba unitaria ISyMCP TUI",
       title: "Test Unitario TUI",
       includeMonitorHint: true,
       terminalPreference: "auto",
+      dryRun: true,
     });
 
     expect(res).toBeDefined();
     expect(res.ok).toBe(true);
     expect(res.terminal).toBeDefined();
-    expect(res.pid).toBeGreaterThan(0);
-    expect(res.message).toContain("exitosa");
+    expect(res.command.length).toBeGreaterThan(0);
+    expect(res.message).toContain("exitosamente");
   });
 });
