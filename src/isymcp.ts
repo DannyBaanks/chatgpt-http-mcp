@@ -695,6 +695,8 @@ function help(): void {
   isymcp tui spawn "<prompt>" [--title t] [--mode auto]  abre consola Antigravity interactiva
   isymcp monitor wait-next [segundos] espera síncronamente la próxima tarea de ChatGPT
   isymcp monitor respond <id> --summary "..." [--wait] confirma recepción/resultado de tarea
+  isymcp monitor alert [--title t] [--summary s] [--source src] encola una alerta o webhook reactivo
+  isymcp github watch-ci [run_id|pr] [--detach] despierta un proceso hijo para alertar al monitor al concluir el CI
   isymcp exec "<comando>" [--cwd dir] ejecuta comando shell con CWD persistente
   isymcp fuzz [iteraciones]  ejecuta la suite de fuzzing adversarial (configs TUI y MCP Gateway)
   isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] [--request-file TASK.md]
@@ -1759,10 +1761,11 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
           return false;
         });
         if (unacked) {
+          const isAlert = unacked.kind === "system_alert" || unacked.kind === "github_alert";
           console.log(
             JSON.stringify(
               {
-                wakeup: "NEW_CHATGPT_MONITOR_TASK",
+                wakeup: isAlert ? "MONITOR_ALERT_NOTIFICATION" : "NEW_CHATGPT_MONITOR_TASK",
                 task_id: unacked.task_id,
                 operation_id: unacked.operation_id,
                 state: unacked.state,
@@ -1826,6 +1829,23 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
 
     if (autoWait) {
       await waitNextUnackedTask(timeoutSec);
+    }
+    return;
+  }
+
+  if (sub === "alert" || sub === "notify") {
+    const title = flag("--title", argsAll) ?? "Alerta de sistema";
+    const explicitSummary = flag("--summary", argsAll);
+    const positionalSummary = rest.filter((a) => !a.startsWith("--")).join(" ");
+    const summary = explicitSummary ?? (positionalSummary.length > 0 ? positionalSummary : "Notificación enviada al monitor");
+    const source = flag("--source", argsAll) ?? "system";
+    const { openBridgeMonitorStack } = await import("./remote-monitor");
+    const { db, queue } = openBridgeMonitorStack();
+    try {
+      const res = queue.submitAlertTask({ title, summary, source });
+      console.log(JSON.stringify(res, null, 2));
+    } finally {
+      db.close();
     }
     return;
   }

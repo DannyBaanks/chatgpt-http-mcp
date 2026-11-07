@@ -21,6 +21,7 @@ COMANDOS DISPONIBLES:
   isymcp github repos [usuario]               Lista los repositorios del usuario u organización
   isymcp github prs <owner/repo> [estado]     Lista pull requests (open, closed, all)
   isymcp github issues <owner/repo> [estado]  Lista issues del repositorio
+  isymcp github watch-ci [run_id_o_pr]        Despierta un hijo del monitor para notificar reactivamente el fin del CI
   isymcp github dispatch <repo> <wf> [opts]   Despacha un GitHub Actions workflow_dispatch
   isymcp github api <endpoint> [opciones]     Llama directamente a cualquier endpoint de la API REST v3
   isymcp github run <gh args...>              Ejecuta comandos nativos del CLI de GitHub (gh)
@@ -303,6 +304,109 @@ export async function githubCommand(sub?: string, args: string[] = []): Promise<
     if (res.stdout) process.stdout.write(res.stdout);
     if (res.stderr) process.stderr.write(res.stderr);
     return res.code;
+  }
+
+  if (sub === "_watch_worker") {
+    const runId = args[0];
+    const port = args[1] || "8799";
+    const prNumber = args[2] || "";
+    if (!runId) return 1;
+
+    let finished = false;
+    let attempts = 0;
+    while (!finished && attempts < 360) {
+      await new Promise((r) => setTimeout(r, 8000));
+      attempts++;
+      try {
+        const res = await callGitHubApi<{
+          id: number;
+          name: string;
+          status: string;
+          conclusion: string | null;
+          html_url: string;
+          head_branch: string;
+          repository?: { full_name: string };
+        }>(`/repos/DannyBaanks/chatgpt-http-mcp/actions/runs/${runId}`);
+
+        if (res.ok && res.data && res.data.status === "completed") {
+          finished = true;
+          const conclusion = res.data.conclusion ?? "completed";
+          const wfName = res.data.name ?? "CI";
+          const repo = res.data.repository?.full_name ?? "DannyBaanks/chatgpt-http-mcp";
+          const url = res.data.html_url ?? "";
+          const branch = res.data.head_branch ?? "main";
+
+          const alertPayload = {
+            source: "github",
+            event: "workflow_run",
+            title: `GitHub CI [${wfName}]`,
+            summary: `Run #${runId} en ${branch} concluyó con status: ${conclusion.toUpperCase()}${prNumber ? ` (PR #${prNumber})` : ""}`,
+            metadata: { run_id: runId, conclusion, workflow: wfName, repo, url, branch, pr: prNumber || undefined },
+          };
+
+          try {
+            const postRes = await fetch(`http://127.0.0.1:${port}/isymcp/monitor/alert`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(alertPayload),
+            });
+            if (postRes.ok) return 0;
+          } catch {
+            const { openBridgeMonitorStack } = await import("../remote-monitor");
+            const { db, queue } = openBridgeMonitorStack();
+            try {
+              queue.submitAlertTask(alertPayload);
+            } finally {
+              db.close();
+            }
+          }
+          return 0;
+        }
+      } catch {
+        // reintentar en el siguiente ciclo
+      }
+    }
+    return 0;
+  }
+
+  if (sub === "watch-ci" || sub === "watch-run") {
+    let target = args.find((a) => !a.startsWith("--"));
+    const port = args[args.indexOf("--port") + 1] || "8799";
+    const detach = !args.includes("--no-detach");
+
+    let runId = target;
+    let prNumber = "";
+
+    if (!runId || runId.startsWith("#") || Number(runId) < 1000) {
+      if (runId) prNumber = runId.replace("#", "");
+      const runs = await callGitHubApi<{ workflow_runs: Array<{ id: number; status: string; name: string }> }>(
+        `/repos/DannyBaanks/chatgpt-http-mcp/actions/runs?per_page=5`,
+      );
+      if (runs.ok && runs.data?.workflow_runs?.length) {
+        runId = String(runs.data.workflow_runs[0].id);
+      } else {
+        console.error("✗ No se encontró un workflow run reciente para monitorear.");
+        return 1;
+      }
+    }
+
+    if (detach) {
+      const { spawn } = await import("node:child_process");
+      const scriptPath = process.argv[1];
+      const child = spawn(process.execPath, [scriptPath, "github", "_watch_worker", String(runId), String(port), prNumber], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      console.log(`\n🐙 [isymcp:github] Watcher iniciado en proceso hijo desacoplado (PID ${child.pid}).`);
+      console.log(`  • Run ID monitoreado: #${runId}${prNumber ? ` (PR #${prNumber})` : ""}`);
+      console.log(`  • Destino de alerta:  http://127.0.0.1:${port}/isymcp/monitor/alert (SQLite WAL)`);
+      console.log(`  • Comportamiento:     Cuando el CI termine, despertará reactivamente a Antigravity (wait-next) sin bloquear la consola.\n`);
+      return 0;
+    }
+
+    console.log(`🐙 Monitoreando run #${runId} en primer plano hasta su conclusión...`);
+    return await githubCommand("_watch_worker", [String(runId), port, prNumber]);
   }
 
   console.error(`✗ Subcomando desconocido: 'isymcp github ${sub}'. Ejecuta 'isymcp github help' para ver la lista.`);
