@@ -44,7 +44,7 @@ export function setActiveCwd(newPath: string): boolean {
 
 function expandPath(p: string): string {
   let cleaned = p.trim().replace(/^["']|["']$/g, "").replace(/\\ /g, " ");
-  if (cleaned === "~" || cleaned.startsWith("~/")) {
+  if (cleaned === "~" || cleaned.startsWith("~/") || cleaned.startsWith("~\\")) {
     cleaned = homedir() + cleaned.slice(1);
   }
   return cleaned;
@@ -122,14 +122,18 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
     }
   }
 
-  // 3. Ejecutar comando general en bash
+  // 3. Ejecutar comando general en bash/cmd según plataforma
   return new Promise((resolveResult) => {
     let stdoutBuf = "";
     let stderrBuf = "";
     let timedOut = false;
     let procExited = false;
 
-    const proc = spawn("bash", ["-c", rawCommand], {
+    const isWindows = process.platform === "win32";
+    const shellBinary = isWindows ? (process.env.COMSPEC || "cmd.exe") : "bash";
+    const shellArgs = isWindows ? ["/d", "/s", "/c", rawCommand] : ["-c", rawCommand];
+
+    const proc = spawn(shellBinary, shellArgs, {
       cwd: activeCwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],

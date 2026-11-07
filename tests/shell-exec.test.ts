@@ -1,7 +1,8 @@
 // tests/shell-exec.test.ts — Pruebas para ejecutor de comandos shell arbitrarios y CWD.
 import { describe, expect, it } from "bun:test";
 import { executeShellCommand, getActiveCwd, setActiveCwd } from "../src/shell/executor";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { realpathSync } from "node:fs";
 
 describe("Shell Executor Suite", () => {
   it("SE-01: executes a standard shell command and returns output", async () => {
@@ -16,20 +17,21 @@ describe("Shell Executor Suite", () => {
   it("SE-02: returns non-zero exit code and stderr on failure", async () => {
     const res = await executeShellCommand({ command: "nonexistent_command_xyz_123" });
     expect(res.ok).toBe(false);
-    expect(res.exit_code).toBe(127);
-    expect(res.stderr.length).toBeGreaterThan(0);
+    expect(res.exit_code).not.toBe(0);
+    expect(res.stderr.length + res.stdout.length).toBeGreaterThan(0);
   });
 
   it("SE-03: supports changing working directory with 'cd' and persists it", async () => {
     const initialCwd = getActiveCwd();
-    const resCd = await executeShellCommand({ command: "cd /tmp" });
+    const targetDir = realpathSync(tmpdir());
+    const resCd = await executeShellCommand({ command: `cd "${targetDir}"` });
     expect(resCd.ok).toBe(true);
-    expect(resCd.stdout).toContain("/tmp");
-    expect(getActiveCwd()).toBe("/tmp");
+    expect(getActiveCwd().toLowerCase()).toBe(targetDir.toLowerCase());
 
-    const resPwd = await executeShellCommand({ command: "pwd" });
+    const pwdCmd = process.platform === "win32" ? "cd" : "pwd";
+    const resPwd = await executeShellCommand({ command: pwdCmd });
     expect(resPwd.ok).toBe(true);
-    expect(resPwd.stdout.trim()).toBe("/tmp");
+    expect(resPwd.stdout.toLowerCase()).toContain(targetDir.toLowerCase());
 
     // Restaurar cwd
     setActiveCwd(initialCwd);
@@ -48,14 +50,15 @@ describe("Shell Executor Suite", () => {
     const initialCwd = getActiveCwd();
     const res = await executeShellCommand({ command: "cd ~" });
     expect(res.ok).toBe(true);
-    expect(getActiveCwd()).toBe(homedir());
+    expect(getActiveCwd().toLowerCase()).toBe(homedir().toLowerCase());
 
     // Restaurar
     setActiveCwd(initialCwd);
   });
 
   it("SE-06: respects timeoutMs and kills long running process", async () => {
-    const res = await executeShellCommand({ command: "sleep 5", timeoutMs: 1000 });
+    const sleepCmd = process.platform === "win32" ? "ping -n 6 127.0.0.1 > nul" : "sleep 5";
+    const res = await executeShellCommand({ command: sleepCmd, timeoutMs: 1000 });
     expect(res.ok).toBe(false);
     expect(res.timed_out).toBe(true);
     expect(res.stderr).toContain("[TIMEOUT]");
