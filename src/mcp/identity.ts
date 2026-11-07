@@ -58,6 +58,7 @@ export function buildInstructions(contract: "native" | "safe"): string {
       ` informa que hace falta iniciarlo; no lo instales ni inicies sin instrucción explícita del usuario.`),
     `Los segmentos detectan energia acustica, no voz; channel=separate para estereo; sin transcripcion ni escucha nativa.`,
     `Flujo esperado: texto -> ${MENTION} -> ACKs de invocacion (4/4, 5/5 o los que apliquen) -> respuesta final.`,
+    `Universal Gateway (estilo REA): usa 'isymcp' con action='glossary' para catalogar todas las capacidades (tui.spawn, github.*, monitor.*, media.*, comfyui.*); action='protocol' para el protocolo de agentes.`,
     contract === "safe"
       ? "Contrato safe: cada turno llega con request_id y las tools son de riesgo cero."
       : "Contrato nativo: cada turno llega con turn_token y las tools ejecutan en el runtime local con sandbox.",

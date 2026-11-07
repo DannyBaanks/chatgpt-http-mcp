@@ -89,4 +89,17 @@ describe("TUI Launcher Suite", () => {
     expect(cmdStr).toContain("task-custom-12345");
     expect(cmdStr).toContain("op-custom-67890");
   });
+
+  it("TL-08: spawnAgyTui injects agent bootstrap protocol with wait-next and WaitMsBeforeAsync", async () => {
+    const res = await spawnAgyTui({
+      prompt: "Auditar sistema",
+      dryRun: true,
+    });
+    expect(res.ok).toBe(true);
+    const cmdStr = res.command.join(" ");
+    expect(cmdStr).toContain("PROTOCOLO OPERATIVO AGENTE ISyMCP");
+    expect(cmdStr).toContain("monitor wait-next 3600");
+    expect(cmdStr).toContain("WaitMsBeforeAsync: 500");
+    expect(cmdStr).toContain("monitor respond");
+  });
 });

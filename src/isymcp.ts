@@ -649,6 +649,7 @@ function help(): void {
   isymcp monitor lease revoke <lease-id>
   isymcp monitor approve <task-id>
   isymcp monitor tasks             lista las tareas encoladas y sus respuestas/estados
+  isymcp protocol                  imprime el protocolo oficial de coordinacion y bootstrap de agentes
   isymcp github [cmd]              suite de GitHub: tokens con TTL en horas, asistente
                                    wizard interactivo, API REST y GitHub Actions
   isymcp ask "texto" [--new] turno real con ChatGPT desde la terminal; sigue
@@ -1212,6 +1213,9 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await smokeCommand(sub, rest);
 } else if (cmd === "monitor") {
   await monitorCommand(sub, rest);
+} else if (cmd === "protocol" || cmd === "agents") {
+  const { ISYMCP_AGENT_PROTOCOL_MD } = await import("./agent-protocol");
+  console.log(ISYMCP_AGENT_PROTOCOL_MD);
 } else if (cmd === "logs") {
   logs([sub, ...rest].filter((part): part is string => Boolean(part)));
 } else {
