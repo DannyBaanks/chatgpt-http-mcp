@@ -510,7 +510,7 @@ describe("GOAL-002 — ISyMCP Remote Task Monitor (A01..A15)", () => {
       requested_at: new Date(currentNow).toISOString(),
     });
     expect(resTraversal.accepted).toBe(false);
-    expect(resTraversal.reason).toContain("DENY: path_traversal_forbidden");
+    expect(resTraversal.reason).toContain("DENY: path_traversal");
 
     // 2. Escape mediante symlink que apunta fuera del workspace realpath
     const resSymlink = queue.submitTask({
@@ -982,7 +982,17 @@ describe("GOAL-002 — ISyMCP Remote Task Monitor (A01..A15)", () => {
       issued_at: currentNow,
       expires_at: currentNow + 30_000,
     });
-    const mismatchedGenReceiptB = worker.executeClaimedTask(staleWorkerLeaseForB, claimedB.task);
+    expect(() => worker.executeClaimedTask(staleWorkerLeaseForB, claimedB.task)).toThrow(
+      /DENY: task_not_in_valid_running_state/,
+    );
+    const detachedWorker = new WorkerAdapter({
+      workerSecret: WORKER_SECRET,
+      nowFn: () => currentNow,
+    });
+    const mismatchedGenReceiptB = detachedWorker.executeClaimedTask(
+      staleWorkerLeaseForB,
+      claimedB.task,
+    );
     expect(() => monitor.completeTask(mismatchedGenReceiptB)).toThrow(
       /DENY: receipt_worker_lease_mismatch/,
     );
@@ -1150,5 +1160,240 @@ describe("GOAL-002 — ISyMCP Remote Task Monitor (A01..A15)", () => {
       server.stop(true);
       db.close();
     }
+  });
+
+  test("C01 & C02: Missing/invalid/expired/revoked credentials and read-only or cross-owner lease attempts are denied without persisting tasks", () => {
+    const { db, authority, queue } = setupStack();
+
+    // Registrar segundo propietario y su workspace
+    const ogOtherWs = authority.mintOwnerGrant({
+      owner_id: "other-user",
+      scopes: ["workspace:register"],
+    });
+    const otherRoot = join(tempDir, "other-ws");
+    mkdirSync(otherRoot, { recursive: true });
+    authority.registerWorkspace(ogOtherWs, {
+      workspace_id: "other-workspace",
+      root_path: otherRoot,
+    });
+
+    const ogMintReadonly = authority.mintOwnerGrant({
+      owner_id: "danny",
+      scopes: ["lease:mint"],
+    });
+    const statusOnlyLease = authority.mintQueueLease(ogMintReadonly, {
+      workspace_id: "isy-mcp-workspace",
+      scopes: ["queue:status"], // solo lectura de estado, sin queue:submit
+      ttlSeconds: 3600,
+    });
+
+    const ogMintOther = authority.mintOwnerGrant({
+      owner_id: "other-user",
+      scopes: ["lease:mint"],
+    });
+    const otherUserLease = authority.mintQueueLease(ogMintOther, {
+      workspace_id: "other-workspace",
+      scopes: ["queue:submit", "queue:status"],
+      ttlSeconds: 3600,
+    });
+
+    // C01: Credencial vacía e incorrecta -> DENY y 0 tareas en DB
+    const missingTokenRes = queue.submitTask({
+      schema_version: 1,
+      operation_id: "op-c01-missing",
+      goal_id: "GOAL-002",
+      conversation_ref: "thread-c01",
+      lease_token: "",
+      task: {
+        kind: "review_and_test",
+        workspace_id: "isy-mcp-workspace",
+        description: "Missing token",
+        requested_actions: ["tests:run"],
+      },
+      idempotency_key: "ik-c01-missing",
+      requested_at: new Date(currentNow).toISOString(),
+    });
+    expect(missingTokenRes.accepted).toBe(false);
+    expect(missingTokenRes.reason).toContain("DENY: lease_token_missing");
+
+    // C02a: Lease de solo lectura (queue:status) intenta encolar -> DENY
+    const readOnlySubmitRes = queue.submitTask({
+      schema_version: 1,
+      operation_id: "op-c02-readonly",
+      goal_id: "GOAL-002",
+      conversation_ref: "thread-c02",
+      lease_token: statusOnlyLease.token,
+      task: {
+        kind: "review_and_test",
+        workspace_id: "isy-mcp-workspace",
+        description: "Readonly lease tries submit",
+        requested_actions: ["tests:run"],
+      },
+      idempotency_key: "ik-c02-readonly",
+      requested_at: new Date(currentNow).toISOString(),
+    });
+    expect(readOnlySubmitRes.accepted).toBe(false);
+    expect(readOnlySubmitRes.reason).toContain("DENY: lease_missing_scope:queue:submit");
+
+    // Verificar que C01 y C02a no persistieron ninguna tarea
+    const cntBefore = db.query("SELECT COUNT(*) AS cnt FROM tasks").get() as { cnt: number };
+    expect(cntBefore.cnt).toBe(0);
+
+    // Crear una tarea legítima en other-workspace y verificar que el lease de danny no puede consultarla (C02b)
+    const otherTaskRes = queue.submitTask({
+      schema_version: 1,
+      operation_id: "op-c02-other-ok",
+      goal_id: "GOAL-002",
+      conversation_ref: "thread-c02",
+      lease_token: otherUserLease.token,
+      task: {
+        kind: "review_and_test",
+        workspace_id: "other-workspace",
+        description: "Other owner task",
+        requested_actions: ["tests:run"],
+      },
+      idempotency_key: "ik-c02-other-ok",
+      requested_at: new Date(currentNow).toISOString(),
+    });
+    expect(otherTaskRes.accepted).toBe(true);
+
+    expect(() => queue.getTaskStatus(statusOnlyLease.token, otherTaskRes.task_id!)).toThrow(
+      /DENY: task_not_found_or_unauthorized/,
+    );
+
+    db.close();
+  });
+
+  test("C03, C04, C05, C06, C07 & C08: Deferred approval via independent TaskGrant, post-claim pre-worker revocation block, SSRF defense, and secret-free status retrieval", () => {
+    const { db, authority, queue, worker, monitor } = setupStack();
+    const transport = new MonitorRemoteTransport(queue, authority);
+
+    const ogMint = authority.mintOwnerGrant({ owner_id: "danny", scopes: ["lease:mint"] });
+    const lease = authority.mintQueueLease(ogMint, {
+      workspace_id: "isy-mcp-workspace",
+      scopes: ["queue:submit", "queue:status"],
+      ttlSeconds: 7200,
+    });
+
+    // C03: Solicitud recibida a través del dispatcher MCP sin TaskGrant activo -> AWAITING_APPROVAL (sin ejecución automática)
+    const c03Sub = transport.dispatchMcpTool("monitor_queue_submit", {
+      schema_version: 1,
+      operation_id: "op-c03-deferred",
+      goal_id: "GOAL-002",
+      conversation_ref: "chatgpt-turn-c03",
+      lease_token: lease.token,
+      task: {
+        kind: "verify_only",
+        workspace_id: "isy-mcp-workspace",
+        description: "Harmless verification task awaiting independent owner TaskGrant",
+        requested_actions: ["tests:run"],
+        target_relpath: "allowed.txt",
+        idempotent: true,
+      },
+      idempotency_key: "ik-c03-deferred",
+      requested_at: new Date(currentNow).toISOString(),
+    }) as { isError: boolean; payload: any };
+
+    expect(c03Sub.isError).toBe(false);
+    expect(c03Sub.payload.state).toBe("AWAITING_APPROVAL");
+    expect(c03Sub.payload.execution_started).toBe(false);
+    const deferredTaskId = c03Sub.payload.task_id as string;
+    expect(monitor.claimNextReadyTask()).toBeNull();
+
+    // C04: Propietario emite un TaskGrant independiente y autoriza la tarea en espera -> pasa a READY, se ejecuta y genera recibo verificable
+    const ogGrant1 = authority.mintOwnerGrant({ owner_id: "danny", scopes: ["task:grant"] });
+    const grant1 = authority.createTaskGrant(ogGrant1, {
+      workspace_id: "isy-mcp-workspace",
+      allowed_kinds: ["verify_only", "review_and_test"],
+      allowed_actions: ["tests:run"],
+    });
+
+    const ogApprove = authority.mintOwnerGrant({ owner_id: "danny", scopes: ["task:grant"] });
+    const promoted = authority.authorizePendingTask(ogApprove, {
+      task_id: deferredTaskId,
+      grant_id: grant1.grant_id,
+    });
+    expect(promoted.state).toBe("READY");
+    expect(promoted.grant_id).toBe(grant1.grant_id);
+
+    const claimedC04 = monitor.claimNextReadyTask()!;
+    expect(claimedC04.task.task_id).toBe(deferredTaskId);
+    const receiptC04 = worker.executeClaimedTask(claimedC04.workerLease, claimedC04.task);
+    const completedC04 = monitor.completeTask(receiptC04);
+    expect(completedC04.state).toBe("SUCCEEDED");
+
+    // C08: Consulta desde otro turno autorizado recupera estado y evidencia sin exponer secretos (token, ownerSecret, workerSecret, receipt_hmac)
+    const c08Status = transport.dispatchMcpTool("monitor_queue_status", {
+      lease_token: lease.token,
+      task_id: deferredTaskId,
+    }) as { isError: boolean; payload: any };
+    expect(c08Status.isError).toBe(false);
+    expect(c08Status.payload.state).toBe("SUCCEEDED");
+    expect(c08Status.payload.result.artifact_hash).toBe(receiptC04.artifact_hash);
+    const serializedStatus = JSON.stringify(c08Status.payload);
+    expect(serializedStatus).not.toContain(lease.token);
+    expect(serializedStatus).not.toContain(OWNER_SECRET);
+    expect(serializedStatus).not.toContain(WORKER_SECRET);
+    expect(serializedStatus).not.toContain(receiptC04.signature);
+
+    // C05: Revocación posterior al claim y anterior al inicio del worker -> DENY antes de ejecutar
+    const c05Sub = queue.submitTask({
+      schema_version: 1,
+      operation_id: "op-c05-post-claim-revoke",
+      goal_id: "GOAL-002",
+      conversation_ref: "chatgpt-turn-c05",
+      lease_token: lease.token,
+      task: {
+        kind: "review_and_test",
+        workspace_id: "isy-mcp-workspace",
+        description: "Task revoked after claim but before worker starts",
+        requested_actions: ["tests:run"],
+      },
+      idempotency_key: "ik-c05-post-claim-revoke",
+      requested_at: new Date(currentNow).toISOString(),
+    });
+    expect(c05Sub.state).toBe("READY");
+
+    const claimedC05 = monitor.claimNextReadyTask()!;
+    expect(claimedC05.task.task_id).toBe(c05Sub.task_id);
+
+    // Revocar el TaskGrant después del claim pero antes de que el worker inicie la ejecución
+    const ogRevokeGrant = authority.mintOwnerGrant({
+      owner_id: "danny",
+      scopes: ["task:revoke"],
+    });
+    authority.revokeTaskGrant(ogRevokeGrant, grant1.grant_id);
+
+    let runnerExecuted = false;
+    expect(() =>
+      worker.executeClaimedTask(claimedC05.workerLease, claimedC05.task, () => {
+        runnerExecuted = true;
+        return { exit_code: 0, output_summary: "should not run", artifact_hash: "sha256:00" };
+      }),
+    ).toThrow(/DENY: authorization_revoked_after_claim_before_worker_start/);
+    expect(runnerExecuted).toBe(false);
+    expect(monitor.inspectTask(c05Sub.task_id!)?.state).toBe("CANCELLED");
+
+    // C07: Payload malicioso intenta provocar SSRF (http://169.254.169.254) o inyección de comando
+    const ssrfRes = queue.submitTask({
+      schema_version: 1,
+      operation_id: "op-c07-ssrf",
+      goal_id: "GOAL-002",
+      conversation_ref: "chatgpt-turn-c07",
+      lease_token: lease.token,
+      task: {
+        kind: "review_and_test",
+        workspace_id: "isy-mcp-workspace",
+        description: "Attempt SSRF via target_relpath",
+        requested_actions: ["tests:run"],
+        target_relpath: "http://169.254.169.254/latest/meta-data/",
+      },
+      idempotency_key: "ik-c07-ssrf",
+      requested_at: new Date(currentNow).toISOString(),
+    });
+    expect(ssrfRes.accepted).toBe(false);
+    expect(ssrfRes.reason).toContain("DENY: path_traversal_or_url_forbidden");
+
+    db.close();
   });
 });

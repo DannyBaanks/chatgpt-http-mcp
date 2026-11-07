@@ -821,6 +821,67 @@ export class LeaseAuthority {
     return tx.immediate();
   }
 
+  /**
+   * Autoriza explícitamente una tarea en estado AWAITING_APPROVAL vinculándola a un TaskGrant válido (C04).
+   */
+  public authorizePendingTask(
+    ownerGrant: OwnerGrant,
+    params: { task_id: string; grant_id: string },
+  ): TaskRecord {
+    const { owner_id } = this.consumeOwnerGrant(ownerGrant, "task:grant");
+    const now = this.nowFn();
+    const tx = this.db.transaction((): TaskRecord => {
+      const taskRow = this.db
+        .query("SELECT * FROM tasks WHERE task_id = ?")
+        .get(params.task_id) as any;
+      if (!taskRow) {
+        throw new Error("DENY: task_not_found");
+      }
+      if (taskRow.state !== "AWAITING_APPROVAL") {
+        throw new Error(`DENY: task_not_awaiting_approval:${taskRow.state}`);
+      }
+      const leaseRow = this.db
+        .query("SELECT * FROM leases WHERE lease_id = ?")
+        .get(taskRow.lease_id) as any;
+      if (!leaseRow || leaseRow.revoked_at !== null) {
+        throw new Error("DENY: cannot_authorize_task_from_revoked_lease");
+      }
+      const grantRow = this.db
+        .query("SELECT * FROM task_grants WHERE grant_id = ?")
+        .get(params.grant_id) as any;
+      if (
+        !grantRow ||
+        grantRow.owner_id !== owner_id ||
+        grantRow.workspace_id !== taskRow.workspace_id ||
+        grantRow.revoked_at !== null ||
+        now >= Number(grantRow.expires_at)
+      ) {
+        throw new Error("DENY: invalid_or_expired_task_grant");
+      }
+      const allowedKinds: string[] = JSON.parse(grantRow.allowed_kinds_json);
+      const allowedActions: string[] = JSON.parse(grantRow.allowed_actions_json);
+      const requestedActions: string[] = JSON.parse(taskRow.requested_actions_json);
+      if (
+        !allowedKinds.includes(String(taskRow.kind)) ||
+        !requestedActions.every((a) => allowedActions.includes(a))
+      ) {
+        throw new Error("DENY: task_grant_does_not_cover_task_actions");
+      }
+
+      this.db
+        .query(
+          "UPDATE tasks SET state = 'READY', reason = 'authorized_by_independent_task_grant', grant_id = ?, updated_at = ? WHERE task_id = ?",
+        )
+        .run(params.grant_id, now, params.task_id);
+
+      const updated = this.db
+        .query("SELECT * FROM tasks WHERE task_id = ?")
+        .get(params.task_id) as any;
+      return mapTaskRow(updated);
+    });
+    return tx.immediate();
+  }
+
   private mapLeaseRow(row: any): QueueLeaseRecord {
     return {
       kind: "queue_lease",
@@ -985,9 +1046,10 @@ export class QueueService {
           !task.target_relpath ||
           isAbsolute(task.target_relpath) ||
           task.target_relpath.includes("\0") ||
+          /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(task.target_relpath) ||
           task.target_relpath.split(/[\\/]/).includes("..")
         ) {
-          return this.deny(submission.operation_id, "DENY: path_traversal_forbidden");
+          return this.deny(submission.operation_id, "DENY: path_traversal_or_url_forbidden");
         }
         const resolvedTarget = resolveWithinReal(ws.root_path, task.target_relpath);
         if (!resolvedTarget) {
@@ -1122,13 +1184,19 @@ export function mapTaskRow(row: any): TaskRecord {
 export class WorkerAdapter {
   private readonly workerSecret: string;
   private readonly nowFn: () => number;
+  private db: Database | undefined;
 
-  constructor(options: { workerSecret: string; nowFn?: () => number }) {
+  constructor(options: { workerSecret: string; nowFn?: () => number; db?: Database }) {
     if (!options.workerSecret || options.workerSecret.trim().length < 16) {
       throw new Error("worker_secret_required");
     }
     this.workerSecret = options.workerSecret;
     this.nowFn = options.nowFn ?? (() => Date.now());
+    this.db = options.db;
+  }
+
+  public bindDatabase(db: Database): void {
+    this.db = db;
   }
 
   /**
@@ -1195,6 +1263,54 @@ export class WorkerAdapter {
     const validLease = this.verifyWorkerLease(workerLease);
     if (validLease.task_id !== task.task_id || validLease.operation_id !== task.operation_id) {
       throw new Error("DENY: worker_lease_task_mismatch");
+    }
+
+    // C05: Re-verificación autoritativa inmediatamente antes de iniciar el worker.
+    // Si el QueueLease o el TaskGrant fue revocado después del claim pero antes de ejecutar, abortar fail-closed.
+    if (this.db) {
+      const now = this.nowFn();
+      const checkOutcome = this.db.transaction((): "ok" | "not_running" | "revoked" => {
+        const liveTask = this.db
+          .query("SELECT * FROM tasks WHERE task_id = ?")
+          .get(task.task_id) as any;
+        if (
+          !liveTask ||
+          liveTask.state !== "RUNNING" ||
+          liveTask.worker_lease_id !== validLease.worker_lease_id
+        ) {
+          return "not_running";
+        }
+        const liveLease = this.db
+          .query("SELECT * FROM leases WHERE lease_id = ?")
+          .get(liveTask.lease_id) as any;
+        const liveGrant = liveTask.grant_id
+          ? (this.db
+              .query("SELECT * FROM task_grants WHERE grant_id = ?")
+              .get(liveTask.grant_id) as any)
+          : null;
+        if (
+          !liveLease ||
+          liveLease.revoked_at !== null ||
+          !liveGrant ||
+          liveGrant.revoked_at !== null ||
+          now >= Number(liveGrant.expires_at)
+        ) {
+          this.db
+            .query(
+              "UPDATE tasks SET state = 'CANCELLED', reason = 'authorization_revoked_after_claim_before_worker_start', updated_at = ? WHERE task_id = ?",
+            )
+            .run(now, task.task_id);
+          return "revoked";
+        }
+        return "ok";
+      });
+      const status = checkOutcome.immediate();
+      if (status === "not_running") {
+        throw new Error("DENY: task_not_in_valid_running_state");
+      }
+      if (status === "revoked") {
+        throw new Error("DENY: authorization_revoked_after_claim_before_worker_start");
+      }
     }
 
     // Verificar confinamiento realpath antes de ejecutar
@@ -1278,6 +1394,7 @@ export class MonitorCoordinator {
   constructor(db: Database, worker: WorkerAdapter, options: { nowFn?: () => number } = {}) {
     this.db = db;
     this.worker = worker;
+    this.worker.bindDatabase(db);
     this.nowFn = options.nowFn ?? (() => Date.now());
   }
 
