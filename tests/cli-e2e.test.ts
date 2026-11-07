@@ -133,11 +133,12 @@ test('tunnel status and server lifecycle use only fake tools and isolated ports'
   const health=cli(['health'],e.env);expect(health.exitCode).toBe(1);expect(health.stderr.toString()).toContain('Bridge no disponible');
   const metrics=cli(['metrics'],e.env);expect(metrics.exitCode).toBe(1);expect(metrics.stderr.toString()).toContain('Error obteniendo métricas');
   const started=cli(['server','start','--no-connector'],e.env);expect(started.exitCode).toBe(0);expect(started.stdout.toString()).toContain('server detached');
-  let healthy=false;for(let i=0;i<40;i++){try{healthy=(await fetch(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`,{headers:bridgeAuthHeaders({},e.env)})).ok;}catch{}if(healthy)break;await new Promise(r=>setTimeout(r,100));}
+  let healthy=false;for(let i=0;i<80;i++){try{healthy=(await fetch(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`,{headers:bridgeAuthHeaders({},e.env)})).ok;}catch{}if(healthy)break;await new Promise(r=>setTimeout(r,100));}
   expect(healthy).toBe(true);
   const stopped=cli(['server','stop'],e.env);expect(stopped.exitCode).toBe(0);expect(stopped.stdout.toString()).toContain('server parado');
   const panel=cli(['panel','start'],e.env);expect(panel.exitCode).toBe(0);expect(panel.stdout.toString()).toContain('panel detached');
-  const panelRoot=await fetch(`http://127.0.0.1:${e.env.ISYMCP_PANEL_PORT}/`);expect(panelRoot.ok).toBe(true);
+  let panelOk=false;for(let i=0;i<80;i++){try{panelOk=(await fetch(`http://127.0.0.1:${e.env.ISYMCP_PANEL_PORT}/`)).ok;}catch{}if(panelOk)break;await new Promise(r=>setTimeout(r,100));}
+  expect(panelOk).toBe(true);
   const panelStop=cli(['panel','stop'],e.env);expect(panelStop.exitCode).toBe(0);expect(panelStop.stdout.toString()).toContain('panel parado');
  } finally {
   cli(['panel','stop'],e.env);

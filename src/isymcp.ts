@@ -689,6 +689,10 @@ function help(): void {
   isymcp tui install [--all | <tui>]  dry-run de instalación de MCP en TUIs
   isymcp tui install [--all | <tui>] --apply  escribe configs con backup (gemini, claude, cursor, opencode, etc.)
   isymcp tui install [--all | <tui>] --restore vuelve al backup anterior
+  isymcp tui spawn "<prompt>" [--title t] [--mode auto]  abre consola Antigravity interactiva
+  isymcp monitor wait-next [segundos] espera síncronamente la próxima tarea de ChatGPT
+  isymcp monitor respond <id> --summary "..." [--wait] confirma recepción/resultado de tarea
+  isymcp exec "<comando>" [--cwd dir] ejecuta comando shell con CWD persistente
   isymcp fuzz [iteraciones]  ejecuta la suite de fuzzing adversarial (configs TUI y MCP Gateway)
   isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] [--request-file TASK.md]
                              crea un session token del MCP (read-only por defecto;
@@ -1109,6 +1113,26 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
 } else if (cmd === "command" && sub) {
   command([sub, ...rest.filter((a) => a !== "--effort" && a !== effortFlag)].join(" "), effortFlag);
 } else if (cmd === "tui") {
+  if (sub === "--help" || sub === "-h") {
+    console.log(`
+isymcp tui — Gestión de integración MCP en entornos de agentes y TUIs
+
+USO:
+  isymcp tui list                         Lista las herramientas/TUIs detectadas en el sistema
+  isymcp tui install [tui|--all]          Muestra el plan de configuración MCP (dry-run por defecto)
+  isymcp tui install [tui|--all] --apply  Aplica los cambios en las configs con respaldo automático
+  isymcp tui install [tui|--all] --restore Restaura la configuración previa desde el último backup
+  isymcp tui spawn "<instrucción>"        Abre una consola Antigravity (agy) interactiva
+
+EJEMPLOS:
+  isymcp tui install openisy --apply      # Configura OpenCode / OpenISy
+  isymcp tui install agy --apply          # Configura Antigravity CLI / Gemini
+  isymcp tui install claude --apply       # Configura Claude Desktop / Code
+  isymcp tui install --all --apply        # Aplica en todas las TUIs presentes en el host
+  isymcp tui spawn "Hola agy"             # Lanza consola visible de Antigravity
+`);
+    process.exit(0);
+  }
   const baseUrl = process.env.ISYMCP_TUI_BASE_URL?.trim() || "http://127.0.0.1:8791";
   const mcpMain = join(ROOT, "src", "mcp", "main.ts");
   const configPath = flag("--config", rest) ?? join(homedir(), ".config", "opencode", "opencode.json");
@@ -1144,14 +1168,19 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
         mcpMain,
         dryRun,
         restore,
+        onlyPresent: !rest.includes("--force-all"),
       });
+      let hasErrors = false;
       for (const { tui, result, error } of results) {
         if (error) {
+          hasErrors = true;
           console.error(`✗ ${tui.id} (${tui.label}): ${error}`);
         } else if (result) {
-          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${tui.id} (${tui.label}): ${result.configPath} ${result.backupPath ? `(backup: ${result.backupPath})` : ""}`);
+          const detail = result.models > 0 ? `modelos=${result.models}` : "servidor_mcp=isymcp";
+          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${tui.id} (${tui.label}): ${result.configPath} ${detail} ${result.backupPath ? `(backup: ${result.backupPath})` : ""}`);
         }
       }
+      if (hasErrors) process.exitCode = 1;
       if (dryRun) console.log("\nModo dry-run: ningún archivo modificado. Usa '--apply' para escribir los cambios con backup.");
     } else {
       try {
@@ -1164,7 +1193,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
           dryRun,
           restore,
         });
-        console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${which}: ${result.configPath} modelos=${result.models}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
+        const detail = result.models > 0 ? `modelos=${result.models}` : "servidor_mcp=isymcp";
+        console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${which}: ${result.configPath} ${detail}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
         if (result.action === "dry-run") console.log("nada escrito (usa --apply para escribir con backup)");
       } catch (err: any) {
         console.error(`Error instalando en ${which}: ${err.message}`);
@@ -1172,7 +1202,16 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
       }
     }
   } else if (sub === "spawn") {
-    const prompt = rest.find((a) => !a.startsWith("--")) || "Hola agy";
+    const flagsWithVal = new Set(["--cwd", "--title", "--mode", "--terminal"]);
+    const positionals: string[] = [];
+    for (let i = 0; i < rest.length; i++) {
+      if (flagsWithVal.has(rest[i])) {
+        i++;
+        continue;
+      }
+      if (!rest[i].startsWith("-")) positionals.push(rest[i]);
+    }
+    const prompt = positionals.join(" ") || "Hola agy";
     const cwd = flag("--cwd", rest);
     const title = flag("--title", rest);
     const mode = (flag("--mode", rest) as any) || "auto";
@@ -1257,17 +1296,53 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   const { ISYMCP_AGENT_PROTOCOL_MD } = await import("./agent-protocol");
   console.log(ISYMCP_AGENT_PROTOCOL_MD);
 } else if (cmd === "exec" || cmd === "sh") {
+  if (!sub || sub === "--help" || sub === "-h") {
+    console.log(`
+isymcp exec — Ejecución directa de comandos en shell local con CWD persistente
+
+USO:
+  isymcp exec "<comando>" [--cwd <directorio>] [--timeout <ms>]
+
+EJEMPLOS:
+  isymcp exec "git status"
+  isymcp exec "cd ~/Development && ls"
+`);
+    process.exit(0);
+  }
   const { executeShellCommand } = await import("./shell/executor");
-  const fullCmd = [sub, ...rest].filter(Boolean).join(" ");
+  const targetCwd = flag("--cwd", rest);
+  const timeoutMs = flag("--timeout", rest) ? Number(flag("--timeout", rest)) : undefined;
+  const filtered = [sub, ...rest].filter((a, idx, arr) => {
+    if (a === "--cwd" || a === "--timeout") return false;
+    if (idx > 0 && (arr[idx - 1] === "--cwd" || arr[idx - 1] === "--timeout")) return false;
+    return Boolean(a);
+  });
+  const fullCmd = filtered.join(" ");
   if (!fullCmd) {
     console.error('uso: isymcp exec "<comando>"');
     process.exit(1);
   }
-  const res = await executeShellCommand({ command: fullCmd });
+  const res = await executeShellCommand({ command: fullCmd, cwd: targetCwd, timeoutMs });
   if (res.stdout) process.stdout.write(res.stdout.endsWith("\n") ? res.stdout : `${res.stdout}\n`);
   if (res.stderr) process.stderr.write(res.stderr.endsWith("\n") ? res.stderr : `${res.stderr}\n`);
-  process.exit(res.exit_code);
+  process.exitCode = res.exit_code;
 } else if (cmd === "fuzz") {
+  if (sub === "--help" || sub === "-h" || rest.includes("--help") || rest.includes("-h")) {
+    console.log(`
+isymcp fuzz — Suite de pruebas de robustez y fuzzing adversarial
+
+USO:
+  isymcp fuzz [iteraciones]
+
+DESCRIPCIÓN:
+  Ejecuta pruebas sintácticas intensivas sobre el instalador de TUIs
+  y el Universal Gateway de ISyMCP para certificar robustez ante entradas adversariales.
+
+EJEMPLO:
+  isymcp fuzz 50   # Ejecuta 50 iteraciones por suite (por defecto: 50)
+`);
+    process.exit(0);
+  }
   const { runFullFuzzSuite } = await import("./fuzzer");
   const itArg = [sub, ...rest].find((a) => a && !a.startsWith("--"));
   const iterations = itArg ? parseInt(itArg, 10) : 50;
@@ -1710,64 +1785,38 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
   };
 
   if (sub === "wait-next") {
-    const timeoutSec = Number(flag("--timeout-seconds", argsAll) ?? "3600");
-    await waitNextUnackedTask(timeoutSec);
+    const positionalSec = rest.find((a) => !a.startsWith("--"));
+    const timeoutSec = Number(flag("--timeout-seconds", argsAll) ?? positionalSec ?? "3600");
+    await waitNextUnackedTask(isNaN(timeoutSec) ? 3600 : timeoutSec);
     return;
   }
 
   if (sub === "respond") {
     const taskId = rest.find((a) => !a.startsWith("--"));
     const summaryText = flag("--summary", argsAll) ?? "Confirmado personalmente por Argon.";
-    const autoWait = !argsAll.includes("--no-wait");
+    const autoWait = argsAll.includes("--wait") || argsAll.includes("--auto-wait");
     const timeoutSec = Number(flag("--timeout-seconds", argsAll) ?? "3600");
-    if (!taskId) throw new Error('uso: isymcp monitor respond <task-id> --summary "respuesta de Argon" [--no-wait]');
+    if (!taskId) throw new Error('uso: isymcp monitor respond <task-id> --summary "respuesta de Argon" [--wait]');
     const { createHash } = await import("node:crypto");
-    const { db, worker, monitor } = openBridgeMonitorStack();
+    const { db, monitor } = openBridgeMonitorStack();
     try {
       const task = monitor.inspectTask(taskId);
       if (!task) throw new Error(`no existe la tarea: ${taskId}`);
       const fullSummary = summaryText.includes("[ARGON-ACK]") ? summaryText : `[ARGON-ACK] ${summaryText}`;
       const artifactHash = `sha256:${createHash("sha256").update(`${taskId}:${fullSummary}`).digest("hex")}`;
-
-      if (task.state === "READY") {
-        let completed: any = null;
-        while (true) {
-          const claimed = monitor.claimNextReadyTask();
-          if (!claimed) break;
-          const isTarget = claimed.task.task_id === taskId;
-          const summaryForThis = isTarget
-            ? fullSummary
-            : `[ARGON-ACK] Executed ${claimed.task.kind} (${claimed.task.requested_actions.join(",")})`;
-          const hashForThis = isTarget
-            ? artifactHash
-            : `sha256:${createHash("sha256").update(`${claimed.task.task_id}:${summaryForThis}`).digest("hex")}`;
-          const receipt = worker.executeClaimedTask(claimed.workerLease, claimed.task, () => ({
-            exit_code: 0,
-            output_summary: summaryForThis,
-            artifact_hash: hashForThis,
-          }));
-          const done = monitor.completeTask(receipt);
-          if (isTarget) {
-            completed = done;
-            break;
-          }
-        }
-        console.log(JSON.stringify({ ok: true, mode: "claimed_and_completed", auto_wait_next: autoWait, task: completed ?? monitor.inspectTask(taskId) }, null, 2));
-      } else {
-        const now = Date.now();
-        const resultObj = {
-          exit_code: 0,
-          output_summary: fullSummary,
-          artifact_hash: artifactHash,
-          completed_at: now,
-        };
-        db.query("UPDATE tasks SET state = 'SUCCEEDED', reason = 'argon_personal_response', result_json = ?, updated_at = ? WHERE task_id = ?").run(
-          JSON.stringify(resultObj),
-          now,
-          taskId,
-        );
-        console.log(JSON.stringify({ ok: true, mode: "updated_with_argon_ack", auto_wait_next: autoWait, task: monitor.inspectTask(taskId) }, null, 2));
-      }
+      const now = Date.now();
+      const resultObj = {
+        exit_code: 0,
+        output_summary: fullSummary,
+        artifact_hash: artifactHash,
+        completed_at: now,
+      };
+      db.query("UPDATE tasks SET state = 'SUCCEEDED', reason = 'argon_personal_response', result_json = ?, updated_at = ? WHERE task_id = ?").run(
+        JSON.stringify(resultObj),
+        now,
+        taskId,
+      );
+      console.log(JSON.stringify({ ok: true, mode: "updated_with_argon_ack", auto_wait_next: autoWait, task: monitor.inspectTask(taskId) }, null, 2));
     } finally {
       db.close();
     }

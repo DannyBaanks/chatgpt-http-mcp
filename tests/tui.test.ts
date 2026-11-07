@@ -102,13 +102,13 @@ describe("installIntoStandardMcpTui", () => {
 
     const written = JSON.parse(readFileSync(configPath, "utf8"));
     expect(written.mcpServers?.isymcp).toBeDefined();
-    expect(written.mcpServers.isymcp.command).toBe("bun");
+    expect(written.mcpServers.isymcp.command).toContain("bun");
     expect(written.mcpServers.isymcp.args).toContain("--contract");
 
-    // Restore
+    // Restore elimina el archivo si fue creado desde cero
     const restored = installIntoStandardMcpTui({ ...opts, dryRun: false, restore: true });
     expect(restored.action).toBe("restore");
-    expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({});
+    expect(existsSync(configPath)).toBe(false);
   });
 
   test("preserva servidores MCP preexistentes", () => {
@@ -133,7 +133,7 @@ describe("installIntoStandardMcpTui", () => {
     const updated = JSON.parse(readFileSync(configPath, "utf8"));
     expect(updated.otherKey).toBe("keep_me");
     expect(updated.mcpServers.other_tool.command).toBe("python");
-    expect(updated.mcpServers.isymcp.command).toBe("bun");
+    expect(updated.mcpServers.isymcp.command).toContain("bun");
   });
 });
 

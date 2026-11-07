@@ -5,7 +5,7 @@
 //
 // Reglas heredadas de install-codex.ts: dry-run por defecto, apply con backup
 // + journal, restore desde el journal. Nunca se tocan secretos ni claves ajenas.
-import { existsSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, copyFileSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { availableRoutes, resolveLimits } from "./web-models";
@@ -91,9 +91,15 @@ export function detectTuis(home: string = HOME): TuiInfo[] {
 export const OPENCODE_PROVIDER_ID = "isyco-web";
 export const OPENCODE_MCP_ID = "isyco-web-http";
 
-/** Elimina comentarios simples y de bloque en archivos JSONC preservando strings literales. */
+/** Elimina comentarios simples y de bloque en archivos JSONC preservando strings literales con cualquier escape. */
 export function stripJsonComments(str: string): string {
-  return str.replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (m, g) => (g ? "" : m));
+  return str.replace(
+    /("(?:[^"\\]|\\.)*")|(\/\*[\s\S]*?\*\/|\/\/.*)/g,
+    (_match, jsonString) => {
+      if (jsonString !== undefined) return jsonString;
+      return "";
+    }
+  );
 }
 
 /** Filas Web como models de opencode, con su context window real. */
@@ -212,8 +218,12 @@ export function installIntoStandardMcpTui(options: StandardMcpInstallOptions): T
   if (options.restore) {
     const latest = join(backupsDir, "latest.json");
     if (!existsSync(latest)) throw new Error(`no hay backup en ${latest}`);
-    const journal = JSON.parse(readFileSync(latest, "utf8")) as { backupPath: string; configPath: string };
-    copyFileSync(journal.backupPath, journal.configPath);
+    const journal = JSON.parse(readFileSync(latest, "utf8")) as { backupPath: string; configPath: string; wasCreated?: boolean };
+    if (journal.wasCreated) {
+      if (existsSync(journal.configPath)) unlinkSync(journal.configPath);
+    } else {
+      copyFileSync(journal.backupPath, journal.configPath);
+    }
     return { action: "restore", configPath: journal.configPath, backupPath: journal.backupPath, models: 0 };
   }
 
@@ -233,12 +243,14 @@ export function installIntoStandardMcpTui(options: StandardMcpInstallOptions): T
     ? current.mcpServers
     : {};
 
+  const resolvedBun = Bun.which("bun", { PATH: process.env.PATH ?? "" }) ?? "bun";
+
   const next = {
     ...current,
     mcpServers: {
       ...mcpServers,
       [serverKey]: {
-        command: "bun",
+        command: resolvedBun,
         args: ["run", options.mcpMain, "--contract", "native"],
         disabled: false,
       },
@@ -246,19 +258,20 @@ export function installIntoStandardMcpTui(options: StandardMcpInstallOptions): T
   };
 
   if (options.dryRun) {
-    return { action: "dry-run", configPath, models: 1 };
+    return { action: "dry-run", configPath, models: 0 };
   }
 
   mkdirSync(backupsDir, { recursive: true });
   mkdirSync(dirname(configPath), { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupPath = join(backupsDir, `${options.tuiId}-${stamp}.json`);
+  const wasCreated = !existsSync(configPath);
   if (existsSync(configPath)) copyFileSync(configPath, backupPath);
   else writeFileSync(backupPath, "{}\n");
 
-  writeFileSync(join(backupsDir, "latest.json"), JSON.stringify({ backupPath, configPath }));
+  writeFileSync(join(backupsDir, "latest.json"), JSON.stringify({ backupPath, configPath, wasCreated }));
   writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`);
-  return { action: "apply", configPath, backupPath, models: 1 };
+  return { action: "apply", configPath, backupPath, models: 0 };
 }
 
 export interface UniversalTuiInstallOptions {
