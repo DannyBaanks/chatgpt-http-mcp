@@ -1,8 +1,9 @@
 // settings.test.ts — "Sincronizar ajustes": guardado seguro del storage-state.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expectPrivate } from "./helpers/private-mode";
 import { looksLoggedIn, openSettingsWindow, replaceStorageState, settingsStatus } from "../src/chatgpt-settings";
 import { loadConfig } from "../src/config";
 
@@ -27,10 +28,11 @@ describe("storage-state", () => {
     writeFileSync(join(dir, "otra-cosa.bak-2020"), "no es nuestro");
     for (let i = 1; i <= 7; i++) {
       const backup = replaceStorageState(state, session(`v${i}`), Date.UTC(2026, 9, 7, 0, 0, i));
-      expect(backup && statSync(backup).mode & 0o777).toBe(0o600);
+      expect(backup).not.toBeNull();
+      expectPrivate(backup!, false);
     }
     expect(JSON.parse(readFileSync(state, "utf8")).cookies[0].value).toBe("v7");
-    expect(statSync(state).mode & 0o777).toBe(0o600);
+    expectPrivate(state, false);
     const backups = readdirSync(dir).filter((n) => n.startsWith("storage-state.json.bak-")).sort();
     expect(backups).toHaveLength(5);
     // El mas reciente respaldo contiene v6 (el estado previo al ultimo guardado).

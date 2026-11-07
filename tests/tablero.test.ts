@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadTableroConfig, TableroConfigError } from "../src/tablero/config";
+import { detectPython, loadTableroConfig, TableroConfigError } from "../src/tablero/config";
 import { TableroError, TableroService } from "../src/tablero/service";
 import { callMcpTool, ROOT } from "./helpers/mcp-call";
 
@@ -39,7 +39,8 @@ ms.append(m); save(ms)
 print(json.dumps({"id": mid, "message": m}))
 `;
 
-const python = Bun.which("python3")!;
+const python = detectPython();
+if (!python) throw new Error("sin Python 3 que responda a --version: tablero.py no puede ejecutarse en esta maquina");
 const hasTmux = Boolean(Bun.which("tmux"));
 const SOCKET = `isymcp-tablero-test-${process.pid}`;
 let base: string, tableroDir: string, repo: string, outside: string, agentBin: string, configPath: string, ledgerPath: string, agentOut: string;

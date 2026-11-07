@@ -19,6 +19,33 @@ test('import job returns immediately, serializes downloads and registers an actu
  expect(catalog.list()[0].source_url).toBe('https://www.youtube.com/watch?v=lHkDE3BahB0');
  expect(JSON.stringify(done)).not.toContain(root);
 });
+test('TikTok short-link import canonicalizes the share URL and records the extractor-verified video identity',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'isymcp-tiktok-import-')),source=join(root,'audio.wav');
+ await run('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=1',source]);
+ const catalog=new MediaCatalog(join(root,'state'));
+ const importer=new MediaImporter(catalog,async(url,dir)=>{
+  expect(url).toBe('https://vt.tiktok.com/ZSgLUAEhe/');
+  const path=join(dir,'tiktok.wav');copyFileSync(source,path);
+  return {path,platform:'tiktok',video_id:'7695118893425102113',source_url:url,canonical_url:'https://www.tiktok.com/@theunearthlyhub/video/7695118893425102113'} as any;
+ });
+ const started=importer.start('https://vt.tiktok.com/ZSgLUAEhe/?_r=1&_t=ZS-9AaiSktAvWC');
+ const done=await importer.status(started.job_id,10);
+ expect(done.state).toBe('complete');
+ expect(done.source_url).toBe('https://vt.tiktok.com/ZSgLUAEhe/');
+ expect(catalog.get(done.asset!.id).downloadReceipt).toEqual({platform:'tiktok',video_id:'7695118893425102113',source_url:'https://vt.tiktok.com/ZSgLUAEhe/',canonical_url:'https://www.tiktok.com/@theunearthlyhub/video/7695118893425102113'});
+});
+test('TikTok import refuses to register a result whose final page ID differs from the extractor ID',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'isymcp-tiktok-mismatch-')),source=join(root,'audio.wav');
+ await run('ffmpeg',['-v','error','-f','lavfi','-i','sine=frequency=440:duration=1',source]);
+ const catalog=new MediaCatalog(join(root,'state'));
+ const importer=new MediaImporter(catalog,async(url,dir)=>{
+  const path=join(dir,'tiktok.wav');copyFileSync(source,path);
+  return {path,platform:'tiktok',video_id:'7695118893425102113',source_url:url,canonical_url:'https://www.tiktok.com/@other/video/7695118893425102120'} as any;
+ });
+ const started=importer.start('https://vt.tiktok.com/ZSgLUAEhe/');
+ const done=await importer.status(started.job_id,10);
+ expect(done.state).toBe('failed');expect(done.error).toMatch(/identity/i);expect(catalog.list()).toHaveLength(0);
+});
 test('failed, oversized and non-media downloads never register an asset',async()=>{
  for(const mode of ['error','oversize','invalid']) {
   const root=mkdtempSync(join(tmpdir(),'isymcp-import-fail-'));const c=new MediaCatalog(join(root,'state'));

@@ -97,13 +97,43 @@ function readRegistry(): Registry {
   return { schema: typeof data.schema === "string" ? data.schema : SCHEMA, sessions };
 }
 
+const REGISTRY_PUBLISH_ATTEMPTS = 40;
+
+/**
+ * Publica el registro con la tecnica tmp + rename. Windows abre dos ventanas que Linux
+ * no tiene, y ambas se midieron en este host: renombrar sobre un destino que otro proceso
+ * sostiene abierto falla con EPERM (MoveFileEx necesita borrar el destino y un lector lo
+ * abre sin FILE_SHARE_DELETE), y esa ventana dura mientras dura la lectura ajena. Con
+ * tres lectores y un escritor sobre el mismo registro: 2490 EPERM sin reintentos, 0 con
+ * ellos. Se reintenta con backoff corto dentro del lock; si aun asi no cuaja, el error se
+ * propaga intacto, porque un revoke que no llega a disco tiene que ser un fallo visible y
+ * nunca un OK. El tmp contiene tokens de sesion, asi que tambien se borra por el camino de
+ * error.
+ */
+function publishRegistry(path: string, body: string): void {
+  const tmp = `${path}.tmp-${process.pid}`;
+  try {
+    writeFileSync(tmp, body, { mode: 0o600 });
+    for (let attempt = 0; ; attempt++) {
+      try {
+        renameSync(tmp, path);
+        return;
+      } catch (error: any) {
+        if ((error?.code !== "EPERM" && error?.code !== "EEXIST") || attempt >= REGISTRY_PUBLISH_ATTEMPTS) throw error;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1 + attempt);
+      }
+    }
+  } catch (error) {
+    try { unlinkSync(tmp); } catch { /* no llego a crearse, o ya se movio */ }
+    throw error;
+  }
+}
+
 function writeRegistry(reg: Registry): void {
   mkdirSync(bridgeHome(), { recursive: true });
   securePrivatePath(bridgeHome(), true);
   const path = registryPath();
-  const tmp = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmp, `${JSON.stringify(reg, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  publishRegistry(path, `${JSON.stringify(reg, null, 2)}\n`);
   securePrivatePath(path, false);
 }
 
@@ -126,7 +156,15 @@ function withRegistryLock<T>(work: () => T): T {
     try {
       fd = openSync(lock, "wx", 0o600);
     } catch (error: any) {
-      if (error?.code !== "EEXIST") throw error;
+      // Un lock ya poseido por OTRO proceso puede devolver EPERM en vez de EEXIST: en
+      // Windows libuv traduce ERROR_ACCESS_DENIED, no ERROR_FILE_EXISTS, cuando el archivo
+      // existe ademas de estar abierto. Relanzar ese EPERM mataba al segundo escritor en
+      // lugar de esperar, que es justo lo que esta exclusion existe para evitar (medido: 3
+      // de 4 procesos morian aqui). Solo se admite como "ocupado" si el lock realmente
+      // esta ahi: si no existe y aun asi falla el open, es un problema real de permisos
+      // sobre bridgeHome y debe gritar ya, no caducar contra el deadline de 10 s.
+      if (error?.code === "EPERM" && !existsSync(lock)) throw error;
+      if (error?.code !== "EEXIST" && error?.code !== "EPERM") throw error;
       try {
         if (Date.now() - statSync(lock).mtimeMs > REGISTRY_LOCK_STALE_MS) { unlinkSync(lock); continue; }
       } catch { continue; /* el dueño lo solto entre medias */ }

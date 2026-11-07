@@ -6,6 +6,7 @@ import {join,resolve} from 'node:path';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {run} from '../src/media/process';
+import {fakeExecutable} from './helpers/fake-exec';
 import {bridgeAuthHeaders} from '../src/local-guard';
 
 const root=resolve(import.meta.dir,'..');
@@ -13,7 +14,16 @@ const homes:string[]=[];
 function isolated(){
  const home=mkdtempSync(join(tmpdir(),'isymcp-cli-e2e-'));homes.push(home);
  const bridge=join(home,'.codex-web-http');mkdirSync(join(bridge,'bin'),{recursive:true});
- return {home,bridge,media:join(home,'media'),env:{...process.env,HOME:home,CODEX_WEB_HTTP_HOME:bridge,ISYMCP_MEDIA_HOME:join(home,'media'),CODEX_WEB_HTTP_PORT:String(42000+Math.floor(Math.random()*12000)),ISYMCP_PANEL_PORT:String(42000+Math.floor(Math.random()*12000))}};
+ // En Windows homedir() no mira HOME: src/logs.ts construye sus rutas con homedir(),
+ // asi que sin USERPROFILE el "export" se llevaba los logs reales de la maquina. El
+ // literal POSIX queda igual en Linux, donde HOME si basta.
+ const windowsHome=process.platform==='win32'?{USERPROFILE:home}:{};
+ // NodeJS.ProcessEnv explicito: sin el, el typecheck infiere un tipo cerrado por las
+ // claves literales y perderia la firma indexada de process.env, que es la que permite
+ // anadir variables por test (ISYMCP_TUNNEL_CLIENT_BIN mas abajo).
+ const env:NodeJS.ProcessEnv={...process.env,...windowsHome,HOME:home,CODEX_WEB_HTTP_HOME:bridge,ISYMCP_MEDIA_HOME:join(home,'media'),
+  CODEX_WEB_HTTP_PORT:String(42000+Math.floor(Math.random()*12000)),ISYMCP_PANEL_PORT:String(42000+Math.floor(Math.random()*12000))};
+ return {home,bridge,media:join(home,'media'),env};
 }
 function cli(args:string[],env:NodeJS.ProcessEnv,input?:string){
  return Bun.spawnSync([process.execPath,join(root,'src/isymcp.ts'),...args],{cwd:root,env,stdout:'pipe',stderr:'pipe',stdin:Buffer.from(input??''),timeout:30000});
@@ -71,6 +81,8 @@ test('CLI help, tree, and media CRUD execute in a private temporary HOME',()=>{
  const listed=cli(['media','list'],e.env);expect(JSON.parse(listed.stdout.toString())).toHaveLength(1);
  const revoked=cli(['media','revoke',asset.id],e.env);expect(revoked.exitCode).toBe(0);
  expect(JSON.parse(cli(['media','list'],e.env).stdout.toString())).toEqual([]);
+ // Siete arranques de CLI, cada uno un proceso bun nuevo: medido 4132 ms con la suite
+ // encima, el 87% del timeout por defecto de Bun. Mismo criterio que el test de abajo.
 },30000);
 
 test('session, dry-run, log export, and read-only CLI commands stay inside temporary HOME',()=>{
@@ -98,9 +110,22 @@ test('session, dry-run, log export, and read-only CLI commands stay inside tempo
  const removed=cli(['codex','launcher','--remove'],e.env);expect(removed.exitCode).toBe(0);expect(removed.stdout.toString()).toContain('Lanzador removido');
 },30000);
 
+// En Windows este test fallaba por un defecto real del producto, y aqui esta medido:
+// cada estado del panel costaba ~3.7 s porque buildPanelState llamaba 4 veces a
+// processMatches y cada llamada arrancaba PowerShell con una enumeracion completa de
+// procesos. panelUp() pedia "/" con solo 1500 ms de presupuesto, asi que nunca
+// confirmaba y agotaba sus 20 vueltas (~35 s), por encima incluso del tope de 30 s de
+// cli(): el exit code llegaba null. Se arreglo por las dos mitades: UNA enumeracion
+// responde por los cuatro patrones (src/platform/process.ts) y el sondeo de
+// disponibilidad pide "/ready", que no calcula estado (src/panel.ts, src/isymcp.ts:137).
+// Los 60 s del final son el ciclo de vida real (server + panel + tunel), no cojera.
 test('tunnel status and server lifecycle use only fake tools and isolated ports',async()=>{
- const e=isolated();const fakeTunnel=join(e.bridge,'bin','tunnel-client');
- writeFileSync(fakeTunnel,'#!/bin/sh\nprintf \'{"ready":true,"running":true,"runtime_state":"ready"}\\n\'\n');chmodSync(fakeTunnel,0o700);
+ const e=isolated();
+ // El falso sustituye al binario gestionado via ISYMCP_TUNNEL_CLIENT_BIN
+ // (src/tunnel-routing.ts). Aqui el CLI solo pregunta estado, y ese argv no lleva
+ // comillas, asi que tambien lo sirve el lanzador .cmd de Windows.
+ const fakeTunnel=fakeExecutable({bin:join(e.bridge,'bin'),name:'tunnel-client',body:{print:{ready:true,running:true,runtime_state:'ready'}}});
+ e.env={...e.env,ISYMCP_TUNNEL_CLIENT_BIN:fakeTunnel.path};
  try {
   const tunnel=cli(['tunnel','status'],e.env);expect(tunnel.exitCode).toBe(0);expect(tunnel.stdout.toString()).toContain('ready=true');
   const status=cli(['status'],e.env);expect(status.exitCode).toBe(0);expect(status.stdout.toString()).toContain('tunel ready=true');
@@ -120,7 +145,7 @@ test('tunnel status and server lifecycle use only fake tools and isolated ports'
   expect(await waitForUnavailable(`http://127.0.0.1:${e.env.ISYMCP_PANEL_PORT}/`)).toBe(true);
   expect(await waitForUnavailable(`http://127.0.0.1:${e.env.CODEX_WEB_HTTP_PORT}/health`)).toBe(true);
  }
-},30000);
+}, 60_000);
 
 test('menu media-prepare routes into the shared guided flow and cancel never downloads',()=>{
  const e=isolated();
@@ -131,7 +156,15 @@ test('menu media-prepare routes into the shared guided flow and cancel never dow
 
 // This crosses ffmpeg, three CLI launches and a live MCP stdio session; CI's
 // cold runners can exceed Bun's five-second default without the flow hanging.
-test('guided CLI prepares a generated video, verifies package hashes, then MCP recovers the same asset and saved artifacts',async()=>{
+// Motivo del skip en Windows, tres dependencias que aqui no existen, cada una medida:
+// (1) el conductor de prompts es python3 con pty/select (cliWithPrompts arriba);
+// (2) el selector de carpeta abre un FolderBrowserDialog real sin override
+// (src/media/preview.ts:135-145); (3) yt-dlp y zenity se lanzan con
+// node:child_process (src/media/process.ts:13), que rechaza un lanzador .cmd.
+// La ruta no guiada (media prepare <url>) si se ejercita aqui arriba, y la paqueteria
+// con manifest verificado esta cubierta en tests/media-preparation.test.ts y
+// tests/media-prepare-cli.test.ts, que corren en ambos sistemas.
+test.skipIf(process.platform === "win32")('guided CLI prepares a generated video, verifies package hashes, then MCP recovers the same asset and saved artifacts',async()=>{
  const e=isolated(),bin=join(e.home,'bin'),fixture=join(e.home,'generated.mp4'),destination=join(e.home,'exports');mkdirSync(bin);mkdirSync(destination);
  await run('ffmpeg',['-v','error','-f','lavfi','-i','color=c=blue:s=128x72:r=4:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-map','0:v','-map','1:a','-c:v','mpeg4','-c:a','aac','-shortest',fixture]);
  const fakeYtDlp=join(bin,'yt-dlp'),fakeZenity=join(bin,'zenity');

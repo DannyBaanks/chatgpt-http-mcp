@@ -1,10 +1,11 @@
 // codex-patch.test.ts — unitario del formato nativo Codex (*** Begin Patch).
 // Todo contra un directorio temporal; nada toca el repo.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexPatchError, applyCodexPatch } from "../src/mcp/codex-patch";
+import { denyChildWrites } from "./helpers/fake-exec";
 
 let dir: string;
 
@@ -246,8 +247,13 @@ describe("codex-patch: validacion y confinement", () => {
       import { mock } from "bun:test";
       import * as fs from "node:fs";
       const original = { ...fs };
+      // Se inyecta por nombre y ROL del rename, no por prefijo POSIX: en Windows el
+      // backup se mueve con rename antes de publicar, y un match suelto de
+      // ".isymcp-backup-" tumbaria dos rollbacks en vez de uno.
       mock.module("node:fs", () => ({ ...original, renameSync(from, to) {
-        if (String(to).endsWith("/second.txt") || (${failRollback} && String(from).includes(".isymcp-backup-")))
+        const base = (p) => String(p).replaceAll("\\\\", "/").split("/").pop() ?? "";
+        if ((base(to) === "second.txt" && base(from).includes(".isymcp-stage-")) ||
+            (${failRollback} && base(from).startsWith("first.txt.isymcp-backup-")))
           throw new Error("injected publication failure");
         return original.renameSync(from, to);
       } }));
@@ -255,7 +261,10 @@ describe("codex-patch: validacion y confinement", () => {
       let error = "";
       try { applyCodexPatch(${JSON.stringify(dir)}, "*** Begin Patch\\n*** Update File: first.txt\\n@@\\n-original\\n+changed\\n*** Update File: second.txt\\n@@\\n-second\\n+updated\\n*** End Patch"); }
       catch (e) { error = e.message; }
-      console.log(JSON.stringify({ error, first: original.readFileSync(${JSON.stringify(join(dir, "first.txt"))}, "utf8"), files: original.readdirSync(${JSON.stringify(dir)}) }));
+      // Un rollback incompleto en Windows puede dejar el destino ausente: el backup
+      // conservando "original" es la prueba, no la lectura del destino.
+      const readOrNull = (p) => { try { return original.readFileSync(p, "utf8"); } catch { return null; } };
+      console.log(JSON.stringify({ error, first: readOrNull(${JSON.stringify(join(dir, "first.txt"))}), files: original.readdirSync(${JSON.stringify(dir)}) }));
     `;
     const child = Bun.spawnSync([process.execPath, "--eval", source], { stdout: "pipe", stderr: "pipe" });
     if (child.exitCode !== 0) throw new Error(child.stderr.toString());
@@ -270,18 +279,29 @@ describe("codex-patch: validacion y confinement", () => {
       expect(result.error).toContain("rollback incompleto");
       const backups = result.error.split("backups conservados: ")[1].split(", ");
       expect(backups.length).toBe(1);
-      expect(backups[0]).toStartWith(dir + "/");
+      // La ruta del backup es nativa del host: se compara normalizada (separador y
+      // mayusculas) y por rol, nunca con un prefijo POSIX literal.
+      const norm = (p: string) => p.replaceAll("\\", "/").toLowerCase();
+      const inside = [dir, realpathSync(dir)].map(norm).some((prefix) => norm(backups[0]).startsWith(`${prefix}/`));
+      expect(inside).toBe(true);
+      expect((norm(backups[0]).split("/").pop() ?? "").startsWith("first.txt.isymcp-backup-")).toBe(true);
       expect(readFileSync(backups[0], "utf8")).toBe("original\n");
     }
   });
 
   test("a symlink parent cannot write outside the authorized root", () => {
     const outside = mkdtempSync(join(tmpdir(), "isyco-patch-outside-"));
+    const link = join(dir, "link");
     try {
-      symlinkSync(outside, join(dir, "link"));
+      // Objetivo un directorio -> en Windows basta una junction, que no exige Modo
+      // desarrollador; lstatSync().isSymbolicLink() sigue siendo true.
+      symlinkSync(outside, link, process.platform === "win32" ? "junction" : undefined);
       expect(() => applyCodexPatch(dir, "*** Begin Patch\n*** Add File: link/escape.txt\n+x\n*** End Patch")).toThrow(CodexPatchError);
       expect(existsSync(join(outside, "escape.txt"))).toBe(false);
-    } finally { rmSync(outside, { recursive: true, force: true }); }
+    } finally {
+      if (process.platform === "win32" && existsSync(link)) rmdirSync(link);
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   test("invalid parent in a later operation leaves earlier files unchanged", () => {
@@ -307,11 +327,12 @@ describe("codex-patch: validacion y confinement", () => {
     if (process.getuid?.() === 0) return; // root bypasses filesystem permissions
     write("first.txt", "original\n");
     mkdirSync(join(dir, "read-only"));
-    chmodSync(join(dir, "read-only"), 0o555);
+    const restore = denyChildWrites(join(dir, "read-only"));
+    if (!restore) return; // el host no puede negar escritura a los hijos: no demostrable
     try {
       expect(() => applyCodexPatch(dir, "*** Begin Patch\n*** Update File: first.txt\n@@\n-original\n+changed\n*** Add File: read-only/child.txt\n+x\n*** End Patch")).toThrow(CodexPatchError);
       expect(read("first.txt")).toBe("original\n");
-    } finally { chmodSync(join(dir, "read-only"), 0o755); }
+    } finally { restore(); }
   });
 
   test("ruta que escapa del workspace: rechazo", () => {

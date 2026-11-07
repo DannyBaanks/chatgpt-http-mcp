@@ -73,6 +73,8 @@ test('preparation covers a 121-second audio/video source in bounded chunks and r
   expect(resumedPhases.filter(phase => phase === 'contact_sheet_reused')).toHaveLength(3);
 }, 60_000);
 
+// Same real-FFmpeg cost as the test above: 61 seconds of source, two contact sheet
+// pages and 32 frame decodes, so Bun's default 5s per-test timeout is not headroom.
 test('failed preparation resumes verified saved pages without publishing a partial generation', async () => {
   const base = root(), path = join(base, 'source.mp4'), home = join(base, 'catalog');
   await fixture(path, true, true, 61);

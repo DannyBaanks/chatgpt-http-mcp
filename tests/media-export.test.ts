@@ -26,8 +26,10 @@ async function fixture(verified = true) {
   return { base, parent, catalog, asset, store, manifest };
 }
 
-// Every case builds a real FFmpeg fixture; they run ~1.4s quiet but exceed
-// Bun's five-second default when the machine is under load.
+// Cada test construye el fixture con ffmpeg REAL (video + audio) y prepara su contact
+// sheet de 16 celdas: ~1.4 s en reposo, 2.4-6.5 s bajo carga en este host, y el
+// presupuesto por defecto de Bun son 5 s. El techo de 30 s no relaja ninguna asercion,
+// solo deja de medir la velocidad del host. Mismo motivo que tests/media-preparation.test.ts.
 test('export publishes source and verified full audio/contact-sheet artifacts with a hashed receipt', async () => {
   const state = await fixture();
   const result = await exportMediaPackage(state.catalog, state.asset, state.manifest, state.store, state.parent, preview);

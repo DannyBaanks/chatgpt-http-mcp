@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { assertExclusiveTunnel, configuredTunnelAlias } from "../src/tunnel-routing";
+import { assertExclusiveTunnel, configuredTunnelAlias, tunnelClientPath } from "../src/tunnel-routing";
 import { securePrivatePath } from "../src/platform/private-path";
 import { defaultBrokerSocketPath } from "../src/mcp/broker-socket";
 
@@ -51,7 +51,7 @@ if (!existsSync(keyFile)) {
 // Attaching an existing ID uses its runtime credential, not admin CRUD or an
 // organization scope. Preserve any stored organization metadata as-is.
 
-const binary = join(home(), "bin", process.platform === "win32" ? "tunnel-client.exe" : "tunnel-client");
+const binary = tunnelClientPath(home());
 if (!existsSync(binary)) {
   console.error(`no existe ${binary}; corre install-tunnel.ts`);
   process.exit(2);

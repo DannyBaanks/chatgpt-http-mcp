@@ -2,6 +2,15 @@
 // La autoridad viene SOLO del session token valido en el registro; la URL, un
 // contexto local presente o un token de otra sesion NO conceden ejecucion.
 // Cada DENY se verifica ademas por ausencia de mutacion observable.
+//
+// Los targets van RELATIVOS en el comando y absolutos en la comprobacion del host.
+// Motivo: bwrap monta el workspace en SU PROPIA ruta (src/codex-sessions.ts:547,553)
+// y Docker lo remapea a /workspace (src/platform/docker-sandbox.ts:82,87), y el argv
+// pasa verbatim. Con una ruta absoluta del host, `touch C:\...` crearia dentro del
+// contenedor un fichero con ese nombre literal y la ausencia que se afirma en el DENY
+// se cumpliria sin que el comando significara nada; relativa, el fichero aparece de
+// verdad en el workspace si la autoridad se rompiera. Es el contrato que documenta
+// docs/WINDOWS.md:184-189.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -71,7 +80,7 @@ describe("M4: boundary de autoridad (vivo)", () => {
     const target = join(wsA, "pwn-by-fake.txt");
     const payload = await callTool("codex_exec", {
       turn_token: "token-falso-pero-largo-suficiente-1234567890",
-      command: ["touch", target],
+      command: ["touch", "pwn-by-fake.txt"],
     });
     expect(payload.executed).toBe(false);
     expect(existsSync(target)).toBe(false);
@@ -84,7 +93,7 @@ describe("M4: boundary de autoridad (vivo)", () => {
     const targetA = join(wsA, "tocado-por-b.txt");
     const cross = await callTool("codex_exec", {
       turn_token: b.token,
-      command: ["touch", targetA],
+      command: ["touch", "tocado-por-b.txt"],
       cwd: wsA,
     });
     expect(String(cross.error)).toContain("fuera del workspace");
@@ -93,7 +102,7 @@ describe("M4: boundary de autoridad (vivo)", () => {
     // control positivo: el token correcto sí ejecuta en SU workspace
     const own = await callTool("codex_exec", {
       turn_token: a.token,
-      command: ["touch", join(wsA, "tocado-por-a.txt")],
+      command: ["touch", "tocado-por-a.txt"],
     });
     expect(own.executed).toBe(true);
     expect(existsSync(join(wsA, "tocado-por-a.txt"))).toBe(true);
@@ -105,7 +114,7 @@ describe("M4: boundary de autoridad (vivo)", () => {
     const target = join(wsB, "pwn-revocado.txt");
     const payload = await callTool("codex_exec", {
       turn_token: c.token,
-      command: ["touch", target],
+      command: ["touch", "pwn-revocado.txt"],
     });
     expect(payload.executed).toBe(false);
     expect(existsSync(target)).toBe(false);
@@ -116,7 +125,7 @@ describe("M4: boundary de autoridad (vivo)", () => {
     const target = join(wsB, "con-url-extra.txt");
     const withUrl = await callTool("codex_exec", {
       turn_token: d.token,
-      command: ["touch", target],
+      command: ["touch", "con-url-extra.txt"],
       url: "https://chatgpt.com/c/otra-conversacion",
     });
     expect(withUrl.executed).toBe(true); // autoridad = token valido; la URL ni autoriza ni bloquea

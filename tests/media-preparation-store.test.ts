@@ -1,9 +1,10 @@
 import { test, expect } from 'bun:test';
-import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fingerprintArtifact, MediaPreparationStore } from '../src/media/preparation-store';
 import { MediaCatalog } from '../src/media/catalog';
+import { expectPrivate } from './helpers/private-mode';
 
 const assetId = 'media_00000000-0000-4000-8000-000000000001';
 const sourceUrl = 'https://www.youtube.com/watch?v=abcdefghijk';
@@ -29,10 +30,10 @@ test('store writes private generation and artifact files and reads verified byte
 
   const preparationDir = join(root, 'preparations', assetId);
   const generationDir = join(preparationDir, 'generations', generation.generation_id);
-  expect(statSync(preparationDir).mode & 0o777).toBe(0o700);
-  expect(statSync(generationDir).mode & 0o777).toBe(0o700);
-  expect(statSync(join(generationDir, artifact.filename)).mode & 0o777).toBe(0o600);
-  expect(statSync(join(generationDir, 'manifest.json')).mode & 0o777).toBe(0o600);
+  expectPrivate(preparationDir, true);
+  expectPrivate(generationDir, true);
+  expectPrivate(join(generationDir, artifact.filename), false);
+  expectPrivate(join(generationDir, 'manifest.json'), false);
   expect(store.readArtifact(assetId, generation.generation_id, artifact.id).toString()).toBe('{"chunks":[]}');
 });
 

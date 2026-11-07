@@ -22,7 +22,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { bindCookies } from "./sessions";
 import { bridgeHome, isExpired, listUserSessions, mintSession, revokeSession } from "./codex-sessions";
-import { assertExclusiveTunnel, configuredTunnelAlias } from "./tunnel-routing";
+import { assertExclusiveTunnel, configuredTunnelAlias, tunnelClientPath } from "./tunnel-routing";
 import { startPanel } from "./panel";
 import { createChat, loadChat } from "./chats";
 import { runHook } from "./hooks";
@@ -34,6 +34,7 @@ import { detectTuis, installIntoOpencode } from "./tui";
 import { bridgeAuthHeaders, bridgeToken } from "./local-guard";
 import { processMatches, stopProcessTree } from "./platform/process";
 import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
+import { installTunnelClient, storeRuntimeKey, storeTunnelId, validateRuntimeKey, validateTunnelId } from "../scripts/install-tunnel";
 import { nativeBrowserCommand, parseBrowserOption, rejectUnavailableBrowser } from "./visible/native-browser";
 
 const ROOT = join(import.meta.dir, "..");
@@ -132,7 +133,9 @@ function stopServer(): void {
 
 async function panelUp(): Promise<boolean> {
   try {
-    const res = await fetch(`${PANEL_URL}/`, { signal: AbortSignal.timeout(1_500) });
+    // /ready responde sin calcular el estado: preguntar por "/" obligaba al panel a
+    // construirlo (segundos en Windows) dentro de los 1500 ms de este sondeo.
+    const res = await fetch(`${PANEL_URL}/ready`, { signal: AbortSignal.timeout(1_500) });
     return res.ok;
   } catch {
     return false;
@@ -368,7 +371,7 @@ async function canaryScheduleInteractive(sub: "schedule" | "unschedule"): Promis
 }
 
 function tunnelBin(): string {
-  return join(bridgeHome(), "bin", process.platform === "win32" ? "tunnel-client.exe" : "tunnel-client");
+  return tunnelClientPath(bridgeHome());
 }
 
 function tunnel(action: string): void {
@@ -583,6 +586,7 @@ function help(): void {
                              isymcp models apply, o usa isymcp codex
   isymcp down                para server y tunel
   isymcp server start|stop
+  isymcp tunnel setup        abre ajustes de OpenAI, guarda ID/API key y conecta
   isymcp tunnel connect|stop|status
   isymcp native-browser status|probe [--json] diagnostico del navegador nativo
   isymcp ask "texto" --browser native seleccion explicita; falla si no esta disponible
@@ -685,6 +689,101 @@ function ask(question: string): Promise<string> {
   });
 }
 
+async function askHidden(question: string): Promise<string> {
+  const input = process.stdin;
+  if (!input.isTTY || !process.stdout.isTTY || typeof input.setRawMode !== "function") {
+    throw new Error("tunnel setup requiere una terminal interactiva para ocultar las credenciales");
+  }
+
+  return await new Promise<string>((resolve, reject) => {
+    let value = "";
+    let escapeState: "none" | "start" | "csi" = "none";
+    let finished = false;
+    const cleanup = () => {
+      if (finished) return;
+      finished = true;
+      input.off("data", onData);
+      try { input.setRawMode(false); } catch { /* noop */ }
+      process.stdout.write("\x1b[?2004l\n");
+      input.pause();
+    };
+    const onData = (chunk: string | Buffer) => {
+      for (const char of String(chunk)) {
+        if (escapeState === "start") {
+          escapeState = char === "[" || char === "O" ? "csi" : "none";
+          continue;
+        }
+        if (escapeState === "csi") {
+          if (char >= "@" && char <= "~") escapeState = "none";
+          continue;
+        }
+        if (char === "\x1b") { escapeState = "start"; continue; }
+        if (char === "\x03") {
+          cleanup();
+          reject(new Error("hidden_input_cancelled"));
+          return;
+        }
+        if (char === "\r" || char === "\n") {
+          cleanup();
+          resolve(value.trim());
+          return;
+        }
+        if (char === "\b" || char === "\x7f") {
+          value = Array.from(value).slice(0, -1).join("");
+          continue;
+        }
+        if (char >= " ") value += char;
+      }
+    };
+
+    process.stdout.write(question);
+    input.setEncoding("utf8");
+    input.on("data", onData);
+    try {
+      input.setRawMode(true);
+      input.resume();
+      process.stdout.write("\x1b[?2004h");
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+}
+
+async function tunnelSetup(): Promise<void> {
+  openInBrowser("https://platform.openai.com/settings/organization/general");
+  console.log("Obtén las credenciales de tu organización; lo que pegues aquí no se mostrará.");
+  let tunnelId: string;
+  let runtimeKey: string;
+  try {
+    tunnelId = validateTunnelId(await askHidden("Túnel: "));
+    runtimeKey = validateRuntimeKey(await askHidden("API key: "));
+  } catch (error) {
+    if (error instanceof Error && error.message === "hidden_input_cancelled") {
+      console.log("configuración cancelada; no se guardó nada");
+      return;
+    }
+    throw error;
+  }
+
+  const binary = await installTunnelClient();
+  storeRuntimeKey(runtimeKey);
+  storeTunnelId(tunnelId);
+  console.log(`credenciales guardadas de forma privada; cliente listo: ${binary}`);
+
+  if (!(await serverUp())) {
+    startServer();
+    let ready = false;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (await serverUp()) { ready = true; break; }
+    }
+    if (!ready) throw new Error("bridge_not_ready: credenciales guardadas; revisa isymcp status");
+  }
+
+  tunnel("connect");
+}
+
 // Una entrada por hoja visible del menu (tests/menu.test.ts lo exige).
 const ACTIONS: Record<string, () => Promise<void> | void> = {
   "up": async () => {
@@ -744,6 +843,7 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
   "canary-unschedule": () => canaryScheduleInteractive("unschedule"),
   "server-start": () => startServer(),
   "server-stop": () => stopServer(),
+  "tunnel-setup": () => tunnelSetup(),
   "tunnel-connect": () => tunnel("connect"),
   "tunnel-stop": () => tunnel("stop"),
   "tunnel-status": () => tunnel("status"),
@@ -907,6 +1007,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   startServer({ connector: rest.includes("--no-connector") ? null : undefined });
 } else if (cmd === "server" && sub === "stop") {
   stopServer();
+} else if (cmd === "tunnel" && sub === "setup") {
+  await tunnelSetup();
 } else if (cmd === "tunnel" && sub) {
   tunnel(sub);
 } else if (cmd === "codex") {

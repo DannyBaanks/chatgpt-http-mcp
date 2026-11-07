@@ -1,9 +1,10 @@
 // M5 (P0): exactly-once por turno — semantica del guard con ejecutor inyectado.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runIdempotent } from "../src/turn-idempotency";
+import { expectPrivate } from "./helpers/private-mode";
 
 let home: string;
 beforeEach(() => {
@@ -66,7 +67,7 @@ describe("M5: idempotencia por turno", () => {
     const files = readdirSync(dir);
     expect(files.length).toBe(1);
     expect(files[0]).toMatch(/^[a-f0-9]{32}\.json$/);
-    expect(statSync(join(dir, files[0]!)).mode & 0o777).toBe(0o600);
+    expectPrivate(join(dir, files[0]!), false);
   });
 
   test("5xx NO se cachea (ambiguo: retry permitido)", async () => {

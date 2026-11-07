@@ -72,7 +72,10 @@ jobs:
 
   windows-host:
     runs-on: windows-latest
-    timeout-minutes: 15
+    # La cobertura portable mide 139.73 s en esta workstation (4 núcleos, los mismos del
+    # runner: el repo es público). El techo de 30 no se ajustó a esa medida: el job
+    # además instala FFmpeg y hace `bun install` en frío sobre un disco más lento.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -80,16 +83,61 @@ jobs:
         with:
           bun-version: 1.4.2
 
+      # Igual que el job Ubuntu: los tests de medios generan y leen medios con FFmpeg
+      # de verdad, y la dependencia se provisiona en vez de simularse. windows-latest NO
+      # trae ffmpeg ni ffprobe (ausentes del README de la imagen), y sin ellos los tests
+      # fallan con ENOENT en lugar de saltarse: instalarlos es lo que los hace medibles.
+      - name: Install FFmpeg (bounded)
+        timeout-minutes: 6
+        run: |
+          if (-not (Get-Command ffmpeg.exe -ErrorAction SilentlyContinue)) {
+            choco install --no-progress -y ffmpeg
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          ffmpeg -version | Select-Object -First 1
+          ffprobe -version | Select-Object -First 1
+          # El contact sheet arma un filtro drawtext (src/media/contact-sheet.ts:27). Un
+          # build sin ese filtro rompería los tests por una causa que no es del producto,
+          # asi que la dependencia se comprueba aqui, donde el mensaje dice que falta.
+          if (-not ((ffmpeg -filters 2>&1) -match 'drawtext')) {
+            echo "FFmpeg instalado sin filtro drawtext: los contact sheets no son verificables."
+            exit 1
+          }
+
       - run: bun install --frozen-lockfile
 
-      # Host integration checks do not require Docker Desktop on the runner.
-      # Run tests/sandbox-isolation.test.ts on a Windows development machine
-      # with Docker Desktop to exercise the Linux-container command path.
+      # Ventana de cobertura: TODOS los ficheros bajo tests/ menos los siete que este
+      # runner no puede satisfacer. Se excluyen por capacidad ausente, nunca por comodidad,
+      # y la causa de cada exclusión está medida con un control (ver docs/WINDOWS.md):
+      #
+      #   authority-boundary, mcp-native-tools, mcp-session, mcp-tool-call-retry,
+      #   chat-phase2-tools  -> ejecutan el comando dentro del sandbox. Sin un backend
+      #     real sandboxBackend() falla cerrado a "none" y runExec se niega, así que la
+      #     precondición "executed: true" es inalcanzable. Reproducido en esta máquina
+      #     quitando Docker del PATH. La imagen windows-latest instala el daemon Moby de
+      #     contenedores Windows, no Docker Desktop, y la imagen que usa este repo
+      #     (isymcp-sandbox) es de Linux: no hay evidencia de que el runner la ejecute,
+      #     así que no se incluye. Se verifican en un host con Docker Desktop.
+      #   exec-registry-retry, media-export -> necesitan coreutils POSIX en el PATH de
+      #     Windows (mv -T -n en src/media/export.ts:62; sleep como argv sin sandbox). En
+      #     esta workstation resuelven porque Git\usr\bin está en PATH. Control medido:
+      #     con Docker fuera del PATH pero coreutils dentro, estos dos ficheros pasan 9/9
+      #     en 17.11 s, así que caen por coreutils y no por el sandbox. Son dependencias
+      #     reales del producto, no caprichos del test.
+      #
+      # Las exclusiones son por capacidad ausente y cada una está medida, no supuesta: si
+      # un día el runner trae la capacidad, se borra la línea y el fichero entra solo,
+      # porque el resto de tests/ ya queda cubierto por omisión.
+      #
+      # sandbox-isolation, windows-native-e2e y codex-entry-isolation SI entran: se
+      # saltan solos con motivo cuando falta su capability, y ese salto es informacion.
       - name: Windows host integration
         run: >-
           bun test --timeout 15000
-          tests/windows-sandbox.test.ts
-          tests/codex-launcher.test.ts
-          tests/active-native-mcp.test.ts
-          tests/visible-browser-worker.test.ts
-          tests/visible-journal.test.ts
+          --path-ignore-patterns "**/authority-boundary.test.ts"
+          --path-ignore-patterns "**/chat-phase2-tools.test.ts"
+          --path-ignore-patterns "**/exec-registry-retry.test.ts"
+          --path-ignore-patterns "**/mcp-native-tools.test.ts"
+          --path-ignore-patterns "**/mcp-session.test.ts"
+          --path-ignore-patterns "**/mcp-tool-call-retry.test.ts"
+          --path-ignore-patterns "**/media-export.test.ts"

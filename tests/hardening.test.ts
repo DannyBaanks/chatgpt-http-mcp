@@ -2,7 +2,7 @@
 // CSRF/DNS rebinding (server + panel), XSS del panel, caducidad y revoke de
 // tokens, symlinks fuera del workspace, candado de turnos web, sanitizado.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config";
@@ -127,6 +127,25 @@ describe("panel :8798 — CSRF/rebinding/XSS", () => {
     expect(((await res.json()) as { ok: boolean }).ok).toBe(false);
   });
 
+  test("/ready responde sin calcular estado y sigue detras del guard loopback", async () => {
+    const started = Date.now();
+    const res = await fetch(url("/ready"));
+    const ms = Date.now() - started;
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("ok");
+    // El render de "/" paga las sondas de procesos (medido 3.7 s en Windows antes del
+    // arreglo, ~1.1 s despues); /ready no calcula nada, asi que medio segundo sobra.
+    expect(ms).toBeLessThan(500);
+    for (const headers of [
+      { host: "evil.example" },
+      { origin: "https://evil.example" },
+      { origin: "null" },
+    ]) {
+      const spy = await fetch(`http://127.0.0.1:${server.port}/ready`, { headers });
+      expect(spy.status).toBe(403);
+    }
+  });
+
   test("render escapa logs, URL y labels", () => {
     const state: PanelState = {
       ts: "t", server: "down", serverPort: "1", tunnel: "stopped", mcp: "down", browser: "ok",
@@ -176,14 +195,21 @@ describe("session tokens — caducidad y revoke", () => {
 describe("confinamiento con symlinks", () => {
   test("un symlink del workspace que apunta afuera se niega", () => {
     const outside = mkdtempSync(join(tmpdir(), "isyco-outside-"));
+    // En Windows crear el symlink de ARCHIVO exige Modo desarrollador (EPERM); una
+    // junction a directorio ejercita la misma contencion: enlace dentro del
+    // workspace, destino real afuera.
+    const win32 = process.platform === "win32";
+    const link = win32 ? join(workspace, "linkdir") : join(workspace, "sub", "link.png");
     try {
       writeFileSync(join(outside, "x.png"), "x");
       mkdirSync(join(workspace, "sub"), { recursive: true });
-      symlinkSync(join(outside, "x.png"), join(workspace, "sub", "link.png"));
+      if (win32) symlinkSync(outside, link, "junction");
+      else symlinkSync(join(outside, "x.png"), link);
       writeFileSync(join(workspace, "sub", "real.png"), "y");
-      expect(resolveWithinReal(workspace, "sub/link.png")).toBeNull();
-      expect(resolveWithinReal(workspace, "sub/real.png")).toBe(join(workspace, "sub", "real.png"));
+      expect(resolveWithinReal(workspace, win32 ? join("linkdir", "x.png") : join("sub", "link.png"))).toBeNull();
+      expect(resolveWithinReal(workspace, join("sub", "real.png"))).toBe(join(workspace, "sub", "real.png"));
     } finally {
+      if (win32 && existsSync(link)) rmdirSync(link);
       rmSync(outside, { recursive: true, force: true });
     }
   });

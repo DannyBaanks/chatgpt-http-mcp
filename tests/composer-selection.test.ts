@@ -1,13 +1,26 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright-core";
 import * as settings from "../src/chatgpt-settings";
+import { defaultBrowserExecutable } from "../src/platform/browser";
+
+// El mismo resolutor del producto (src/web-turn.ts:223): en Linux sigue siendo
+// /usr/bin/google-chrome y en Windows busca Chrome/Edge instalados.
+const chrome = defaultBrowserExecutable();
+// readComposerSettings devuelve un objeto con TODOS los campos null ante cualquier
+// excepcion interna (src/chatgpt-settings.ts:208) y el motivo solo se escribe a stderr
+// si ISYMCP_DEBUG=1. Sin esto, un fallo en CI llega como cuatro nulls sin explicacion:
+// fue exactamente lo que paso en el job windows-host del run 42207486395.
+process.env.ISYMCP_DEBUG ??= "1";
+// Sin navegador en el host no hay DOM que ejercitar: son saltos con motivo, no fallos.
+const browserTest = test.skipIf(!chrome);
 
 let browser: Browser;
 // A cold runner can take longer than Bun's default five-second hook budget.
 // Keep startup bounded inside the hook so Playwright can report launch errors.
 beforeAll(async () => {
+  if (!chrome) return; // sin navegador: los unicos tests del fichero ya estan saltados
   browser = await chromium.launch({
-    executablePath: process.env.CODEX_WEB_HTTP_CHROME || "/usr/bin/google-chrome",
+    executablePath: chrome,
     headless: true,
     timeout: 20_000,
   });
@@ -39,16 +52,24 @@ async function composer(highLabel = "High"): Promise<Page> {
   return page;
 }
 
-test("settings read waits for the usable composer control and ignores model buttons outside its form", async () => {
+browserTest("settings read waits for the usable composer control and ignores model buttons outside its form", async () => {
   const page = await composer();
   try {
-    expect(await settings.readComposerSettings(page, { timeoutMs: 1000 })).toMatchObject({ model: "GPT-6", effort: "Medium", effortPosition: 2, effortSteps: 3 });
+    // timeoutMs es el techo de CADA espera de Playwright, no un SLA de latencia: las dos
+    // propiedades afirmadas (aguantar el trigger deshabilitado hasta los 100 ms del
+    // fixture, y ignorar el boton de modelo que vive fuera del form) se cumplen igual con
+    // 1000 que con 5000. Con 1000 el presupuesto se iba en el arranque frio del navegador
+    // y el test pasaba a medir la velocidad del host: 914.99 y 985.27 ms en esta maquina
+    // con 6 instancias de Chrome concurrentes (margen de 15 ms, sin un solo reintento), y
+    // en el job windows-host del run 42207486395 tardo 2663 ms y devolvio los 4 campos
+    // null. El mismo fichero ya reconoce ese coste frio en beforeAll (launch timeout 20 s).
+    expect(await settings.readComposerSettings(page, { timeoutMs: 5_000 })).toMatchObject({ model: "GPT-6", effort: "Medium", effortPosition: 2, effortSteps: 3 });
     expect(await page.locator('form button').getAttribute('data-opened')).toBe("true");
     expect(await page.locator('[role="menu"]').isVisible()).toBe(false);
   } finally { await page.close(); }
 }, 30_000);
 
-test("explicit model selection sets High and confirms the exact model in the composer", async () => {
+browserTest("explicit model selection sets High and confirms the exact model in the composer", async () => {
   const page = await composer();
   try {
     expect(await settings.selectComposerSettings(page, "GPT-5.6 Sol", "high", { timeoutMs: 3000 })).toMatchObject({ model: "GPT-5.6 Sol", effort: "High", effortPosition: 3, effortSteps: 3 });
@@ -57,7 +78,7 @@ test("explicit model selection sets High and confirms the exact model in the com
   } finally { await page.close(); }
 }, 30_000);
 
-test("explicit GPT-5.6 selection accepts the UI's version-prefixed High effort label", async () => {
+browserTest("explicit GPT-5.6 selection accepts the UI's version-prefixed High effort label", async () => {
   const page = await composer("5.6 High");
   try {
     expect(await settings.selectComposerSettings(page, "GPT-5.6 Sol", "high", { timeoutMs: 3000 })).toMatchObject({
@@ -93,7 +114,7 @@ async function delayedSliderComposer(): Promise<Page> {
   return page;
 }
 
-test("reasoning selection waits until the owned slider is usable", async () => {
+browserTest("reasoning selection waits until the owned slider is usable", async () => {
   const page = await delayedSliderComposer();
   try {
     expect(await settings.selectComposerSettings(page, "GPT-6", "high", { timeoutMs: 3000 })).toMatchObject({ model: "GPT-6", effort: "High", effortPosition: 3, effortSteps: 3 });
@@ -101,7 +122,7 @@ test("reasoning selection waits until the owned slider is usable", async () => {
   } finally { await page.close(); }
 }, 30_000);
 
-test("an unavailable requested model fails without selecting a different model", async () => {
+browserTest("an unavailable requested model fails without selecting a different model", async () => {
   const page = await composer();
   try {
     let failure: unknown;
