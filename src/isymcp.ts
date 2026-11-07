@@ -30,7 +30,7 @@ import { installWebModels } from "../scripts/install-web-models";
 import { defaultExportPath, exportLines, formatLine, parseBound, readAll, selectLines } from "./logs";
 import { MENU, brandHeader, findItem, select, visible, visibleLabels } from "./menu";
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
-import { detectTuis, installIntoOpencode } from "./tui";
+import { detectTuis, installIntoOpencode, installIntoTui, installIntoAllTuis } from "./tui";
 import { bridgeAuthHeaders, bridgeToken } from "./local-guard";
 import { processMatches, stopProcessTree } from "./platform/process";
 import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
@@ -686,9 +686,10 @@ function help(): void {
   isymcp tablero init|on|off plantilla / encender / apagar al instante
   isymcp tablero stop        cierra todas las consolas lanzadas desde el Tablero
   isymcp tui list            TUIs detectadas (config dir y/o binario)
-  isymcp tui install         dry-run del parche opencode (provider+MCP)
-  isymcp tui install --apply escribe ~/.config/opencode/opencode.json (backup)
-  isymcp tui install --restore vuelve al backup
+  isymcp tui install [--all | <tui>]  dry-run de instalación de MCP en TUIs
+  isymcp tui install [--all | <tui>] --apply  escribe configs con backup (gemini, claude, cursor, opencode, etc.)
+  isymcp tui install [--all | <tui>] --restore vuelve al backup anterior
+  isymcp fuzz [iteraciones]  ejecuta la suite de fuzzing adversarial (configs TUI y MCP Gateway)
   isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] [--request-file TASK.md]
                              crea un session token del MCP (read-only por defecto;
                              caduca a las 24 h, --ttl 0 = nunca;
@@ -1117,21 +1118,59 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
         tui.bin ?? tui.configDir}`);
     }
   } else if (sub === "install") {
-    const which = flag("--tui", rest) ?? "opencode";
-    if (which !== "opencode") {
-      console.error(`tui ${which}: solo inventario por ahora (NOT_DEMONSTRATED su formato de config)`);
-      process.exit(2);
+    const targetConfigPath = flag("--config", rest);
+    const positional: string[] = [];
+    const flagsWithValues = new Set(["--config", "--tui", "--base-url", "--mcp-main"]);
+    for (let i = 0; i < rest.length; i++) {
+      if (flagsWithValues.has(rest[i])) {
+        i++; // saltar el valor asociado
+        continue;
+      }
+      if (!rest[i].startsWith("-")) {
+        positional.push(rest[i]);
+      }
     }
-    const result = installIntoOpencode({
-      configPath,
-      backupsDir: join(ROOT, "backups", "tui"),
-      baseUrl,
-      mcpMain,
-      dryRun: !rest.includes("--apply"),
-      restore: rest.includes("--restore"),
-    });
-    console.log(`${result.action} ${result.configPath} modelos=${result.models}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
-    if (result.action === "dry-run") console.log("nada escrito (usa --apply para escribir con backup)");
+
+    const isAll = rest.includes("--all") || flag("--tui", rest) === "all" || positional.includes("all");
+    const which = flag("--tui", rest) ?? (positional[0] ? positional[0] : (isAll ? "all" : (targetConfigPath ? "opencode" : "all")));
+    const dryRun = !rest.includes("--apply");
+    const restore = rest.includes("--restore");
+    const backupsDir = join(ROOT, "backups", "tui");
+
+    if (isAll || which === "all") {
+      const results = installIntoAllTuis({
+        backupsDir,
+        baseUrl,
+        mcpMain,
+        dryRun,
+        restore,
+      });
+      for (const { tui, result, error } of results) {
+        if (error) {
+          console.error(`✗ ${tui.id} (${tui.label}): ${error}`);
+        } else if (result) {
+          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${tui.id} (${tui.label}): ${result.configPath} ${result.backupPath ? `(backup: ${result.backupPath})` : ""}`);
+        }
+      }
+      if (dryRun) console.log("\nModo dry-run: ningún archivo modificado. Usa '--apply' para escribir los cambios con backup.");
+    } else {
+      try {
+        const result = installIntoTui({
+          tuiId: which,
+          configPath: targetConfigPath,
+          backupsDir,
+          baseUrl,
+          mcpMain,
+          dryRun,
+          restore,
+        });
+        console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${which}: ${result.configPath} modelos=${result.models}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
+        if (result.action === "dry-run") console.log("nada escrito (usa --apply para escribir con backup)");
+      } catch (err: any) {
+        console.error(`Error instalando en ${which}: ${err.message}`);
+        process.exitCode = 1;
+      }
+    }
   } else if (sub === "spawn") {
     const prompt = rest.find((a) => !a.startsWith("--")) || "Hola agy";
     const cwd = flag("--cwd", rest);
@@ -1228,6 +1267,21 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   if (res.stdout) process.stdout.write(res.stdout.endsWith("\n") ? res.stdout : `${res.stdout}\n`);
   if (res.stderr) process.stderr.write(res.stderr.endsWith("\n") ? res.stderr : `${res.stderr}\n`);
   process.exit(res.exit_code);
+} else if (cmd === "fuzz") {
+  const { runFullFuzzSuite } = await import("./fuzzer");
+  const itArg = [sub, ...rest].find((a) => a && !a.startsWith("--"));
+  const iterations = itArg ? parseInt(itArg, 10) : 50;
+  console.log(`Ejecutando suite de fuzzing ISyMCP (${isNaN(iterations) ? 50 : iterations} iteraciones por suite)...`);
+  const report = await runFullFuzzSuite(isNaN(iterations) ? 50 : iterations);
+  for (const r of report.reports) {
+    const tag = r.crashes === 0 && r.failed === 0 ? "✓" : "✗";
+    console.log(`${tag} ${r.name}: ${r.passed}/${r.iterations} pasaron, ${r.failed} fallaron, ${r.crashes} crashes (${r.duration_ms}ms)`);
+    for (const a of r.anomalies) {
+      console.log(`    ⚠ ${a}`);
+    }
+  }
+  console.log(`\nResultado global: ${report.ok ? "PASS (cero crashes)" : "FAIL"} [${report.duration_ms}ms]`);
+  if (!report.ok) process.exitCode = 1;
 } else if (cmd === "logs") {
   logs([sub, ...rest].filter((part): part is string => Boolean(part)));
 } else {
