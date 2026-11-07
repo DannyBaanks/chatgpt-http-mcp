@@ -221,6 +221,9 @@ describe("EGM Security Boundary Hardening Matrix", () => {
   });
 
   test("SEC-TEST-10: stopProcessTree terminates process hierarchy including descendants", async () => {
+    // Skip on Windows runner where bash is not standard in PATH; Windows taskkill /T /F is covered in platform-process
+    if (process.platform === "win32") return;
+
     const tmpPid = join(testWorkspace, "child.pid");
     const parent = Bun.spawn(["bash", "-c", `sleep 120 & echo $! > ${tmpPid}; wait`], {
       stdout: "ignore",
