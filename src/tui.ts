@@ -273,11 +273,22 @@ export interface UniversalTuiInstallOptions {
   restore?: boolean;
 }
 
+export const TUI_ALIASES: Record<string, string> = {
+  openisy: "opencode",
+  "open-isy": "opencode",
+  agy: "gemini",
+  antigravity: "gemini",
+  claudecode: "claude",
+  "claude-code": "claude",
+  desktop: "claude",
+};
+
 /** Despachador universal para instalar ISyMCP en cualquier TUI detectada. */
 export function installIntoTui(options: UniversalTuiInstallOptions): TuiInstallResult {
   const home = options.home || HOME;
   const tuis = detectTuis(home);
-  const target = tuis.find((t) => t.id === options.tuiId);
+  const normalizedId = TUI_ALIASES[options.tuiId.toLowerCase()] ?? options.tuiId.toLowerCase();
+  const target = tuis.find((t) => t.id === normalizedId);
   if (!target) {
     throw new Error(`TUI desconocida: '${options.tuiId}'. Disponibles: ${tuis.map((t) => t.id).join(", ")}`);
   }
