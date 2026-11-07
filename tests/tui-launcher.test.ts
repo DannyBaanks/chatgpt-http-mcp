@@ -36,4 +36,25 @@ describe("TUI Launcher Suite", () => {
     expect(res.command.length).toBeGreaterThan(0);
     expect(res.message).toContain("exitosamente");
   });
+
+  it("TL-04: dangerouslySkipPermissions defaults to false and is excluded from agy args", async () => {
+    const res = await spawnAgyTui({
+      prompt: "Prueba segura",
+      dryRun: true,
+    });
+    expect(res.ok).toBe(true);
+    const cmdStr = res.command.join(" ");
+    expect(cmdStr).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("TL-05: dangerouslySkipPermissions is included only when explicitly true", async () => {
+    const res = await spawnAgyTui({
+      prompt: "Prueba con skip explícito",
+      dangerouslySkipPermissions: true,
+      dryRun: true,
+    });
+    expect(res.ok).toBe(true);
+    const cmdStr = res.command.join(" ");
+    expect(cmdStr).toContain("--dangerously-skip-permissions");
+  });
 });
