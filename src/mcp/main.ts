@@ -56,8 +56,11 @@ import { CODEX_TOOLS, buildInstructions } from "./identity";
 import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
 import { registerComfyTools } from "../comfyui/register";
+import { registerGitHubTools } from "../github/register";
+import { spawnAgyTui } from "../tui-launcher";
 import { registerTableroTools } from "../tablero/register";
 import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
+import { handleQueueLeaseMcpCall, isQueueLeaseToken } from "../remote-monitor";
 
 const args = process.argv.slice(2);
 function option(name: string, fallback: string): string {
@@ -590,6 +593,14 @@ async function runToolCall(session: CodexSession, input: Record<string, unknown>
   }
 }
 
+function runQueueLeaseTool(tool: string, token: string, input: Record<string, unknown>) {
+  const res = handleQueueLeaseMcpCall(tool, token, input);
+  if (res.isError) {
+    return fail(String(res.payload.error ?? "DENY"), res.payload);
+  }
+  return jsonText(res.payload);
+}
+
 server.registerTool(
   "codex_turn_start",
   {
@@ -609,6 +620,7 @@ server.registerTool(
         return fail(`local bootstrap failed: ${String(err)}`, { session: sessionMeta(session) });
       }
     }
+    if (isQueueLeaseToken(token)) return runQueueLeaseTool("codex_turn_start", token, input);
     return jsonText({ started: true, turn_token: token });
   }),
 );
@@ -624,6 +636,7 @@ server.registerTool(
     if (!token) return fail(`${turnKey} requerido`);
     if (session?.nativeOwner) return routeNativeTool(session, "codex_exec", input, contract as "native" | "safe");
     if (session) return runExec(session, input.command, input.cwd, input.background, input.capture_ms);
+    if (isQueueLeaseToken(token)) return runQueueLeaseTool("codex_exec", token, input);
     const command = input.command as string[];
     return jsonText({
       turn_token: token,
@@ -655,6 +668,7 @@ server.registerTool(
       const killed = killSessionExecs(session.fp);
       return jsonText({ completed: true, session: sessionMeta(session), live_execs_killed: killed });
     }
+    if (isQueueLeaseToken(token)) return runQueueLeaseTool("codex_turn_complete", token, input);
     return jsonText({ completed: true, turn_token: token });
   }),
 );
@@ -670,6 +684,8 @@ server.registerTool(
     if (session) {
       return sessionInventory(session);
     }
+    const token = String(input[turnKey] ?? "");
+    if (isQueueLeaseToken(token)) return runQueueLeaseTool("codex_tool_inventory", token, input);
     // Modo stub (token sin sesion): NADA es ejecutable. No se anuncian
     // tools que no corren; se dice como conseguir una sesion real.
     return jsonText({
@@ -689,6 +705,8 @@ server.registerTool(
   async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_write_stdin", input, async (session) => {
     if (session?.nativeOwner) return routeNativeTool(session, "codex_write_stdin", input, contract as "native" | "safe");
     if (session) return runWriteStdin(session, input);
+    const token = String(input[turnKey] ?? "");
+    if (isQueueLeaseToken(token)) return runQueueLeaseTool("codex_write_stdin", token, input);
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
@@ -705,6 +723,8 @@ server.registerTool(
   async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_apply_patch", input, async (session) => {
     if (session?.nativeOwner) return routeNativeTool(session, "codex_apply_patch", input, contract as "native" | "safe");
     if (session) return runApplyPatch(session, input.patch);
+    const token = String(input[turnKey] ?? "");
+    if (isQueueLeaseToken(token)) return runQueueLeaseTool("codex_apply_patch", token, input);
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
@@ -721,6 +741,8 @@ server.registerTool(
   async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_view_image", input, async (session) => {
     if (session?.nativeOwner) return routeNativeTool(session, "codex_view_image", input, contract as "native" | "safe");
     if (session) return runViewImage(session, input.path);
+    const token = String(input[turnKey] ?? "");
+    if (isQueueLeaseToken(token)) return runQueueLeaseTool("codex_view_image", token, input);
     return jsonText({
       turn_token: input[turnKey],
       receipt: "V1: broker no implementado",
@@ -739,6 +761,8 @@ server.registerTool(
   async (input: Record<string, unknown>): Promise<any> => tracedCall("codex_tool_call", input, async (session) => {
     if (session?.nativeOwner) return routeNativeTool(session, "codex_tool_call", input, contract as "native" | "safe");
     if (session) return runToolCall(session, input);
+    const token = String(input[turnKey] ?? "");
+    if (isQueueLeaseToken(token)) return runQueueLeaseTool("codex_tool_call", token, input);
     return jsonText({
       turn_token: input[turnKey],
       wire_name: input.wire_name,
@@ -753,9 +777,38 @@ const disableAux = process.env.CODEX_WEB_HTTP_DISABLE_AUX_TOOLS === "true" ||
 if (!disableAux) {
   registerMediaTools(server);
   registerComfyTools(server);
+  registerGitHubTools(server);
 }
 // Solo si el usuario creo tablero.json; apagado por defecto (ver src/tablero/config.ts).
 registerTableroTools(server);
+
+server.registerTool(
+  "spawn_agy_tui",
+  {
+    description:
+      "Abre una consola TUI de Antigravity (agy) en una ventana de terminal visible en el escritorio de Danny para ejecutar una tarea o continuar una sesión coordinada con ISyMCP.",
+    inputSchema: {
+      prompt: z.string().describe("Instrucción o tarea que ejecutará el nuevo agente"),
+      cwd: z.string().optional().describe("Directorio de trabajo (por defecto workspace actual)"),
+      title: z.string().optional().describe("Título de la ventana de la terminal"),
+      mode: z.enum(["auto", "plan", "accept-edits"]).optional().describe("Modo de ejecución del agente (auto por defecto)"),
+      terminal: z.enum(["auto", "gui", "tmux"]).optional().describe("Preferencia de terminal"),
+      include_monitor_hint: z.boolean().optional().describe("Si incluye el recordatorio de sincronización con el monitor de ISyMCP"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  async (input) => {
+    const res = await spawnAgyTui({
+      prompt: String(input.prompt ?? ""),
+      cwd: input.cwd ? String(input.cwd) : undefined,
+      title: input.title ? String(input.title) : undefined,
+      mode: input.mode as any,
+      terminalPreference: input.terminal as any,
+      includeMonitorHint: input.include_monitor_hint !== false,
+    });
+    return jsonText(res);
+  }
+);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

@@ -10,7 +10,7 @@ function leaves(items: MenuItem[]): string[] {
 describe("menu", () => {
   test("el arbol tiene ramas hijo", () => {
     const parents = visible(MENU).filter((item) => item.children);
-    expect(parents.map((item) => item.id).sort()).toEqual(["canary", "harness", "logs", "models", "procs", "session", "settings"]);
+    expect(parents.map((item) => item.id).sort()).toEqual(["canary", "github", "harness", "logs", "models", "procs", "session", "settings"]);
   });
 
   test("la puerta de entrada cubre panel, chat, ajustes, harnesses y canario", () => {
