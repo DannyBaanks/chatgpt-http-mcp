@@ -164,6 +164,27 @@ describe("installIntoTui & installIntoAllTuis", () => {
     const claudeConfig = join(fakeHome, ".claude", "claude_desktop_config.json");
     expect(existsSync(claudeConfig)).toBe(true);
 
+    // Alias 'openisy' resuelve a 'opencode'
+    const resOpenIsy = installIntoTui({
+      tuiId: "openisy",
+      home: fakeHome,
+      backupsDir,
+      mcpMain: "/path/to/main.ts",
+      dryRun: false,
+    });
+    expect(resOpenIsy.action).toBe("apply");
+    expect(existsSync(join(fakeHome, ".config", "opencode", "opencode.json"))).toBe(true);
+
+    // Alias 'agy' resuelve a 'gemini'
+    const resAgy = installIntoTui({
+      tuiId: "agy",
+      home: fakeHome,
+      backupsDir,
+      mcpMain: "/path/to/main.ts",
+      dryRun: true,
+    });
+    expect(resAgy.action).toBe("dry-run");
+
     // TUI desconocida lanza error
     expect(() => {
       installIntoTui({
