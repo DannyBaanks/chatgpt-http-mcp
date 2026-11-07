@@ -28,10 +28,9 @@ describe("Shell Executor Suite", () => {
     expect(resCd.ok).toBe(true);
     expect(getActiveCwd().toLowerCase()).toBe(targetDir.toLowerCase());
 
-    const pwdCmd = process.platform === "win32" ? "cd" : "pwd";
-    const resPwd = await executeShellCommand({ command: pwdCmd });
+    const resPwd = await executeShellCommand({ command: "pwd" });
     expect(resPwd.ok).toBe(true);
-    expect(resPwd.stdout.toLowerCase()).toContain(targetDir.toLowerCase());
+    expect(resPwd.stdout.trim().toLowerCase()).toBe(targetDir.toLowerCase());
 
     // Restaurar cwd
     setActiveCwd(initialCwd);

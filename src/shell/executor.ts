@@ -88,11 +88,39 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
     };
   }
 
-  // 2. Interceptar comando 'cd' solitario (sin pipelines ni encadenamientos)
+  // 2. Interceptar comando 'pwd' solitario
+  if (rawCommand === "pwd") {
+    return {
+      ok: true,
+      command: rawCommand,
+      cwd: activeCwd,
+      exit_code: 0,
+      stdout: `${activeCwd}\n`,
+      stderr: "",
+      duration_ms: Date.now() - started,
+      timed_out: false,
+    };
+  }
+
+  // 3. Interceptar comando 'cd' solitario (sin pipelines ni encadenamientos)
   const cdMatch = rawCommand.match(/^cd(?:\s+(.*))?$/);
   const isChained = /[;&|]|\n/.test(rawCommand);
 
   if (cdMatch && !isChained) {
+    // En Windows, 'cd' sin argumentos imprime el directorio actual
+    if (!cdMatch[1]?.trim() && process.platform === "win32") {
+      return {
+        ok: true,
+        command: rawCommand,
+        cwd: activeCwd,
+        exit_code: 0,
+        stdout: `${activeCwd}\n`,
+        stderr: "",
+        duration_ms: Date.now() - started,
+        timed_out: false,
+      };
+    }
+
     const target = cdMatch[1]?.trim() || "~";
     const ok = setActiveCwd(target);
     const duration = Date.now() - started;
