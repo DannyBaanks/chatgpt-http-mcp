@@ -1,6 +1,6 @@
 // tests/github-extension.test.ts — Pruebas unitarias para la extensión de GitHub en ISyMCP.
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
-import { existsSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, unlinkSync, copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -24,13 +24,13 @@ describe("ISyMCP GitHub Extension Suite", () => {
   beforeEach(() => {
     if (!existsSync(SECRETS_DIR)) mkdirSync(SECRETS_DIR, { recursive: true });
     if (existsSync(TOKENS_FILE)) {
-      writeFileSync(BACKUP_FILE, Bun.file(TOKENS_FILE));
+      copyFileSync(TOKENS_FILE, BACKUP_FILE);
     }
   });
 
   afterEach(() => {
     if (existsSync(BACKUP_FILE)) {
-      writeFileSync(TOKENS_FILE, Bun.file(BACKUP_FILE));
+      copyFileSync(BACKUP_FILE, TOKENS_FILE);
       try { unlinkSync(BACKUP_FILE); } catch {}
     } else {
       try { unlinkSync(TOKENS_FILE); } catch {}
