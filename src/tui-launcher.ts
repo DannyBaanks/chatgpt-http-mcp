@@ -2,6 +2,8 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
+import { openBridgeMonitorStack } from "./remote-monitor";
 
 export interface SpawnAgyOptions {
   prompt: string;
@@ -12,6 +14,9 @@ export interface SpawnAgyOptions {
   terminalPreference?: "auto" | "gui" | "tmux";
   includeMonitorHint?: boolean;
   dryRun?: boolean;
+  taskId?: string;
+  operationId?: string;
+  workspaceId?: string;
 }
 
 export interface SpawnAgyResult {
@@ -22,6 +27,10 @@ export interface SpawnAgyResult {
   command: string[];
   message: string;
   error?: string;
+  taskId?: string;
+  operationId?: string;
+  monitorUrl?: string;
+  state?: string;
 }
 
 export function detectTerminalEmulator(): string | null {
@@ -63,9 +72,59 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
   const skipPerms = options.dangerouslySkipPermissions === true;
   const pref = options.terminalPreference || "auto";
 
+  const taskId = options.taskId || `task-tui-${randomBytes(6).toString("hex")}`;
+  const operationId = options.operationId || `op-tui-${Date.now().toString(36)}`;
+  const monitorUrl = process.env.ISYMCP_MONITOR_URL || "http://127.0.0.1:8799";
+
   let finalPrompt = options.prompt.trim();
   if (options.includeMonitorHint ?? true) {
-    finalPrompt += "\n\n[COORDINACIÓN ISyMCP]: Tarea lanzada remotamente por ChatGPT. El monitor local de ISyMCP está activo en http://127.0.0.1:8799. Mantén sincronizado tu reporte de avance.";
+    finalPrompt += `\n\n[COORDINACIÓN ISyMCP]: Tarea lanzada remotamente por ChatGPT.\nTASK_ID: ${taskId}\nOPERATION_ID: ${operationId}\nMONITOR: ${monitorUrl}\nAl finalizar o durante tu ejecución, reporta tu avance a ChatGPT con:\nbun run src/isymcp.ts monitor respond ${taskId} --summary "<tu avance>"`;
+  }
+
+  // Si no es dryRun, auto-registramos la tarea en el monitor de ISyMCP
+  if (!options.dryRun) {
+    try {
+      const { db } = openBridgeMonitorStack();
+      const now = Date.now();
+      db.query(`
+        INSERT INTO tasks (
+          task_id, operation_id, idempotency_key, goal_id, conversation_ref,
+          lease_id, workspace_id, kind, description, requested_actions_json,
+          target_relpath, idempotent, state, reason, grant_id, worker_lease_id,
+          attempt_count, created_at, updated_at, result_json, receipt_hmac
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(task_id) DO UPDATE SET
+          state = 'RUNNING',
+          reason = 'tui_session_spawned',
+          updated_at = ?
+      `).run(
+        taskId,
+        operationId,
+        `tui-${taskId}`,
+        "GOAL-002",
+        "chatgpt-tui-spawn",
+        "lease-local-tui",
+        options.workspaceId || "isy-mcp-workspace",
+        "interactive_agent",
+        finalPrompt.slice(0, 500),
+        JSON.stringify(["tui:spawn", "status:read", "report:write"]),
+        cwd,
+        1,
+        "RUNNING",
+        "tui_session_spawned",
+        null,
+        null,
+        1,
+        now,
+        now,
+        null,
+        null,
+        now,
+      );
+      db.close();
+    } catch (dbErr) {
+      console.error(`[tui-launcher:warn] No se pudo registrar task en monitor: ${String(dbErr)}`);
+    }
   }
 
   const agyArgs: string[] = [
@@ -90,6 +149,10 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
       terminal: targetTerm,
       cwd,
       command: previewCmd,
+      taskId,
+      operationId,
+      monitorUrl,
+      state: "PREPARED",
       message: "Dry-run: comando preparado exitosamente sin spawn real.",
     };
   }
@@ -124,6 +187,9 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         env: {
           ...process.env,
           DISPLAY: process.env.DISPLAY || ":0",
+          ISYMCP_TASK_ID: taskId,
+          ISYMCP_OPERATION_ID: operationId,
+          ISYMCP_MONITOR_URL: monitorUrl,
         },
       });
 
@@ -133,6 +199,9 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
           terminal: guiTerm,
           cwd,
           command: termCmd,
+          taskId,
+          operationId,
+          monitorUrl,
           message: `Terminal falló al iniciar inmediatamente (código de salida: ${child.exitCode}).`,
           error: "process_early_exit",
         };
@@ -145,7 +214,11 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         terminal: guiTerm,
         cwd,
         command: termCmd,
-        message: `Consola TUI de Antigravity (agy) lanzada exitosamente en ventana visible (${guiTerm}) con PID ${child.pid}.`,
+        taskId,
+        operationId,
+        monitorUrl,
+        state: "RUNNING",
+        message: `Consola TUI de Antigravity (agy) lanzada exitosamente en ventana visible (${guiTerm}) con PID ${child.pid} vinculada a la tarea ${taskId} en el monitor.`,
       };
     } catch (err) {
       return {
@@ -153,6 +226,9 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         terminal: guiTerm,
         cwd,
         command: termCmd,
+        taskId,
+        operationId,
+        monitorUrl,
         message: "Fallo al abrir terminal GUI",
         error: (err as Error).message,
       };
@@ -178,6 +254,12 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         cwd,
         detached: true,
         stdio: "ignore",
+        env: {
+          ...process.env,
+          ISYMCP_TASK_ID: taskId,
+          ISYMCP_OPERATION_ID: operationId,
+          ISYMCP_MONITOR_URL: monitorUrl,
+        },
       });
 
       if (child.exitCode !== null) {
@@ -186,6 +268,9 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
           terminal: "tmux",
           cwd,
           command: tmuxCmd,
+          taskId,
+          operationId,
+          monitorUrl,
           message: `tmux falló al iniciar sesión (código de salida: ${child.exitCode}).`,
           error: "tmux_early_exit",
         };
@@ -198,7 +283,11 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         terminal: "tmux",
         cwd,
         command: tmuxCmd,
-        message: `Consola TUI de Antigravity (agy) lanzada en sesión tmux '${sessionName}'. Conéctate con: tmux attach -t ${sessionName}`,
+        taskId,
+        operationId,
+        monitorUrl,
+        state: "RUNNING",
+        message: `Consola TUI de Antigravity (agy) lanzada en sesión tmux '${sessionName}' vinculada a la tarea ${taskId} en el monitor. Conéctate con: tmux attach -t ${sessionName}`,
       };
     } catch (err) {
       return {
@@ -206,6 +295,9 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         terminal: "tmux",
         cwd,
         command: tmuxCmd,
+        taskId,
+        operationId,
+        monitorUrl,
         message: "Fallo al lanzar en tmux",
         error: (err as Error).message,
       };
@@ -217,6 +309,9 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
     terminal: "none",
     cwd,
     command: [],
+    taskId,
+    operationId,
+    monitorUrl,
     message: "No se encontró ningún emulador de terminal ni tmux disponible para desplegar la TUI.",
     error: "no_terminal_available",
   };
