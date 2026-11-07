@@ -287,7 +287,23 @@ export async function dispatchIsyMcpAction(
 
   // 2. Describe: Devuelve el contrato de una acción específica
   if (normalized === "describe") {
-    const targetName = String(args.name ?? args.action ?? "").trim().toLowerCase();
+    const rawTarget = String(args.name ?? args.action ?? "").trim().toLowerCase();
+    const aliasMap: Record<string, string> = {
+      shell: "shell.exec",
+      exec: "shell.exec",
+      bash: "shell.exec",
+      cmd: "shell.exec",
+      tui: "tui.spawn",
+      spawn: "tui.spawn",
+      protocol: "protocol.read",
+      agents: "protocol.read",
+      fuzz: "fuzz.run",
+      status: "monitor.status",
+      tasks: "monitor.tasks",
+      respond: "monitor.respond",
+      submit: "monitor.submit",
+    };
+    const targetName = aliasMap[rawTarget] ?? rawTarget;
     for (const [familyName, family] of Object.entries(ISYMCP_GLOSSARY.families)) {
       if (family.actions[targetName]) {
         return {
@@ -303,7 +319,7 @@ export async function dispatchIsyMcpAction(
     return {
       ok: false,
       result: null,
-      error: `Acción desconocida en el glosario: '${targetName}'. Invoca isymcp(action='glossary') para ver la lista completa.`,
+      error: `Acción desconocida en el glosario: '${rawTarget}'. Invoca isymcp(action='glossary') para ver la lista completa.`,
     };
   }
 
@@ -425,6 +441,56 @@ export async function dispatchIsyMcpAction(
       }
     }
 
+    if (normalized === "monitor.submit") {
+      const taskId = String(args.task_id ?? `task-mcp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`);
+      const operationId = String(args.operation_id ?? `op-${Date.now().toString(36)}`);
+      const kind = String(args.kind ?? "generic");
+      const description = String(args.description ?? "");
+      if (!description) {
+        return { ok: false, result: null, error: "monitor.submit requiere 'description'" };
+      }
+      const requestedActions = Array.isArray(args.requested_actions) ? args.requested_actions.map(String) : ["status:read"];
+      const { openBridgeMonitorStack } = await import("../remote-monitor");
+      const { db, monitor } = openBridgeMonitorStack();
+      try {
+        const now = Date.now();
+        db.query(`
+          INSERT INTO tasks (
+            task_id, operation_id, idempotency_key, goal_id, conversation_ref,
+            lease_id, workspace_id, kind, description, requested_actions_json,
+            target_relpath, idempotent, state, reason, grant_id, worker_lease_id,
+            attempt_count, created_at, updated_at, result_json, receipt_hmac
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          taskId,
+          operationId,
+          String(args.idempotency_key ?? `idemp-${taskId}`),
+          String(args.goal_id ?? "GOAL-002"),
+          String(args.conversation_ref ?? "chatgpt-mcp"),
+          "lease-mcp-submit",
+          String(args.workspace_id ?? "default"),
+          kind,
+          description.slice(0, 500),
+          JSON.stringify(requestedActions),
+          args.target_relpath ? String(args.target_relpath) : null,
+          1,
+          "READY",
+          "submitted_via_gateway",
+          null,
+          null,
+          0,
+          now,
+          now,
+          null,
+          null,
+        );
+        const task = monitor.inspectTask(taskId);
+        return { ok: true, result: task };
+      } finally {
+        db.close();
+      }
+    }
+
     if (normalized === "monitor.respond") {
       const taskId = String(args.task_id ?? "");
       const summaryText = String(args.summary ?? "Confirmado por ISyMCP.");
@@ -484,6 +550,10 @@ export async function dispatchIsyMcpAction(
       const { MediaService } = await import("../media/service");
       const service = new MediaService();
       const res = await service.call(mediaTool, args);
+      const imageItem = res.content.find((c: any) => c.type === "image");
+      if (imageItem) {
+        return { ok: !res.isError, result: imageItem };
+      }
       const text = res.content.find((c: any) => c.type === "text")?.text ?? "{}";
       try {
         const parsed = JSON.parse(text);
@@ -499,6 +569,10 @@ export async function dispatchIsyMcpAction(
       const { ComfyService } = await import("../comfyui/service");
       const service = new ComfyService();
       const res = await service.call(comfyTool, args);
+      const imageItem = res.content.find((c: any) => c.type === "image");
+      if (imageItem) {
+        return { ok: !res.isError, result: imageItem };
+      }
       const text = res.content.find((c: any) => c.type === "text")?.text ?? "{}";
       try {
         const parsed = JSON.parse(text);
@@ -582,7 +656,7 @@ export function registerIsyMcpGateway(server: McpServer): void {
         content: [
           {
             type: "text" as const,
-            text: JSON.stringify(res.ok ? res.result : { error: res.error }, null, 2),
+            text: JSON.stringify(res.result !== undefined ? res.result : { error: res.error }, null, 2),
           },
         ],
         isError: !res.ok,

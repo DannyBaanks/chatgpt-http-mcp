@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
+import { stopProcessTree } from "../platform/process";
 
 export interface ShellExecOptions {
   command: string;
@@ -56,10 +57,12 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000), 300_000);
   const maxBytes = options.maxOutputBytes ?? MAX_OUTPUT_BYTES;
 
-  // 1. Si se solicita un cwd explícito, validarlo y adoptarlo
+  // 1. Si se solicita un cwd explícito, validarlo para esta ejecución sin contaminar activeCwd global
+  let effectiveCwd = activeCwd;
   if (options.cwd) {
-    const success = setActiveCwd(options.cwd);
-    if (!success) {
+    const expanded = expandPath(options.cwd);
+    const resolved = isAbsolute(expanded) ? expanded : resolve(activeCwd, expanded);
+    if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
       return {
         ok: false,
         command: rawCommand,
@@ -72,6 +75,7 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
         error: `Directorio de trabajo no válido: ${options.cwd}`,
       };
     }
+    effectiveCwd = resolved;
   }
 
   if (!rawCommand) {
@@ -162,19 +166,43 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
     const shellArgs = isWindows ? ["/d", "/s", "/c", rawCommand] : ["-c", rawCommand];
 
     const proc = spawn(shellBinary, shellArgs, {
-      cwd: activeCwd,
+      cwd: effectiveCwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        proc.kill("SIGKILL");
-      } catch {
-        /* ignore */
+      if (proc.pid) {
+        try {
+          stopProcessTree(proc.pid);
+        } catch {
+          try {
+            proc.kill("SIGKILL");
+          } catch {
+            /* ignore */
+          }
+        }
       }
       stderrBuf += `\n[TIMEOUT] El comando excedió el tiempo límite asignado (${timeoutMs} ms) y fue terminado.`;
+
+      // Prevenir cuelgue si el proceso no cierra pipes tras SIGKILL
+      setTimeout(() => {
+        if (!procExited) {
+          procExited = true;
+          resolveResult({
+            ok: false,
+            command: rawCommand,
+            cwd: effectiveCwd,
+            exit_code: 124,
+            stdout: stdoutBuf,
+            stderr: stderrBuf,
+            duration_ms: Date.now() - started,
+            timed_out: true,
+            error: `Timeout de ${timeoutMs}ms excedido`,
+          });
+        }
+      }, 1500).unref();
     }, timeoutMs);
 
     proc.stdout.on("data", (chunk: Buffer) => {
@@ -202,7 +230,7 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
       resolveResult({
         ok: false,
         command: rawCommand,
-        cwd: activeCwd,
+        cwd: effectiveCwd,
         exit_code: 1,
         stdout: stdoutBuf,
         stderr: `${stderrBuf}\nError al iniciar proceso: ${err.message}`.trim(),
@@ -220,7 +248,7 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
       resolveResult({
         ok: exitCode === 0 && !timedOut,
         command: rawCommand,
-        cwd: activeCwd,
+        cwd: effectiveCwd,
         exit_code: exitCode,
         stdout: stdoutBuf,
         stderr: stderrBuf,

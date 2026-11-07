@@ -90,4 +90,38 @@ describe("ISyMCP Universal Gateway Suite", () => {
     expect(result.stdout).toContain("GATEWAY_SHELL_TEST");
     expect(result.exit_code).toBe(0);
   });
+
+  it("GW-10: dispatches monitor.submit cleanly", async () => {
+    const res = await dispatchIsyMcpAction("monitor.submit", {
+      description: "Test task submission via gateway",
+      kind: "diagnostics",
+    });
+    expect(res.ok).toBe(true);
+    const result = res.result as any;
+    expect(result.task_id).toBeDefined();
+    expect(result.description).toBe("Test task submission via gateway");
+  });
+
+  it("GW-11: resolves common aliases in describe", async () => {
+    const resShell = await dispatchIsyMcpAction("describe", { name: "shell" });
+    expect(resShell.ok).toBe(true);
+    expect((resShell.result as any).action).toBe("shell.exec");
+
+    const resTui = await dispatchIsyMcpAction("describe", { name: "tui" });
+    expect(resTui.ok).toBe(true);
+    expect((resTui.result as any).action).toBe("tui.spawn");
+
+    const resProto = await dispatchIsyMcpAction("describe", { name: "protocol" });
+    expect(resProto.ok).toBe(true);
+    expect((resProto.result as any).action).toBe("protocol.read");
+  });
+
+  it("GW-12: preserves shell execution output and exit code on failure", async () => {
+    const res = await dispatchIsyMcpAction("shell.exec", { command: "echo 'FAIL_STDOUT' && exit 42" });
+    expect(res.ok).toBe(false);
+    expect(res.result).toBeDefined();
+    const result = res.result as any;
+    expect(result.stdout).toContain("FAIL_STDOUT");
+    expect(result.exit_code).toBe(42);
+  });
 });
