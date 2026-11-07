@@ -371,7 +371,8 @@ export async function githubCommand(sub?: string, args: string[] = []): Promise<
 
   if (sub === "watch-ci" || sub === "watch-run") {
     let target = args.find((a) => !a.startsWith("--"));
-    const port = args[args.indexOf("--port") + 1] || "8799";
+    const portIdx = args.indexOf("--port");
+    const port = portIdx !== -1 && args[portIdx + 1] ? args[portIdx + 1] : "8799";
     const detach = !args.includes("--no-detach");
 
     let runId = target;
