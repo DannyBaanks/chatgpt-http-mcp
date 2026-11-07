@@ -247,6 +247,22 @@ export const ISYMCP_GLOSSARY: {
         },
       },
     },
+
+    fuzz: {
+      description: "Suite de pruebas adversariales y fuzzing para configs de TUIs y Universal Gateway.",
+      actions: {
+        "fuzz.run": {
+          description: "Ejecuta pruebas sintácticas y semánticas intensivas contra el instalador TUI y el despachador de herramientas.",
+          parameters: {
+            iterations: "number (opcional: iteraciones por suite, por defecto 50)",
+          },
+          example: {
+            action: "fuzz.run",
+            arguments: { iterations: 25 },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -257,7 +273,9 @@ export async function dispatchIsyMcpAction(
   action: string | undefined,
   args: Record<string, any> = {},
 ): Promise<{ ok: boolean; result: unknown; error?: string }> {
-  const normalized = (action ?? "").trim().toLowerCase();
+  const normalized = (typeof action === "string" ? action : String(action ?? "")).trim().toLowerCase();
+  const safeArgs: Record<string, any> = (args && typeof args === "object" && !Array.isArray(args)) ? args : {};
+  args = safeArgs;
 
   // 1. Glosario / Catálogo / Ayuda
   if (!normalized || normalized === "glossary" || normalized === "catalog" || normalized === "help") {
@@ -507,6 +525,17 @@ export async function dispatchIsyMcpAction(
         ok: res.ok,
         result: res,
         error: res.ok ? undefined : res.stderr || `Comando falló con código ${res.exit_code}`,
+      };
+    }
+
+    // 10. Familia Fuzz
+    if (normalized === "fuzz.run" || normalized === "fuzz") {
+      const { runFullFuzzSuite } = await import("../fuzzer");
+      const iterations = typeof args.iterations === "number" && args.iterations > 0 ? args.iterations : 50;
+      const report = await runFullFuzzSuite(iterations);
+      return {
+        ok: report.ok,
+        result: report,
       };
     }
 
