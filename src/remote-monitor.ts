@@ -209,6 +209,7 @@ const ALLOWED_TASK_KINDS = new Set(["review_and_test", "verify_only", "diagnosti
  */
 export function openMonitorDatabase(dbPath: string): Database {
   const db = new Database(dbPath, { create: true });
+  db.exec("PRAGMA busy_timeout = 5000;");
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA synchronous = FULL;");
   db.exec("PRAGMA foreign_keys = ON;");
@@ -223,6 +224,12 @@ export function openMonitorDatabase(dbPath: string): Database {
 
     CREATE TABLE IF NOT EXISTS used_owner_grants (
       grant_id TEXT PRIMARY KEY,
+      used_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS used_worker_receipts (
+      receipt_hmac TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
       used_at INTEGER NOT NULL
     );
 
@@ -404,7 +411,7 @@ export class LeaseAuthority {
         .query("INSERT INTO used_owner_grants (grant_id, used_at) VALUES (?, ?)")
         .run(g.grant_id!, now);
     });
-    tx();
+    tx.immediate();
     return { owner_id: g.owner_id };
   }
 
@@ -602,7 +609,7 @@ export class LeaseAuthority {
       });
     });
 
-    return tx();
+    return tx.immediate();
   }
 
   /**
@@ -641,7 +648,7 @@ export class LeaseAuthority {
         generation: nextGen,
       });
     });
-    return tx();
+    return tx.immediate();
   }
 
   /**
@@ -768,6 +775,50 @@ export class LeaseAuthority {
       expires_at,
       revoked_at: null,
     };
+  }
+
+  /**
+   * Revoca transaccionalmente un TaskGrant y cancela cualquier tarea READY asociada que aún no haya comenzado.
+   */
+  public revokeTaskGrant(ownerGrant: OwnerGrant, grant_id: string): TaskGrantRecord {
+    const { owner_id } = this.consumeOwnerGrant(ownerGrant, "task:revoke");
+    const tx = this.db.transaction((): TaskGrantRecord => {
+      const row = this.db
+        .query("SELECT * FROM task_grants WHERE grant_id = ?")
+        .get(grant_id) as any;
+      if (!row) {
+        throw new Error("DENY: task_grant_not_found");
+      }
+      if (row.owner_id !== owner_id) {
+        throw new Error("DENY: task_grant_owner_mismatch");
+      }
+      const now = this.nowFn();
+      const revokedAt = row.revoked_at ?? now;
+      this.db
+        .query("UPDATE task_grants SET revoked_at = ? WHERE grant_id = ?")
+        .run(revokedAt, grant_id);
+
+      this.db
+        .query(
+          `UPDATE tasks
+           SET state = 'CANCELLED', reason = 'task_grant_revoked_before_execution', updated_at = ?
+           WHERE grant_id = ? AND state IN ('QUEUED', 'AWAITING_APPROVAL', 'READY')`,
+        )
+        .run(now, grant_id);
+
+      return {
+        grant_id: String(row.grant_id),
+        owner_id: String(row.owner_id),
+        workspace_id: String(row.workspace_id),
+        allowed_kinds: JSON.parse(String(row.allowed_kinds_json)) as string[],
+        allowed_actions: JSON.parse(String(row.allowed_actions_json)) as string[],
+        max_runtime_ms: Number(row.max_runtime_ms),
+        created_at: Number(row.created_at),
+        expires_at: Number(row.expires_at),
+        revoked_at: Number(revokedAt),
+      };
+    });
+    return tx.immediate();
   }
 
   private mapLeaseRow(row: any): QueueLeaseRecord {
@@ -1010,7 +1061,7 @@ export class QueueService {
       };
     });
 
-    return tx();
+    return tx.immediate();
   }
 
   /**
@@ -1271,7 +1322,7 @@ export class MonitorCoordinator {
       }
     });
 
-    tx();
+    tx.immediate();
     return { markedUnknown, recoveredReady };
   }
 
@@ -1354,22 +1405,37 @@ export class MonitorCoordinator {
       return null;
     });
 
-    return tx();
+    return tx.immediate();
   }
 
   /**
-   * Registra el resultado de una tarea en ejecución exigiendo un recibo criptográfico válido del WorkerAdapter (A11).
+   * Registra el resultado de una tarea en ejecución exigiendo un recibo criptográfico válido del WorkerAdapter (A11, B04).
    */
-  public completeTask(receipt: unknown): TaskRecord {
+  public completeTask(receipt: unknown, targetTaskIdOverride?: string): TaskRecord {
     const validReceipt = this.worker.verifyExecutionReceipt(receipt);
     const now = this.nowFn();
+    const targetTaskId = targetTaskIdOverride ?? validReceipt.task_id;
 
     const tx = this.db.transaction((): TaskRecord => {
+      if (targetTaskId !== validReceipt.task_id) {
+        throw new Error("DENY: receipt_task_id_mismatch");
+      }
+
+      const used = this.db
+        .query("SELECT receipt_hmac FROM used_worker_receipts WHERE receipt_hmac = ?")
+        .get(validReceipt.signature);
+      if (used) {
+        throw new Error("DENY: receipt_replay_detected");
+      }
+
       const row = this.db
         .query("SELECT * FROM tasks WHERE task_id = ?")
         .get(validReceipt.task_id) as any;
       if (!row) {
         throw new Error("DENY: task_not_found");
+      }
+      if (row.operation_id !== validReceipt.operation_id) {
+        throw new Error("DENY: receipt_operation_id_mismatch");
       }
       if (row.state !== "RUNNING" && row.state !== "CLAIMED") {
         throw new Error(`DENY: invalid_task_state_for_completion:${row.state}`);
@@ -1377,6 +1443,10 @@ export class MonitorCoordinator {
       if (row.worker_lease_id !== validReceipt.worker_lease_id) {
         throw new Error("DENY: receipt_worker_lease_mismatch");
       }
+
+      this.db
+        .query("INSERT INTO used_worker_receipts (receipt_hmac, task_id, used_at) VALUES (?, ?, ?)")
+        .run(validReceipt.signature, validReceipt.task_id, now);
 
       const nextState: TaskState = validReceipt.exit_code === 0 ? "SUCCEEDED" : "FAILED";
       const reason = validReceipt.exit_code === 0 ? "execution_succeeded" : "execution_failed";
@@ -1408,7 +1478,7 @@ export class MonitorCoordinator {
       return mapTaskRow(updated);
     });
 
-    return tx();
+    return tx.immediate();
   }
 
   /**
@@ -1417,5 +1487,170 @@ export class MonitorCoordinator {
   public inspectTask(taskId: string): TaskRecord | null {
     const row = this.db.query("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as any;
     return row ? mapTaskRow(row) : null;
+  }
+}
+
+/**
+ * Adaptador de Transporte Remoto Autenticado de ISyMCP (HTTP Loopback + MCP Tool Dispatcher).
+ * - Permite que un turno remoto con un `queue_lease` válido encole tareas (`POST /isymcp/monitor/submit`
+ *   o tool `monitor_queue_submit`) y consulte estados (`GET /isymcp/monitor/status/:taskId` o tool `monitor_queue_status`).
+ * - Rechaza de forma determinista cualquier intento de usar el transporte o un `queue_lease` para
+ *   invocar herramientas de ejecución (`codex_exec`, `codex_apply_patch`, `POST /isymcp/monitor/exec`).
+ */
+export class MonitorRemoteTransport {
+  private readonly queue: QueueService;
+  private readonly authority: LeaseAuthority;
+
+  constructor(queue: QueueService, authority: LeaseAuthority) {
+    this.queue = queue;
+    this.authority = authority;
+  }
+
+  /**
+   * Despacha llamadas de herramientas MCP expuestas al conector remoto.
+   */
+  public dispatchMcpTool(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): { isError: boolean; payload: unknown } {
+    if (
+      toolName === "codex_exec" ||
+      toolName === "codex_apply_patch" ||
+      toolName === "codex_write_stdin" ||
+      toolName === "monitor_exec"
+    ) {
+      return {
+        isError: true,
+        payload: {
+          accepted: false,
+          state: "DENIED",
+          reason: "DENY: queue_lease_cannot_execute",
+        },
+      };
+    }
+
+    if (toolName === "monitor_queue_submit") {
+      const submission = args as unknown as QueueTaskSubmission;
+      const res = this.queue.submitTask(submission);
+      return {
+        isError: !res.accepted,
+        payload: res,
+      };
+    }
+
+    if (toolName === "monitor_queue_status") {
+      try {
+        const leaseToken = String(args.lease_token ?? "");
+        const taskId = String(args.task_id ?? "");
+        const rec = this.queue.getTaskStatus(leaseToken, taskId);
+        return {
+          isError: false,
+          payload: {
+            task_id: rec.task_id,
+            operation_id: rec.operation_id,
+            state: rec.state,
+            reason: rec.reason,
+            attempt_count: rec.attempt_count,
+            result: rec.result,
+          },
+        };
+      } catch (err: any) {
+        return {
+          isError: true,
+          payload: {
+            accepted: false,
+            state: "DENIED",
+            reason: String(err?.message ?? err),
+          },
+        };
+      }
+    }
+
+    return {
+      isError: true,
+      payload: {
+        accepted: false,
+        state: "DENIED",
+        reason: `DENY: unknown_monitor_tool:${toolName}`,
+      },
+    };
+  }
+
+  /**
+   * Manejador HTTP autenticado por Bearer token (`queue_lease`) para el bridge local.
+   */
+  public async handleHttpRequest(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+    const authHeader = req.headers.get("authorization") ?? "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+
+    if (url.pathname === "/isymcp/monitor/exec") {
+      return Response.json(
+        {
+          accepted: false,
+          state: "DENIED",
+          reason: "DENY: queue_lease_cannot_execute",
+        },
+        { status: 403 },
+      );
+    }
+
+    if (req.method === "POST" && url.pathname === "/isymcp/monitor/submit") {
+      let body: Record<string, unknown>;
+      try {
+        body = (await req.json()) as Record<string, unknown>;
+      } catch {
+        return Response.json(
+          { accepted: false, state: "DENIED", reason: "invalid_json_body" },
+          { status: 400 },
+        );
+      }
+      const submission: QueueTaskSubmission = {
+        ...(body as unknown as QueueTaskSubmission),
+        lease_token: bearerToken || String(body.lease_token ?? ""),
+      };
+      const res = this.queue.submitTask(submission);
+      return Response.json(res, { status: res.accepted ? 200 : 403 });
+    }
+
+    if (req.method === "GET" && url.pathname.startsWith("/isymcp/monitor/status/")) {
+      const taskId = url.pathname.slice("/isymcp/monitor/status/".length).trim();
+      try {
+        const rec = this.queue.getTaskStatus(bearerToken, taskId);
+        return Response.json(
+          {
+            task_id: rec.task_id,
+            operation_id: rec.operation_id,
+            state: rec.state,
+            reason: rec.reason,
+            attempt_count: rec.attempt_count,
+            result: rec.result,
+          },
+          { status: 200 },
+        );
+      } catch (err: any) {
+        return Response.json(
+          {
+            accepted: false,
+            state: "DENIED",
+            reason: String(err?.message ?? err),
+          },
+          { status: 403 },
+        );
+      }
+    }
+
+    return Response.json({ error: "not_found" }, { status: 404 });
+  }
+
+  /**
+   * Inicia un servidor HTTP en loopback (127.0.0.1) para pruebas E2E o ejecución del bridge local.
+   */
+  public startLoopbackServer(port = 0) {
+    return Bun.serve({
+      hostname: "127.0.0.1",
+      port,
+      fetch: (req) => this.handleHttpRequest(req),
+    });
   }
 }
