@@ -5,7 +5,7 @@ import { extname, join, resolve } from 'node:path';
 import { MediaCatalog, Asset, digest } from './catalog';
 import { YouTubePreview } from './preview';
 import { youtubeSource } from './importer';
-import { PreparationManifest, MediaPreparationStore } from './preparation-store';
+import { PreparationManifest, MediaPreparationStore, type ArtifactKind } from './preparation-store';
 import { run } from './process';
 
 export type PackageExportResult = { directory: string; manifest_path: string; manifest_sha256: string };
@@ -28,7 +28,7 @@ export type PackageExportOptions = {
   publisher?: (partial: string, final: string) => Promise<void>;
 };
 
-type ExportFile = { path: string; kind: 'source' | 'audio_scan' | 'contact_sheet'; bytes: number; sha256: string };
+type ExportFile = { path: string; kind: 'source' | ArtifactKind; bytes: number; sha256: string };
 
 function safeDirectoryTitle(title: string | undefined): string {
   const clean = (title ?? '')
