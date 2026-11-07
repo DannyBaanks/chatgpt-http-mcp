@@ -59,6 +59,7 @@ import { registerComfyTools } from "../comfyui/register";
 import { registerGitHubTools } from "../github/register";
 import { registerIsyMcpGateway } from "./gateway";
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
+import { executeShellCommand } from "../shell/executor";
 import { spawnAgyTui } from "../tui-launcher";
 import { registerTableroTools } from "../tablero/register";
 import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
@@ -811,6 +812,28 @@ server.registerTool(
       includeMonitorHint: input.include_monitor_hint !== false,
       taskId: input.task_id ? String(input.task_id) : undefined,
       operationId: input.operation_id ? String(input.operation_id) : undefined,
+    });
+    return jsonText(res);
+  }
+);
+
+server.registerTool(
+  "shell_exec",
+  {
+    description:
+      "Ejecuta comandos shell arbitrarios en bash en la máquina de Danny. Soporta comandos de navegación interactiva como 'cd <ruta>' (persistiendo el directorio de trabajo entre turnos), pipes, git, bun, npm, python y scripts del sistema.",
+    inputSchema: {
+      command: z.string().describe("Comando de shell o bash a ejecutar (ej. 'ls -la', 'cd /ruta', 'git status', 'bun run build')"),
+      cwd: z.string().optional().describe("Directorio de trabajo inicial opcional"),
+      timeout_ms: z.number().int().min(1000).max(300000).optional().describe("Tiempo límite en milisegundos (por defecto 30000)"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  async (input) => {
+    const res = await executeShellCommand({
+      command: String(input.command ?? ""),
+      cwd: input.cwd ? String(input.cwd) : undefined,
+      timeoutMs: input.timeout_ms ? Number(input.timeout_ms) : undefined,
     });
     return jsonText(res);
   }

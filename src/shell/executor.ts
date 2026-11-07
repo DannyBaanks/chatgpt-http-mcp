@@ -1,0 +1,200 @@
+// src/shell/executor.ts — Ejecutor de comandos de shell arbitrarios con persistencia de CWD.
+import { spawn } from "node:child_process";
+import { existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, resolve } from "node:path";
+
+export interface ShellExecOptions {
+  command: string;
+  cwd?: string;
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+}
+
+export interface ShellExecResult {
+  ok: boolean;
+  command: string;
+  cwd: string;
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+  timed_out: boolean;
+  error?: string;
+}
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_OUTPUT_BYTES = 512 * 1024; // 512 KB
+
+let activeCwd = process.cwd();
+
+export function getActiveCwd(): string {
+  return activeCwd;
+}
+
+export function setActiveCwd(newPath: string): boolean {
+  const expanded = expandPath(newPath);
+  const resolved = isAbsolute(expanded) ? expanded : resolve(activeCwd, expanded);
+  if (existsSync(resolved) && statSync(resolved).isDirectory()) {
+    activeCwd = resolved;
+    return true;
+  }
+  return false;
+}
+
+function expandPath(p: string): string {
+  let cleaned = p.trim().replace(/^["']|["']$/g, "").replace(/\\ /g, " ");
+  if (cleaned === "~" || cleaned.startsWith("~/")) {
+    cleaned = homedir() + cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+export async function executeShellCommand(options: ShellExecOptions): Promise<ShellExecResult> {
+  const started = Date.now();
+  const rawCommand = (options.command ?? "").trim();
+  const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000), 300_000);
+  const maxBytes = options.maxOutputBytes ?? MAX_OUTPUT_BYTES;
+
+  // 1. Si se solicita un cwd explícito, validarlo y adoptarlo
+  if (options.cwd) {
+    const success = setActiveCwd(options.cwd);
+    if (!success) {
+      return {
+        ok: false,
+        command: rawCommand,
+        cwd: activeCwd,
+        exit_code: 1,
+        stdout: "",
+        stderr: `Directorio de trabajo no válido o inaccesible: ${options.cwd}`,
+        duration_ms: Date.now() - started,
+        timed_out: false,
+        error: `Directorio de trabajo no válido: ${options.cwd}`,
+      };
+    }
+  }
+
+  if (!rawCommand) {
+    return {
+      ok: false,
+      command: "",
+      cwd: activeCwd,
+      exit_code: 1,
+      stdout: "",
+      stderr: "Comando vacío.",
+      duration_ms: 0,
+      timed_out: false,
+      error: "Comando vacío",
+    };
+  }
+
+  // 2. Interceptar comando 'cd' solitario (sin pipelines ni encadenamientos)
+  const cdMatch = rawCommand.match(/^cd(?:\s+(.*))?$/);
+  const isChained = /[;&|]|\n/.test(rawCommand);
+
+  if (cdMatch && !isChained) {
+    const target = cdMatch[1]?.trim() || "~";
+    const ok = setActiveCwd(target);
+    const duration = Date.now() - started;
+    if (ok) {
+      return {
+        ok: true,
+        command: rawCommand,
+        cwd: activeCwd,
+        exit_code: 0,
+        stdout: `Directorio cambiado a: ${activeCwd}`,
+        stderr: "",
+        duration_ms: duration,
+        timed_out: false,
+      };
+    } else {
+      return {
+        ok: false,
+        command: rawCommand,
+        cwd: activeCwd,
+        exit_code: 1,
+        stdout: "",
+        stderr: `bash: cd: ${target}: No existe el archivo o el directorio`,
+        duration_ms: duration,
+        timed_out: false,
+        error: `bash: cd: ${target}: No existe el directorio`,
+      };
+    }
+  }
+
+  // 3. Ejecutar comando general en bash
+  return new Promise((resolveResult) => {
+    let stdoutBuf = "";
+    let stderrBuf = "";
+    let timedOut = false;
+    let procExited = false;
+
+    const proc = spawn("bash", ["-c", rawCommand], {
+      cwd: activeCwd,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
+      stderrBuf += `\n[TIMEOUT] El comando excedió el tiempo límite asignado (${timeoutMs} ms) y fue terminado.`;
+    }, timeoutMs);
+
+    proc.stdout.on("data", (chunk: Buffer) => {
+      if (stdoutBuf.length < maxBytes) {
+        stdoutBuf += chunk.toString("utf8");
+        if (stdoutBuf.length >= maxBytes) {
+          stdoutBuf += "\n[TRUNCATED: Salida recortada por límite de tamaño (512 KB)]";
+        }
+      }
+    });
+
+    proc.stderr.on("data", (chunk: Buffer) => {
+      if (stderrBuf.length < maxBytes) {
+        stderrBuf += chunk.toString("utf8");
+        if (stderrBuf.length >= maxBytes) {
+          stderrBuf += "\n[TRUNCATED: Salida recortada por límite de tamaño (512 KB)]";
+        }
+      }
+    });
+
+    proc.on("error", (err: Error) => {
+      if (procExited) return;
+      procExited = true;
+      clearTimeout(timer);
+      resolveResult({
+        ok: false,
+        command: rawCommand,
+        cwd: activeCwd,
+        exit_code: 1,
+        stdout: stdoutBuf,
+        stderr: `${stderrBuf}\nError al iniciar proceso: ${err.message}`.trim(),
+        duration_ms: Date.now() - started,
+        timed_out: timedOut,
+        error: err.message,
+      });
+    });
+
+    proc.on("close", (code: number | null) => {
+      if (procExited) return;
+      procExited = true;
+      clearTimeout(timer);
+      const exitCode = code ?? (timedOut ? 124 : 1);
+      resolveResult({
+        ok: exitCode === 0 && !timedOut,
+        command: rawCommand,
+        cwd: activeCwd,
+        exit_code: exitCode,
+        stdout: stdoutBuf,
+        stderr: stderrBuf,
+        duration_ms: Date.now() - started,
+        timed_out: timedOut,
+      });
+    });
+  });
+}
