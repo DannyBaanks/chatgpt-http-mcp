@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import {
   LeaseAuthority,
   MonitorCoordinator,
@@ -1395,5 +1397,284 @@ describe("GOAL-002 — ISyMCP Remote Task Monitor (A01..A15)", () => {
     expect(ssrfRes.reason).toContain("DENY: path_traversal_or_url_forbidden");
 
     db.close();
+  });
+
+  test("D01..D06: Real MCP bridge server (src/mcp/main.ts over StdioClientTransport) end-to-end gate with QueueLease", async () => {
+    const db = openMonitorDatabase(dbPath);
+    const authority = new LeaseAuthority(db, {
+      ownerSecret: OWNER_SECRET,
+      nowFn: () => Date.now(),
+    });
+    const worker = new WorkerAdapter({
+      workerSecret: WORKER_SECRET,
+      nowFn: () => Date.now(),
+      db,
+    });
+    const monitor = new MonitorCoordinator(db, worker, { nowFn: () => Date.now() });
+
+    const ogWs = authority.mintOwnerGrant({
+      owner_id: "danny",
+      scopes: ["workspace:register"],
+    });
+    authority.registerWorkspace(ogWs, {
+      workspace_id: "isy-mcp-workspace",
+      root_path: workspaceRoot,
+    });
+
+    const ogMint = authority.mintOwnerGrant({
+      owner_id: "danny",
+      scopes: ["lease:mint"],
+    });
+    const lease = authority.mintQueueLease(ogMint, {
+      workspace_id: "isy-mcp-workspace",
+      scopes: ["queue:submit", "queue:status"],
+      ttlSeconds: 3600,
+    });
+
+    const mcpHome = join(tempDir, "mcp-home");
+    mkdirSync(mcpHome, { recursive: true });
+
+    const client = new Client({ name: "goal002-d01-d06-mcp-client", version: "1.0.0" });
+    const transport = new StdioClientTransport({
+      command: "bun",
+      args: [join(import.meta.dir, "../src/mcp/main.ts"), "--contract", "native"],
+      env: {
+        ...process.env,
+        CODEX_WEB_HTTP_HOME: mcpHome,
+        CODEX_WEB_HTTP_MONITOR_DB: dbPath,
+        CODEX_WEB_HTTP_MONITOR_OWNER_SECRET: OWNER_SECRET,
+        CODEX_WEB_HTTP_MONITOR_WORKER_SECRET: WORKER_SECRET,
+        CODEX_WEB_HTTP_DISABLE_AUX_TOOLS: "1",
+      } as Record<string, string>,
+      stderr: "ignore",
+    });
+
+    await client.connect(transport);
+    try {
+      const parseToolResult = (res: any) => {
+        const text = res.content?.find((c: any) => c.type === "text")?.text ?? "{}";
+        return { isError: Boolean(res.isError), body: JSON.parse(text) };
+      };
+
+      // D01: Descubrir y verificar disponibilidad de monitor_queue_submit y monitor_queue_status en el servidor MCP real
+      const turnStart1 = parseToolResult(
+        await client.callTool({
+          name: "codex_turn_start",
+          arguments: { turn_token: lease.token },
+        }),
+      );
+      expect(turnStart1.isError).toBe(false);
+      expect(turnStart1.body.started).toBe(true);
+      expect(turnStart1.body.authority).toBe("queue_lease");
+      expect(turnStart1.body.execution_allowed).toBe(false);
+
+      const invRes = parseToolResult(
+        await client.callTool({
+          name: "codex_tool_inventory",
+          arguments: { turn_token: lease.token },
+        }),
+      );
+      expect(invRes.isError).toBe(false);
+      expect(invRes.body.authority).toBe("queue_lease");
+      expect(invRes.body.execution_allowed).toBe(false);
+      const wireNames = (invRes.body.tools as any[]).map((t) => t.wire_name);
+      expect(wireNames).toEqual(["monitor_queue_submit", "monitor_queue_status"]);
+      expect(invRes.body.tools[0].inputSchema.type).toBe("object");
+      expect(invRes.body.tools[1].inputSchema.type).toBe("object");
+
+      // D02: Encolar tarea inocua desde el puente MCP real -> 1 fila persistida, task_id verificable, execution_started=false
+      const submitArgs = {
+        schema_version: 1,
+        operation_id: "op-d02-mcp-stdio",
+        goal_id: "GOAL-002",
+        conversation_ref: "chatgpt-live-mcp-turn-1",
+        task: {
+          kind: "verify_only",
+          workspace_id: "isy-mcp-workspace",
+          description: "Harmless verification task over real MCP stdio server",
+          requested_actions: ["tests:run"],
+          target_relpath: "allowed.txt",
+          idempotent: true,
+        },
+        idempotency_key: "ik-d02-mcp-stdio",
+        requested_at: new Date().toISOString(),
+      };
+
+      const d02Sub = parseToolResult(
+        await client.callTool({
+          name: "codex_tool_call",
+          arguments: {
+            turn_token: lease.token,
+            wire_name: "monitor_queue_submit",
+            arguments: submitArgs,
+          },
+        }),
+      );
+      expect(d02Sub.isError).toBe(false);
+      expect(d02Sub.body.accepted).toBe(true);
+      expect(d02Sub.body.execution_started).toBe(false);
+      expect(d02Sub.body.state).toBe("AWAITING_APPROVAL");
+      const taskId = d02Sub.body.task_id as string;
+      expect(taskId).toMatch(/^task-/);
+
+      const countAfterD02 = db.query("SELECT COUNT(*) AS cnt FROM tasks").get() as { cnt: number };
+      expect(countAfterD02.cnt).toBe(1);
+
+      // D04: Repetir el envío tras pérdida simulada de ACK -> deduplicado por idempotency_key sin doble ejecución
+      const d04Retry = parseToolResult(
+        await client.callTool({
+          name: "codex_tool_call",
+          arguments: {
+            turn_token: lease.token,
+            wire_name: "monitor_queue_submit",
+            arguments: {
+              ...submitArgs,
+              operation_id: "op-d04-retry-after-ack-loss",
+            },
+          },
+        }),
+      );
+      expect(d04Retry.isError).toBe(false);
+      expect(d04Retry.body.accepted).toBe(true);
+      expect(d04Retry.body.deduplicated).toBe(true);
+      expect(d04Retry.body.task_id).toBe(taskId);
+      const countAfterD04 = db.query("SELECT COUNT(*) AS cnt FROM tasks").get() as { cnt: number };
+      expect(countAfterD04.cnt).toBe(1);
+
+      const turnEnd1 = parseToolResult(
+        await client.callTool({
+          name: "codex_turn_complete",
+          arguments: {
+            turn_token: lease.token,
+            response: `Enqueued ${taskId}`,
+          },
+        }),
+      );
+      expect(turnEnd1.isError).toBe(false);
+      expect(turnEnd1.body.completed).toBe(true);
+
+      // Aprobación local independiente por el propietario y ejecución controlada del worker
+      const ogGrant = authority.mintOwnerGrant({ owner_id: "danny", scopes: ["task:grant"] });
+      const taskGrant = authority.createTaskGrant(ogGrant, {
+        workspace_id: "isy-mcp-workspace",
+        allowed_kinds: ["verify_only"],
+        allowed_actions: ["tests:run"],
+      });
+      const ogApprove = authority.mintOwnerGrant({ owner_id: "danny", scopes: ["task:grant"] });
+      authority.authorizePendingTask(ogApprove, {
+        task_id: taskId,
+        grant_id: taskGrant.grant_id,
+      });
+
+      const claimed = monitor.claimNextReadyTask()!;
+      expect(claimed.task.task_id).toBe(taskId);
+      const receipt = worker.executeClaimedTask(claimed.workerLease, claimed.task);
+      monitor.completeTask(receipt);
+
+      // D03: Consultar la misma tarea desde un segundo turno por el puente MCP real -> estado recuperable sin exponer credenciales
+      const turnStart2 = parseToolResult(
+        await client.callTool({
+          name: "codex_turn_start",
+          arguments: { turn_token: lease.token },
+        }),
+      );
+      expect(turnStart2.isError).toBe(false);
+
+      const d03Status = parseToolResult(
+        await client.callTool({
+          name: "codex_tool_call",
+          arguments: {
+            turn_token: lease.token,
+            wire_name: "monitor_queue_status",
+            arguments: { task_id: taskId },
+          },
+        }),
+      );
+      expect(d03Status.isError).toBe(false);
+      expect(d03Status.body.task_id).toBe(taskId);
+      expect(d03Status.body.state).toBe("SUCCEEDED");
+      expect(d03Status.body.attempt_count).toBe(1);
+      expect(d03Status.body.result.artifact_hash).toBe(receipt.artifact_hash);
+
+      const rawStatusJson = JSON.stringify(d03Status.body);
+      expect(rawStatusJson).not.toContain(lease.token);
+      expect(rawStatusJson).not.toContain(OWNER_SECRET);
+      expect(rawStatusJson).not.toContain(WORKER_SECRET);
+      expect(rawStatusJson).not.toContain(receipt.signature);
+
+      // D05: Intentar ejecución remota (codex_exec / codex_apply_patch / codex_tool_call exec_command) con QueueLease válido -> DENY: queue_lease_cannot_execute
+      const d05Exec = parseToolResult(
+        await client.callTool({
+          name: "codex_exec",
+          arguments: {
+            turn_token: lease.token,
+            command: ["id"],
+          },
+        }),
+      );
+      expect(d05Exec.isError).toBe(true);
+      expect(d05Exec.body.error).toBe("DENY: queue_lease_cannot_execute");
+
+      const d05Patch = parseToolResult(
+        await client.callTool({
+          name: "codex_apply_patch",
+          arguments: {
+            turn_token: lease.token,
+            patch: "*** Begin Patch\n*** End Patch",
+          },
+        }),
+      );
+      expect(d05Patch.isError).toBe(true);
+      expect(d05Patch.body.error).toBe("DENY: queue_lease_cannot_execute");
+
+      const d05NestedExec = parseToolResult(
+        await client.callTool({
+          name: "codex_tool_call",
+          arguments: {
+            turn_token: lease.token,
+            wire_name: "exec_command",
+            arguments: { cmd: "id" },
+          },
+        }),
+      );
+      expect(d05NestedExec.isError).toBe(true);
+      expect(d05NestedExec.body.reason).toBe("DENY: queue_lease_cannot_execute");
+
+      // D06: Revocar el lease y repetir la solicitud sobre el servidor MCP real -> DENY sin persistir tarea nueva
+      const ogRevoke = authority.mintOwnerGrant({ owner_id: "danny", scopes: ["lease:revoke"] });
+      authority.revokeQueueLease(ogRevoke, lease.lease_id);
+
+      const d06RevokedSubmit = parseToolResult(
+        await client.callTool({
+          name: "codex_tool_call",
+          arguments: {
+            turn_token: lease.token,
+            wire_name: "monitor_queue_submit",
+            arguments: {
+              ...submitArgs,
+              operation_id: "op-d06-after-revoke",
+              idempotency_key: "ik-d06-after-revoke",
+            },
+          },
+        }),
+      );
+      expect(d06RevokedSubmit.isError).toBe(true);
+      expect(d06RevokedSubmit.body.reason).toContain("DENY: lease_revoked");
+
+      const d06RevokedInventory = parseToolResult(
+        await client.callTool({
+          name: "codex_tool_inventory",
+          arguments: { turn_token: lease.token },
+        }),
+      );
+      expect(d06RevokedInventory.isError).toBe(true);
+      expect(d06RevokedInventory.body.error).toContain("DENY: lease_revoked");
+
+      const countAfterD06 = db.query("SELECT COUNT(*) AS cnt FROM tasks").get() as { cnt: number };
+      expect(countAfterD06.cnt).toBe(1);
+    } finally {
+      await client.close();
+      db.close();
+    }
   });
 });
