@@ -226,6 +226,7 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
       });
       watchSandboxProcess(launch, raw.exited);
       const proc: BgProc = {
+        pid: raw.pid,
         stdin: raw.stdin as unknown as BgProc["stdin"],
         stdout: raw.stdout as unknown as BgProc["stdout"],
         stderr: raw.stderr as unknown as BgProc["stderr"],
@@ -233,7 +234,8 @@ async function runExec(session: CodexSession, command: unknown, cwdArg: unknown,
         exited: raw.exited,
         idleOutputMs: launch.backend === "docker" || launch.backend === "codex-windows" ? 1000 : 250,
       };
-      const rec = registerLiveExec({ sessionFp: session.fp, command: command as string[], cwd: workdir, proc });
+      const rootFp = session.parent ?? session.fp;
+      const rec = registerLiveExec({ sessionFp: rootFp, command: command as string[], cwd: workdir, proc });
       trace("exec.bg.spawn", { exec_id: rec.id, writable: session.writable, workdir });
       const initial = await drain(rec, clampInt(captureMs, 0, 5000, 1500));
       return jsonText({
@@ -317,7 +319,7 @@ async function runApplyPatch(session: CodexSession, patch: unknown) {
   const { paths, codexFormat } = patchPaths(patch);
   if (!codexFormat && paths.length === 0) return fail("no se detectaron paths en el patch", { session: sessionMeta(session) });
   for (const p of paths) {
-    if (!resolveWithin(session.cwd, p)) {
+    if (!resolveWithinReal(session.cwd, p)) {
       return fail(`path fuera del workspace: ${p}`, { session: sessionMeta(session) });
     }
   }
@@ -433,7 +435,8 @@ async function runWriteStdin(session: CodexSession, input: Record<string, unknow
   if (!id) return fail("exec_id requerido", { session: sessionMeta(session) });
   const rec = findLive(id);
   if (!rec) return fail("exec_id desconocido o expirado", { session: sessionMeta(session) });
-  if (rec.sessionFp !== session.fp) return fail("exec_id pertenece a otra sesion", { session: sessionMeta(session) });
+  const rootFp = session.parent ?? session.fp;
+  if (rec.sessionFp !== session.fp && rec.sessionFp !== rootFp) return fail("exec_id pertenece a otra sesion", { session: sessionMeta(session) });
   const signal = input.signal === "TERM" || input.signal === "KILL" ? (input.signal as "TERM" | "KILL") : undefined;
   const data = String(input.data ?? "");
   if (rec.exited && !signal && (data.length > 0 || input.close_stdin === true)) {
@@ -745,8 +748,12 @@ server.registerTool(
   }),
 );
 
-registerMediaTools(server);
-registerComfyTools(server);
+const disableAux = process.env.CODEX_WEB_HTTP_DISABLE_AUX_TOOLS === "true" ||
+  process.env.CODEX_WEB_HTTP_DISABLE_AUX_TOOLS === "1";
+if (!disableAux) {
+  registerMediaTools(server);
+  registerComfyTools(server);
+}
 // Solo si el usuario creo tablero.json; apagado por defecto (ver src/tablero/config.ts).
 registerTableroTools(server);
 

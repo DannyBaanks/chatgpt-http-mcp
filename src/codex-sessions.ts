@@ -13,7 +13,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync,
   writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter as pathDelimiter, isAbsolute, join, relative, resolve } from "node:path";
+import { delimiter as pathDelimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { buildCodexWindowsSandboxPlan, cleanupCodexWindowsSandboxPath, findCodexWindowsCli } from "./platform/codex-windows-sandbox";
 import { buildWindowsDockerSandboxPlan } from "./platform/docker-sandbox";
 import { ensurePrivatePath, securePrivatePath } from "./platform/private-path";
@@ -67,6 +67,10 @@ export function bridgeHome(env: Record<string, string | undefined> = process.env
 
 export function registryPath(): string {
   return join(bridgeHome(), "codex-sessions.json");
+}
+
+export function sessionRegistryExists(): boolean {
+  return existsSync(registryPath());
 }
 
 export function fingerprint(token: string): string {
@@ -345,24 +349,34 @@ export function resolveWithin(root: string, candidate: string): string | null {
 
 /**
  * Como resolveWithin, pero ademas sigue symlinks del path existente: un link
- * dentro del workspace que apunta afuera se niega.
+ * dentro del workspace que apunta afuera se niega (incluyendo ancestros no existentes aun).
  */
 export function resolveWithinReal(root: string, candidate: string): string | null {
   const lexical = resolveWithin(root, candidate);
-  if (!lexical || !existsSync(lexical)) return lexical;
+  if (!lexical) return null;
   let realRoot: string;
-  let realTarget: string;
   try {
     realRoot = realpathSync(root);
-    realTarget = realpathSync(lexical);
   } catch {
     return null;
   }
-  return resolveWithin(realRoot, realTarget) ? lexical : null;
+  let cur = lexical;
+  while (!existsSync(cur)) {
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  let realAncestor: string;
+  try {
+    realAncestor = realpathSync(cur);
+  } catch {
+    return null;
+  }
+  return resolveWithin(realRoot, realAncestor) ? lexical : null;
 }
 
 export const BWRAP = "/usr/bin/bwrap";
-export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.1";
+export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.2";
 
 export interface SandboxPlan {
   argv: string[];

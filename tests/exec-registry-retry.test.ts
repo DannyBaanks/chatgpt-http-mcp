@@ -66,6 +66,7 @@ describe("background exec registry retry/exit lifecycle", () => {
       stderr: "pipe",
     });
     try {
+      sweepLiveExecs();
       for (let i = 0; i < 16; i++) {
         const child = spawnSleep();
         owned.push(child);
@@ -81,7 +82,7 @@ describe("background exec registry retry/exit lifecycle", () => {
         .toThrow("limite de procesos en segundo plano alcanzado (16)");
       const termination = await Promise.race([
         rejected.exited.then((code) => ({ ended: true, code })),
-        Bun.sleep(300).then(() => ({ ended: false as const })),
+        Bun.sleep(1500).then(() => ({ ended: false as const })),
       ]);
       expect(termination.ended).toBe(true);
     } finally {

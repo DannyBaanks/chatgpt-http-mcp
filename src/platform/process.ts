@@ -27,7 +27,14 @@ export function processMatches(pattern: string): boolean {
 export function stopProcessTree(pid: number): void {
   if (!Number.isInteger(pid) || pid <= 0) return;
   if (process.platform !== "win32") {
-    try { process.kill(pid, "SIGTERM"); } catch { /* already stopped */ }
+    try {
+      Bun.spawnSync(["pkill", "-TERM", "-P", String(pid)], { stdout: "ignore", stderr: "ignore", timeout: 2500 });
+    } catch { /* ya detenido o pkill no disponible */ }
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {
+      try { process.kill(pid, "SIGTERM"); } catch { /* already stopped */ }
+    }
     return;
   }
   try {

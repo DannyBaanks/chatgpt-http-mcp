@@ -16,9 +16,12 @@
 // write_stdin rechaza exec_id de otra sesion. Buffers acotados (512 KiB por
 // stream, se recorta lo viejo y la marca de lectura se ajusta).
 import { randomBytes } from "node:crypto";
+import { isExpired, readSessions, sessionRegistryExists } from "../codex-sessions";
+import { stopProcessTree } from "../platform/process";
 
 /** Interfaz estructural del proceso (evita acoplarnos a los tipos de Bun). */
 export interface BgProc {
+  pid?: number;
   stdin: { write(data: string): unknown; flush(): unknown; end(): unknown };
   stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
@@ -150,6 +153,21 @@ export function findLive(id: string): LiveExec | null {
     live.delete(rec.id);
     return null;
   }
+  if (!rec.exited && process.env.CODEX_WEB_HTTP_CASCADE_KILL !== "false") {
+    try {
+      if (sessionRegistryExists()) {
+        const sessions = readSessions();
+        const parent = sessions.find((s) => s.fp === rec.sessionFp && !isExpired(s));
+        if (!parent) {
+          killExec(rec);
+          live.delete(rec.id);
+          return null;
+        }
+      }
+    } catch {
+      /* si el registro no se puede leer, no rompemos findLive */
+    }
+  }
   return rec;
 }
 
@@ -163,13 +181,30 @@ function killUnregisteredProc(proc: BgProc): void {
   } catch {
     /* ya muerto */
   }
+  if (proc.pid) {
+    try {
+      stopProcessTree(proc.pid);
+    } catch {
+      /* ya parado */
+    }
+  }
   const hard = setTimeout(() => {
+    if (proc.pid) {
+      if (process.platform === "win32") {
+        try { stopProcessTree(proc.pid); } catch {}
+      } else {
+        try { Bun.spawnSync(["pkill", "-9", "-P", String(proc.pid)], { stdout: "ignore", stderr: "ignore", timeout: 2000 }); } catch {}
+        try { process.kill(-proc.pid, "SIGKILL"); } catch {
+          try { process.kill(proc.pid, "SIGKILL"); } catch {}
+        }
+      }
+    }
     try {
       proc.kill(9);
     } catch {
       /* ya muerto */
     }
-  }, 2_000);
+  }, 1_000);
   hard.unref?.();
 }
 
@@ -190,8 +225,20 @@ export function killSessionExecs(sessionFp: string): number {
 
 export function sweepLiveExecs(): void {
   const now = Date.now();
+  let sessions: ReturnType<typeof readSessions> | null = null;
+  if (process.env.CODEX_WEB_HTTP_CASCADE_KILL !== "false") {
+    try {
+      if (sessionRegistryExists()) {
+        sessions = readSessions();
+      }
+    } catch {
+      sessions = null;
+    }
+  }
   for (const rec of [...live.values()]) {
-    if (rec.expiresAt <= now) {
+    const expiredByTtl = rec.expiresAt <= now;
+    const sessionRevoked = !rec.exited && sessions !== null && !sessions.some((s) => s.fp === rec.sessionFp && !isExpired(s));
+    if (expiredByTtl || sessionRevoked) {
       if (!rec.exited) killExec(rec);
       live.delete(rec.id);
     }
