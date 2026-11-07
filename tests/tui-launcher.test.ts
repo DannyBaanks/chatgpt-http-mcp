@@ -57,4 +57,36 @@ describe("TUI Launcher Suite", () => {
     const cmdStr = res.command.join(" ");
     expect(cmdStr).toContain("--dangerously-skip-permissions");
   });
+
+  it("TL-06: spawnAgyTui generates taskId and binds to monitor coordination prompt", async () => {
+    const res = await spawnAgyTui({
+      prompt: "Tarea con monitor bus",
+      includeMonitorHint: true,
+      dryRun: true,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.taskId).toBeDefined();
+    expect(res.taskId).toStartWith("task-tui-");
+    expect(res.operationId).toBeDefined();
+    expect(res.monitorUrl).toBeDefined();
+    expect(res.state).toBe("PREPARED");
+    const cmdStr = res.command.join(" ");
+    expect(cmdStr).toContain("TASK_ID:");
+    expect(cmdStr).toContain(res.taskId!);
+  });
+
+  it("TL-07: spawnAgyTui accepts custom taskId and operationId", async () => {
+    const res = await spawnAgyTui({
+      prompt: "Tarea con ID personalizado",
+      taskId: "task-custom-12345",
+      operationId: "op-custom-67890",
+      dryRun: true,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.taskId).toBe("task-custom-12345");
+    expect(res.operationId).toBe("op-custom-67890");
+    const cmdStr = res.command.join(" ");
+    expect(cmdStr).toContain("task-custom-12345");
+    expect(cmdStr).toContain("op-custom-67890");
+  });
 });

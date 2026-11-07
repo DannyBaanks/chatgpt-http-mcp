@@ -794,6 +794,8 @@ server.registerTool(
       mode: z.enum(["auto", "plan", "accept-edits"]).optional().describe("Modo de ejecución del agente (auto por defecto)"),
       terminal: z.enum(["auto", "gui", "tmux"]).optional().describe("Preferencia de terminal"),
       include_monitor_hint: z.boolean().optional().describe("Si incluye el recordatorio de sincronización con el monitor de ISyMCP"),
+      task_id: z.string().optional().describe("ID de tarea para vincular con el monitor de ISyMCP (auto-generado si se omite)"),
+      operation_id: z.string().optional().describe("ID de operación asociada en el monitor"),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
@@ -805,6 +807,8 @@ server.registerTool(
       mode: input.mode as any,
       terminalPreference: input.terminal as any,
       includeMonitorHint: input.include_monitor_hint !== false,
+      taskId: input.task_id ? String(input.task_id) : undefined,
+      operationId: input.operation_id ? String(input.operation_id) : undefined,
     });
     return jsonText(res);
   }
