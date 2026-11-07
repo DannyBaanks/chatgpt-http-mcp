@@ -82,4 +82,12 @@ describe("ISyMCP Universal Gateway Suite", () => {
     expect(res.ok).toBe(false);
     expect(res.error).toContain("Acción no soportada");
   });
+
+  it("GW-09: dispatches shell.exec through universal gateway", async () => {
+    const res = await dispatchIsyMcpAction("shell.exec", { command: "echo 'GATEWAY_SHELL_TEST'" });
+    expect(res.ok).toBe(true);
+    const result = res.result as any;
+    expect(result.stdout).toContain("GATEWAY_SHELL_TEST");
+    expect(result.exit_code).toBe(0);
+  });
 });

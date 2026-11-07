@@ -6,6 +6,7 @@ import { GITHUB_MCP_TOOLS } from "../github/mcp-tools";
 import { callGitHubApi } from "../github/client";
 import { openBridgeMonitorStack } from "../remote-monitor";
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
+import { executeShellCommand } from "../shell/executor";
 
 export interface GlossaryEntry {
   description: string;
@@ -225,6 +226,24 @@ export const ISYMCP_GLOSSARY: {
           description: "Retorna el documento Markdown con las instrucciones de inicialización y comandos de persistencia (/task) para agentes coordinados por ChatGPT.",
           parameters: {},
           example: { action: "protocol.read" },
+        },
+      },
+    },
+
+    shell: {
+      description: "Ejecución directa de comandos shell/bash en la máquina de Danny con persistencia de directorio de trabajo (cwd).",
+      actions: {
+        "shell.exec": {
+          description: "Ejecuta un comando arbitrario en bash con soporte para cwd persistente, navegación con 'cd <ruta>', variables de entorno y piping.",
+          parameters: {
+            command: "string (obligatorio: comando bash a ejecutar)",
+            cwd: "string (opcional: directorio de trabajo inicial)",
+            timeout_ms: "number (opcional: tiempo límite en ms, por defecto 30000)",
+          },
+          example: {
+            action: "shell.exec",
+            arguments: { command: "git status" },
+          },
         },
       },
     },
@@ -469,6 +488,26 @@ export async function dispatchIsyMcpAction(
       } catch {
         return { ok: !res.isError, result: text, error: res.isError ? text : undefined };
       }
+    }
+
+    // 9. Familia Shell
+    if (
+      normalized === "shell.exec" ||
+      normalized === "shell" ||
+      normalized === "exec" ||
+      normalized === "bash" ||
+      normalized === "cmd"
+    ) {
+      const res = await executeShellCommand({
+        command: String(args.command ?? args.cmd ?? ""),
+        cwd: args.cwd ? String(args.cwd) : undefined,
+        timeoutMs: args.timeout_ms ? Number(args.timeout_ms) : undefined,
+      });
+      return {
+        ok: res.ok,
+        result: res,
+        error: res.ok ? undefined : res.stderr || `Comando falló con código ${res.exit_code}`,
+      };
     }
 
     return {

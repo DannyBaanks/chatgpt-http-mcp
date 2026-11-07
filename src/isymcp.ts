@@ -650,6 +650,7 @@ function help(): void {
   isymcp monitor approve <task-id>
   isymcp monitor tasks             lista las tareas encoladas y sus respuestas/estados
   isymcp protocol                  imprime el protocolo oficial de coordinacion y bootstrap de agentes
+  isymcp exec "<comando>"          ejecuta un comando bash arbitrario con persistencia de cwd
   isymcp github [cmd]              suite de GitHub: tokens con TTL en horas, asistente
                                    wizard interactivo, API REST y GitHub Actions
   isymcp ask "texto" [--new] turno real con ChatGPT desde la terminal; sigue
@@ -1216,6 +1217,17 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
 } else if (cmd === "protocol" || cmd === "agents") {
   const { ISYMCP_AGENT_PROTOCOL_MD } = await import("./agent-protocol");
   console.log(ISYMCP_AGENT_PROTOCOL_MD);
+} else if (cmd === "exec" || cmd === "sh") {
+  const { executeShellCommand } = await import("./shell/executor");
+  const fullCmd = [sub, ...rest].filter(Boolean).join(" ");
+  if (!fullCmd) {
+    console.error('uso: isymcp exec "<comando>"');
+    process.exit(1);
+  }
+  const res = await executeShellCommand({ command: fullCmd });
+  if (res.stdout) process.stdout.write(res.stdout.endsWith("\n") ? res.stdout : `${res.stdout}\n`);
+  if (res.stderr) process.stderr.write(res.stderr.endsWith("\n") ? res.stderr : `${res.stderr}\n`);
+  process.exit(res.exit_code);
 } else if (cmd === "logs") {
   logs([sub, ...rest].filter((part): part is string => Boolean(part)));
 } else {
