@@ -6,10 +6,10 @@ import { homedir } from 'node:os';
 import { basename, join, resolve, extname } from 'node:path';
 import { verifyDownloadedTikTok } from './tiktok-url';
 import { youtubeSource } from './youtube-url';
-export type MediaDownloadReceipt = { platform?:'youtube'|'tiktok'; video_id:string; source_url:string; canonical_url?:string };
+export type MediaDownloadReceipt = { platform?:'youtube'|'tiktok'|'instagram'|'twitter'|'direct'|'generic'; video_id:string; source_url:string; canonical_url?:string };
 export type Asset = { id:string; path:string; realPath:string; sha256:string; bytes:number; name:string; revoked:boolean; addedAt:string; sourceUrl?:string;
   downloadReceipt?:MediaDownloadReceipt };
-const extensions = new Set(['.wav','.flac','.mp3','.m4a','.mp4','.mov','.webm']);
+const extensions = new Set(['.wav','.flac','.mp3','.m4a','.mp4','.mov','.webm','.mkv','.ogg','.aac','.opus']);
 export const digest = (b:Buffer) => createHash('sha256').update(b).digest('hex');
 function validDownloadReceipt(sourceUrl:string|undefined,receipt:MediaDownloadReceipt):boolean {
  if(!sourceUrl||receipt.source_url!==sourceUrl)return false;
@@ -19,6 +19,9 @@ function validDownloadReceipt(sourceUrl:string|undefined,receipt:MediaDownloadRe
    const verified=verifyDownloadedTikTok(sourceUrl,receipt.video_id,receipt.canonical_url);
    return verified.source_url===receipt.source_url&&verified.video_id===receipt.video_id&&verified.canonical_url===receipt.canonical_url;
   } catch { return false; }
+ }
+ if(receipt.platform==='instagram'||receipt.platform==='twitter'||receipt.platform==='direct'||receipt.platform==='generic') {
+  return Boolean(receipt.video_id);
  }
  if(receipt.platform&&receipt.platform!=='youtube')return false;
  if(receipt.canonical_url&&receipt.canonical_url!==sourceUrl)return false;

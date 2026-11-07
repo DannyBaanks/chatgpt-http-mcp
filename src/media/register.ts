@@ -37,8 +37,7 @@ function traced(service: MediaService, tool: string) {
 export function registerMediaTools(server:McpServer, service=new MediaService()) {
  server.registerTool('media_import',{
   description:
-    ('Descarga un video público individual de YouTube/Shorts o TikTok en la PC del usuario y lo registra para análisis local. Acepta enlaces ' +
-      'TikTok directos y cortos vt.tiktok.com/vm.tiktok.com. Solo úsala cuando el usuario solicite importar/analizar ese enlace. Devuelve job_id ' +
+    ('Descarga un video o audio público de YouTube, TikTok, Instagram, Twitter/X, enlaces directos (.mp4, .mp3, etc.) o web genérica en la PC del usuario y lo registra para análisis local. Solo úsala cuando el usuario solicite importar/analizar ese enlace. Devuelve job_id ' +
       'rápidamente: consulta media_import_status hasta complete antes de usar asset.id. Sin cookies; máximo 500 MiB, 30 minutos, plazo 180 segundos.'),
   inputSchema:{url:z.string().url().max(2048)},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
  },traced(service,'media_import'));
@@ -59,7 +58,7 @@ export function registerMediaTools(server:McpServer, service=new MediaService())
  },traced(service,'media_list'));
  server.registerTool('media_lookup',{
   description:
-    ('Busca una URL pública de YouTube/Shorts entre medios registrados y preparados localmente. Es de solo lectura: nunca descarga ni analiza. Devuelve ' +
+    ('Busca una URL pública (YouTube, TikTok, Instagram, Twitter/X, enlace directo o web) entre medios registrados y preparados localmente. Es de solo lectura: nunca descarga ni analiza. Devuelve ' +
       'manifiesto y audio_scan completos; con sheet_index devuelve como máximo una hoja JPEG guardada. Si no está preparado,' +
       ' informa not_prepared para que el usuario use isymcp media prepare <url>. No expone rutas locales.'),
   inputSchema:{url:z.string().url().max(2048),sheet_index:z.number().int().min(0).optional()},annotations,

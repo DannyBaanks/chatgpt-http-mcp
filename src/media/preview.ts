@@ -1,7 +1,7 @@
 import { accessSync, constants, existsSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
-import { youtubeSource } from './importer';
+import { mediaSource, youtubeSource } from './importer';
 import { run } from './process';
 import { youtubeDownloaderBinary } from './youtube';
 
@@ -44,9 +44,14 @@ function positiveNumber(value: unknown): number | undefined {
 }
 
 function canonicalVideoId(url: string): string {
-  const id = new URL(url).searchParams.get('v');
-  if (!id) throw Error('Invalid canonical YouTube video URL');
-  return id;
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.has('v')) return parsed.searchParams.get('v')!;
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    return parts[parts.length - 1] || 'video';
+  } catch {
+    return 'video';
+  }
 }
 
 function parseMetadata(output: Buffer, canonicalUrl: string): YouTubePreview {
@@ -60,13 +65,15 @@ function parseMetadata(output: Buffer, canonicalUrl: string): YouTubePreview {
   }
 
   const videoId = canonicalVideoId(canonicalUrl);
-  if (metadata.id !== videoId) throw Error('YouTube video identity did not match the canonical URL');
+  if (canonicalUrl.includes('youtube.com') && metadata.id !== videoId) {
+    throw Error('YouTube video identity did not match the canonical URL');
+  }
 
   const width = positiveNumber(metadata.width);
   const height = positiveNumber(metadata.height);
   const fileSize = positiveNumber(metadata.filesize) ?? positiveNumber(metadata.filesize_approx);
   const duration = positiveNumber(metadata.duration);
-  const preview: YouTubePreview = { url: canonicalUrl, video_id: videoId };
+  const preview: YouTubePreview = { url: canonicalUrl, video_id: (metadata.id as string) || videoId };
   const title = safeText(metadata.title, 300);
   const uploader = safeText(metadata.uploader ?? metadata.channel, 200);
   if (title) preview.title = title;
@@ -78,7 +85,8 @@ function parseMetadata(output: Buffer, canonicalUrl: string): YouTubePreview {
 }
 
 export async function inspectYouTube(input: string, runner: typeof run = run): Promise<YouTubePreview> {
-  const canonicalUrl = youtubeSource(input);
+  const source = mediaSource(input);
+  const canonicalUrl = source.source_url;
   let output: Buffer;
   try {
     output = await runner(youtubeDownloaderBinary(), [
@@ -95,10 +103,14 @@ export async function inspectYouTube(input: string, runner: typeof run = run): P
       processGroup: true,
     });
   } catch {
-    throw Error('Could not inspect YouTube metadata; check the public link and try again');
+    const message = source.platform === 'youtube'
+      ? 'Could not inspect YouTube metadata; check the public link and try again'
+      : 'Could not inspect media metadata; check the public link and try again';
+    throw Error(message);
   }
   return parseMetadata(output, canonicalUrl);
 }
+export const inspectMediaUrl = inspectYouTube;
 
 function executableInPath(name: string, pathValue: string): string | undefined {
   for (const directory of pathValue.split(delimiter)) {

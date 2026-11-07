@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, readdirSync, statSync, statfsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, statfsSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, isAbsolute } from 'node:path';
+import { join, isAbsolute, extname } from 'node:path';
+import { createHash } from 'node:crypto';
 import { run } from './process';
 import { verifyDownloadedYouTubeId } from './youtube-url';
 import { tiktokSource, verifyDownloadedTikTok, TikTokDownloadReceipt } from './tiktok-url';
@@ -8,6 +9,7 @@ import { isBotWallFailure } from './ytdlp-signatures';
 export { verifyDownloadedYouTubeId } from './youtube-url';
 export type YouTubeDownloadResult = { path:string; video_id:string; source_url:string };
 export type TikTokDownloadResult = TikTokDownloadReceipt & { path:string };
+export type GenericDownloadResult = { platform: 'instagram' | 'twitter' | 'direct' | 'generic'; path: string; video_id: string; source_url: string; canonical_url: string };
 export function youtubeDownloaderBinary(env:NodeJS.ProcessEnv=process.env):string {
  const command=process.platform==='win32'?'yt-dlp.exe':'yt-dlp';
  const installed=join(homedir(),'.oamaestro','bin',command);
@@ -69,4 +71,41 @@ export async function downloadTikTok(url:string,dir:string,maxBytes:number,runne
  const extracted=await extractWithYtDlp(source.source_url,dir,maxBytes,runner,true);
  const receipt=verifyDownloadedTikTok(source.source_url,extracted.video_id,extracted.webpage_url??'');
  return {path:extracted.path,...receipt};
+}
+
+export async function downloadDirectMedia(url:string,dir:string,maxBytes:number,runner:typeof run=run):Promise<GenericDownloadResult> {
+ const parsed=new URL(url);
+ const ext=extname(parsed.pathname).toLowerCase()||'.mp4';
+ const outPath=join(dir,`media${ext}`);
+ const id=createHash('sha256').update(url).digest('hex').slice(0,16);
+
+ try {
+  const res=await fetch(url);
+  if(!res.ok) throw Error(`HTTP download failed: ${res.status}`);
+  const contentLength=Number(res.headers.get('content-length')||0);
+  if(contentLength>maxBytes) throw Error('Downloaded media exceeds file limit');
+  const arrayBuffer=await res.arrayBuffer();
+  const buf=Buffer.from(arrayBuffer);
+  if(buf.length>maxBytes) throw Error('Downloaded media exceeds file limit');
+  writeFileSync(outPath,buf);
+ } catch(err:any) {
+  if(err.message?.includes('exceeds file limit')) throw err;
+  const extracted=await extractWithYtDlp(url,dir,maxBytes,runner,false);
+  return {platform:'direct',path:extracted.path,video_id:extracted.video_id||id,source_url:url,canonical_url:url};
+ }
+ const violation=downloadBudget(dir,maxBytes);
+ if(violation) throw Error(violation);
+ return {platform:'direct',path:outPath,video_id:id,source_url:url,canonical_url:url};
+}
+
+export async function downloadSocialMedia(
+ url:string,
+ dir:string,
+ maxBytes:number,
+ platform:'instagram'|'twitter'|'generic',
+ runner:typeof run=run,
+):Promise<GenericDownloadResult> {
+ const extracted=await extractWithYtDlp(url,dir,maxBytes,runner,true);
+ const id=extracted.video_id||createHash('sha256').update(url).digest('hex').slice(0,16);
+ return {platform,path:extracted.path,video_id:id,source_url:url,canonical_url:extracted.webpage_url??url};
 }

@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline/promises';
 import { MediaCatalog } from './catalog';
-import { MediaImporter, youtubeSource } from './importer';
+import { MediaImporter, mediaSource } from './importer';
 import { prepareMedia } from './preparation';
 import { MediaPreparationStore, PreparationManifest } from './preparation-store';
 import { chooseOutputDirectory, inspectYouTube, YouTubePreview } from './preview';
@@ -23,7 +23,7 @@ export type MediaCommandDependencies = {
 type PreparedSource = {asset:Awaited<ReturnType<MediaCatalog['resolve']>>;manifest:PreparationManifest;segmentCount:number;sheetCount:number};
 
 function requireSourceUrl(input:string):string {
- try { return youtubeSource(input); }
+ try { return mediaSource(input).source_url; }
  catch(error) { throw new MediaFailure('media_invalid_url', error instanceof Error?error.message:undefined); }
 }
 
@@ -34,7 +34,7 @@ async function ask(question:string):Promise<string> {
 }
 
 async function promptUrl():Promise<string|null> {
- const value=(await ask('Pega el enlace público de YouTube (Enter para cancelar): ')).trim();
+ const value=(await ask('Pega el enlace público de YouTube, TikTok, Instagram, Twitter/X o multimedia (Enter para cancelar): ')).trim();
  return value||null;
 }
 

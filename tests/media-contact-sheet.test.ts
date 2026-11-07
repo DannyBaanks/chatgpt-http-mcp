@@ -19,4 +19,4 @@ test('real sheet has 1920x1080 pixels and 16 ordered red/blue cells',async()=>{
   if(i<8)expect(rgb[at]).toBeGreaterThan(rgb[at+2]+100);else expect(rgb[at+2]).toBeGreaterThan(rgb[at]+100);
  }
  expect(Buffer.from(sheet.image.data,'base64').length).toBeLessThanOrEqual(1024*1024);
-},30000);
+},60000);

@@ -4,7 +4,7 @@ import { join, dirname } from 'node:path';
 import { MediaCatalog, MediaDownloadReceipt } from './catalog';
 import { withinDeadline, remaining } from './deadline';
 import { probe } from './audio';
-import { downloadTikTok, downloadYouTube, TikTokDownloadResult, YouTubeDownloadResult, verifyDownloadedYouTubeId } from './youtube';
+import { downloadTikTok, downloadYouTube, downloadDirectMedia, downloadSocialMedia, TikTokDownloadResult, YouTubeDownloadResult, GenericDownloadResult, verifyDownloadedYouTubeId } from './youtube';
 import { classifyMediaError, type MediaErrorCode } from './error-codes';
 import { youtubeSource } from './youtube-url';
 import { mediaSource } from './video-url';
@@ -14,9 +14,13 @@ export { mediaSource } from './video-url';
 export { verifyDownloadedTikTok } from './tiktok-url';
 export type ImportJob={job_id:string,state:'running'|'complete'|'failed',source_url:string,phase:string,asset?:{id:string,name:string,bytes:number,
   sha256:string},error?:string,error_code?:MediaErrorCode};
-export type Downloader=(url:string,dir:string,maxBytes:number)=>Promise<string|YouTubeDownloadResult|TikTokDownloadResult>;
-async function downloadPublicVideo(url:string,dir:string,maxBytes:number):Promise<YouTubeDownloadResult|TikTokDownloadResult> {
- return mediaSource(url).platform==='tiktok'?downloadTikTok(url,dir,maxBytes):downloadYouTube(url,dir,maxBytes);
+export type Downloader=(url:string,dir:string,maxBytes:number)=>Promise<string|YouTubeDownloadResult|TikTokDownloadResult|GenericDownloadResult>;
+async function downloadPublicVideo(url:string,dir:string,maxBytes:number):Promise<YouTubeDownloadResult|TikTokDownloadResult|GenericDownloadResult> {
+ const src = mediaSource(url);
+ if (src.platform === 'tiktok') return downloadTikTok(url, dir, maxBytes);
+ if (src.platform === 'youtube') return downloadYouTube(url, dir, maxBytes);
+ if (src.platform === 'direct') return downloadDirectMedia(url, dir, maxBytes);
+ return downloadSocialMedia(url, dir, maxBytes, src.platform);
 }
 export class MediaImporter {
  private jobs=new Map<string,{view:ImportJob,done:Promise<void>}>();
@@ -37,16 +41,22 @@ export class MediaImporter {
     if(typeof downloaded==='string') {
      if(source.platform==='tiktok')throw Error('TikTok download did not include a verifiable video identity');
      file=downloaded;
-    } else if(source.platform==='youtube') {
-     if('platform' in downloaded)throw Error('Downloaded video platform did not match the requested URL');
+    } else if('platform' in downloaded && downloaded.platform==='tiktok') {
+     const verified=verifyDownloadedTikTok(source_url,downloaded.video_id,downloaded.canonical_url);
+     if(downloaded.source_url!==verified.source_url)throw Error('Downloaded TikTok video identity did not match the canonical URL');
+     file=downloaded.path;receipt=verified;
+    } else if (!('platform' in downloaded) || (downloaded as { platform?: string }).platform === 'youtube') {
      const verified=verifyDownloadedYouTubeId(source_url,downloaded.video_id);
      if(downloaded.source_url!==verified.source_url)throw Error('Downloaded YouTube video identity did not match the canonical URL');
      file=downloaded.path;receipt=verified;
     } else {
-     if(!('platform' in downloaded)||downloaded.platform!=='tiktok')throw Error('Downloaded video platform did not match the requested URL');
-     const verified=verifyDownloadedTikTok(source_url,downloaded.video_id,downloaded.canonical_url);
-     if(downloaded.source_url!==verified.source_url)throw Error('Downloaded TikTok video identity did not match the canonical URL');
-     file=downloaded.path;receipt=verified;
+     file=downloaded.path;
+     receipt={
+       platform: downloaded.platform,
+       video_id: downloaded.video_id,
+       source_url: downloaded.source_url,
+       canonical_url: downloaded.canonical_url,
+     };
     }
     remaining();if(dirname(realpathSync(file))!==realpathSync(dir))throw Error('Downloader returned an unauthorized path');
     const stat=statSync(file);if(!stat.isFile()||stat.size>this.limits.maxBytes)throw Error('Downloaded media exceeds file limit');

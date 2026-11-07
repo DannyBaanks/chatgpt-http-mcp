@@ -100,10 +100,11 @@ export async function exportMediaPackage(
   preview: YouTubePreview,
   options: PackageExportOptions = {},
 ): Promise<PackageExportResult> {
-  const canonicalUrl = youtubeSource(preview.url);
-  const videoId = new URL(canonicalUrl).searchParams.get('v');
+  const isYouTube = preview.url.includes('youtube.com') || preview.url.includes('youtu.be');
+  const canonicalUrl = isYouTube ? youtubeSource(preview.url) : preview.url;
+  const videoId = isYouTube ? new URL(canonicalUrl).searchParams.get('v') : preview.video_id;
   if (canonicalUrl !== preview.url || videoId !== preview.video_id || asset.sourceUrl !== canonicalUrl) {
-    throw Error('Media package source identity does not match the canonical YouTube URL');
+    throw Error('Media package source identity does not match the canonical URL');
   }
   if (manifest.status !== 'ready') throw Error('Media package requires a ready preparation');
   const current = store.current(asset.id);
