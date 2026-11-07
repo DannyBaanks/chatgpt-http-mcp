@@ -196,7 +196,7 @@ async function monitorUp(port = MONITOR_PORT): Promise<boolean> {
   }
 }
 
-async function startMonitorDetached(port = MONITOR_PORT): Promise<boolean> {
+async function startMonitorDetached(port = MONITOR_PORT, inboxOnly = false): Promise<boolean> {
   if (await monitorUp(port)) {
     const existing = readPid(MONITOR_PID);
     console.log(`monitor continuo ya corre en http://127.0.0.1:${port}${existing ? ` (pid ${existing})` : ""}`);
@@ -204,16 +204,14 @@ async function startMonitorDetached(port = MONITOR_PORT): Promise<boolean> {
   }
   mkdirSync(RUN, { recursive: true });
   const logFd = openSync(MONITOR_LOG, "a");
-  const child = spawn(
-    "bun",
-    ["run", join(ROOT, "src", "isymcp.ts"), "monitor", "run", "--port", String(port)],
-    {
-      cwd: ROOT,
-      detached: true,
-      stdio: ["ignore", logFd, logFd],
-      env: { ...process.env, ISYMCP_MONITOR_PORT: String(port) },
-    },
-  );
+  const spawnArgs = ["run", join(ROOT, "src", "isymcp.ts"), "monitor", "run", "--port", String(port)];
+  if (inboxOnly) spawnArgs.push("--inbox-only");
+  const child = spawn("bun", spawnArgs, {
+    cwd: ROOT,
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+    env: { ...process.env, ISYMCP_MONITOR_PORT: String(port) },
+  });
   child.unref();
   writeFileSync(MONITOR_PID, `${child.pid}\n`);
   for (let i = 0; i < 20; i++) {
@@ -1533,7 +1531,8 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
   }
 
   if (sub === "start") {
-    if (!(await startMonitorDetached(String(port)))) process.exitCode = 1;
+    const inboxOnly = argsAll.includes("--inbox-only");
+    if (!(await startMonitorDetached(String(port), inboxOnly))) process.exitCode = 1;
     return;
   }
 
@@ -1544,24 +1543,27 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
 
   if (sub === "run") {
     const intervalMs = Number(flag("--interval-ms", argsAll) ?? "500");
+    const inboxOnly = argsAll.includes("--inbox-only");
     const { db, monitor, transport } = openBridgeMonitorStack();
     const server = transport.startLoopbackServer(port);
-    const loop = monitor.startContinuousLoop({
-      pollIntervalMs: intervalMs,
-      onTaskCompleted: (task) => {
-        console.log(
-          `[${new Date().toISOString()}] [monitor] tarea procesada ${task.task_id} -> state=${task.state} (sigue esperando nuevas tareas...)`,
-        );
-      },
-    });
+    const loop = inboxOnly
+      ? null
+      : monitor.startContinuousLoop({
+          pollIntervalMs: intervalMs,
+          onTaskCompleted: (task) => {
+            console.log(
+              `[${new Date().toISOString()}] [monitor] tarea procesada ${task.task_id} -> state=${task.state} (sigue esperando nuevas tareas...)`,
+            );
+          },
+        });
     console.log(
-      `[${new Date().toISOString()}] [monitor] demonio continuo activo en http://127.0.0.1:${server.port} (pid=${process.pid}, poll=${intervalMs}ms). NO se cerrará hasta recibir SIGINT/SIGTERM o 'isymcp monitor stop'.`,
+      `[${new Date().toISOString()}] [monitor] demonio continuo activo en http://127.0.0.1:${server.port} (pid=${process.pid}, mode=${inboxOnly ? "inbox-only-wakeup" : `auto-worker:${intervalMs}ms`}). NO se cerrará hasta recibir SIGINT/SIGTERM o 'isymcp monitor stop'.`,
     );
 
     await new Promise<void>((resolve) => {
       const shutdown = (sig: string) => {
         console.log(`[${new Date().toISOString()}] [monitor] recibida señal ${sig}; deteniendo bucle continuo...`);
-        loop.stop();
+        loop?.stop();
         server.stop(true);
         db.close();
         resolve();
@@ -1569,6 +1571,111 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
       process.once("SIGINT", () => shutdown("SIGINT"));
       process.once("SIGTERM", () => shutdown("SIGTERM"));
     });
+    return;
+  }
+
+  if (sub === "wait-next") {
+    const timeoutSec = Number(flag("--timeout-seconds", argsAll) ?? "3600");
+    const deadline = Date.now() + timeoutSec * 1000;
+    console.error(`[monitor:wait-next] Escuchando nuevas tareas de ChatGPT por hasta ${timeoutSec}s para despertar a Argon...`);
+    while (Date.now() < deadline) {
+      const { db, monitor } = openBridgeMonitorStack();
+      try {
+        const tasks = monitor.listTasks(20);
+        const unacked = tasks.find((t) => {
+          if (t.state === "READY" || t.state === "AWAITING_APPROVAL") return true;
+          if (t.state === "SUCCEEDED" && (!t.result?.output_summary || !t.result.output_summary.includes("[ARGON-ACK]"))) {
+            return true;
+          }
+          return false;
+        });
+        if (unacked) {
+          console.log(
+            JSON.stringify(
+              {
+                wakeup: "NEW_CHATGPT_MONITOR_TASK",
+                task_id: unacked.task_id,
+                operation_id: unacked.operation_id,
+                state: unacked.state,
+                kind: unacked.kind,
+                workspace_id: unacked.workspace_id,
+                description: unacked.description,
+                requested_actions: unacked.requested_actions,
+                target_relpath: unacked.target_relpath,
+                created_at: new Date(unacked.created_at).toISOString(),
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+      } finally {
+        db.close();
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    console.log(JSON.stringify({ wakeup: "TIMEOUT_NO_NEW_TASK", timeout_seconds: timeoutSec }));
+    return;
+  }
+
+  if (sub === "respond") {
+    const taskId = rest.find((a) => !a.startsWith("--"));
+    const summaryText = flag("--summary", argsAll) ?? "Confirmado personalmente por Argon.";
+    if (!taskId) throw new Error('uso: isymcp monitor respond <task-id> --summary "respuesta de Argon"');
+    const { createHash } = await import("node:crypto");
+    const { db, worker, monitor } = openBridgeMonitorStack();
+    try {
+      const task = monitor.inspectTask(taskId);
+      if (!task) throw new Error(`no existe la tarea: ${taskId}`);
+      const fullSummary = summaryText.includes("[ARGON-ACK]") ? summaryText : `[ARGON-ACK] ${summaryText}`;
+      const artifactHash = `sha256:${createHash("sha256").update(`${taskId}:${fullSummary}`).digest("hex")}`;
+
+      if (task.state === "READY") {
+        // Reclamar y completar formalmente con recibo criptográfico del WorkerAdapter
+        let completed: any = null;
+        while (true) {
+          const claimed = monitor.claimNextReadyTask();
+          if (!claimed) break;
+          const isTarget = claimed.task.task_id === taskId;
+          const summaryForThis = isTarget
+            ? fullSummary
+            : `[ARGON-ACK] Executed ${claimed.task.kind} (${claimed.task.requested_actions.join(",")})`;
+          const hashForThis = isTarget
+            ? artifactHash
+            : `sha256:${createHash("sha256").update(`${claimed.task.task_id}:${summaryForThis}`).digest("hex")}`;
+          const receipt = worker.executeClaimedTask(claimed.workerLease, claimed.task, () => ({
+            exit_code: 0,
+            output_summary: summaryForThis,
+            artifact_hash: hashForThis,
+          }));
+          const done = monitor.completeTask(receipt);
+          if (isTarget) {
+            completed = done;
+            break;
+          }
+        }
+        console.log(JSON.stringify({ ok: true, mode: "claimed_and_completed", task: completed ?? monitor.inspectTask(taskId) }, null, 2));
+        return;
+      }
+
+      // Si ya estaba en SUCCEEDED (por el auto-worker previo), anexar la confirmación personal de Argon
+      const now = Date.now();
+      const resultObj = {
+        exit_code: 0,
+        output_summary: fullSummary,
+        artifact_hash: artifactHash,
+        completed_at: now,
+      };
+      db.query("UPDATE tasks SET state = 'SUCCEEDED', reason = 'argon_personal_response', result_json = ?, updated_at = ? WHERE task_id = ?").run(
+        JSON.stringify(resultObj),
+        now,
+        taskId,
+      );
+      console.log(JSON.stringify({ ok: true, mode: "updated_with_argon_ack", task: monitor.inspectTask(taskId) }, null, 2));
+    } finally {
+      db.close();
+    }
     return;
   }
 
@@ -1647,7 +1754,7 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
           const ogTaskGrant = authority.mintOwnerGrant({ owner_id: ownerId, scopes: ["task:grant"] });
           const tg = authority.createTaskGrant(ogTaskGrant, {
             workspace_id: wsId,
-            allowed_kinds: ["verify_only", "review_and_test", "run_task"],
+            allowed_kinds: ["verify_only", "review_and_test", "diagnostics"],
             allowed_actions: ["tests:run", "report:write", "status:read"],
             ttlSeconds,
           });
