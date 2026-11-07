@@ -34,7 +34,7 @@ async function ask(question:string):Promise<string> {
 }
 
 async function promptUrl():Promise<string|null> {
- const value=(await ask('Pega el enlace público (YouTube, TikTok, Instagram, Twitter/X, MP4, MP3, etc. Enter para cancelar): ')).trim();
+ const value=(await ask('Pega el enlace público de YouTube, TikTok, Instagram, Twitter/X o multimedia (Enter para cancelar): ')).trim();
  return value||null;
 }
 
