@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { openBridgeMonitorStack } from "./remote-monitor";
+import { buildAgentBootstrapProtocol } from "./agent-protocol";
 
 export interface SpawnAgyOptions {
   prompt: string;
@@ -75,10 +76,16 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
   const taskId = options.taskId || `task-tui-${randomBytes(6).toString("hex")}`;
   const operationId = options.operationId || `op-tui-${Date.now().toString(36)}`;
   const monitorUrl = process.env.ISYMCP_MONITOR_URL || "http://127.0.0.1:8799";
+  const isymcpCliPath = joinPath(import.meta.dir, "isymcp.ts");
 
   let finalPrompt = options.prompt.trim();
   if (options.includeMonitorHint ?? true) {
-    finalPrompt += `\n\n[COORDINACIÓN ISyMCP]: Tarea lanzada remotamente por ChatGPT.\nTASK_ID: ${taskId}\nOPERATION_ID: ${operationId}\nMONITOR: ${monitorUrl}\nAl finalizar o durante tu ejecución, reporta tu avance a ChatGPT con:\nbun run src/isymcp.ts monitor respond ${taskId} --summary "<tu avance>"`;
+    finalPrompt += `\n\n${buildAgentBootstrapProtocol({
+      taskId,
+      operationId,
+      monitorUrl,
+      isymcpCliPath,
+    })}`;
   }
 
   // Si no es dryRun, auto-registramos la tarea en el monitor de ISyMCP

@@ -57,6 +57,8 @@ import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
 import { registerComfyTools } from "../comfyui/register";
 import { registerGitHubTools } from "../github/register";
+import { registerIsyMcpGateway } from "./gateway";
+import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
 import { spawnAgyTui } from "../tui-launcher";
 import { registerTableroTools } from "../tablero/register";
 import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
@@ -812,6 +814,25 @@ server.registerTool(
     });
     return jsonText(res);
   }
+);
+
+// Universal Gateway estilo REA: expone la herramienta unificada `isymcp` con glosario interactivo
+registerIsyMcpGateway(server);
+
+// Recurso oficial: Protocolo de coordinación de agentes
+server.resource(
+  "isymcp_agents_protocol",
+  "isymcp://protocol/agents.md",
+  { mimeType: "text/markdown", description: "Protocolo oficial de bootstrap para agentes coordinados por ISyMCP y ChatGPT" },
+  async () => ({
+    contents: [
+      {
+        uri: "isymcp://protocol/agents.md",
+        mimeType: "text/markdown",
+        text: ISYMCP_AGENT_PROTOCOL_MD,
+      },
+    ],
+  }),
 );
 
 const transport = new StdioServerTransport();
