@@ -1574,8 +1574,7 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
     return;
   }
 
-  if (sub === "wait-next") {
-    const timeoutSec = Number(flag("--timeout-seconds", argsAll) ?? "3600");
+  const waitNextUnackedTask = async (timeoutSec: number) => {
     const deadline = Date.now() + timeoutSec * 1000;
     console.error(`[monitor:wait-next] Escuchando nuevas tareas de ChatGPT por hasta ${timeoutSec}s para despertar a Argon...`);
     while (Date.now() < deadline) {
@@ -1616,13 +1615,20 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
       await new Promise((r) => setTimeout(r, 300));
     }
     console.log(JSON.stringify({ wakeup: "TIMEOUT_NO_NEW_TASK", timeout_seconds: timeoutSec }));
+  };
+
+  if (sub === "wait-next") {
+    const timeoutSec = Number(flag("--timeout-seconds", argsAll) ?? "3600");
+    await waitNextUnackedTask(timeoutSec);
     return;
   }
 
   if (sub === "respond") {
     const taskId = rest.find((a) => !a.startsWith("--"));
     const summaryText = flag("--summary", argsAll) ?? "Confirmado personalmente por Argon.";
-    if (!taskId) throw new Error('uso: isymcp monitor respond <task-id> --summary "respuesta de Argon"');
+    const autoWait = !argsAll.includes("--no-wait");
+    const timeoutSec = Number(flag("--timeout-seconds", argsAll) ?? "3600");
+    if (!taskId) throw new Error('uso: isymcp monitor respond <task-id> --summary "respuesta de Argon" [--no-wait]');
     const { createHash } = await import("node:crypto");
     const { db, worker, monitor } = openBridgeMonitorStack();
     try {
@@ -1632,7 +1638,6 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
       const artifactHash = `sha256:${createHash("sha256").update(`${taskId}:${fullSummary}`).digest("hex")}`;
 
       if (task.state === "READY") {
-        // Reclamar y completar formalmente con recibo criptográfico del WorkerAdapter
         let completed: any = null;
         while (true) {
           const claimed = monitor.claimNextReadyTask();
@@ -1655,26 +1660,28 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
             break;
           }
         }
-        console.log(JSON.stringify({ ok: true, mode: "claimed_and_completed", task: completed ?? monitor.inspectTask(taskId) }, null, 2));
-        return;
+        console.log(JSON.stringify({ ok: true, mode: "claimed_and_completed", auto_wait_next: autoWait, task: completed ?? monitor.inspectTask(taskId) }, null, 2));
+      } else {
+        const now = Date.now();
+        const resultObj = {
+          exit_code: 0,
+          output_summary: fullSummary,
+          artifact_hash: artifactHash,
+          completed_at: now,
+        };
+        db.query("UPDATE tasks SET state = 'SUCCEEDED', reason = 'argon_personal_response', result_json = ?, updated_at = ? WHERE task_id = ?").run(
+          JSON.stringify(resultObj),
+          now,
+          taskId,
+        );
+        console.log(JSON.stringify({ ok: true, mode: "updated_with_argon_ack", auto_wait_next: autoWait, task: monitor.inspectTask(taskId) }, null, 2));
       }
-
-      // Si ya estaba en SUCCEEDED (por el auto-worker previo), anexar la confirmación personal de Argon
-      const now = Date.now();
-      const resultObj = {
-        exit_code: 0,
-        output_summary: fullSummary,
-        artifact_hash: artifactHash,
-        completed_at: now,
-      };
-      db.query("UPDATE tasks SET state = 'SUCCEEDED', reason = 'argon_personal_response', result_json = ?, updated_at = ? WHERE task_id = ?").run(
-        JSON.stringify(resultObj),
-        now,
-        taskId,
-      );
-      console.log(JSON.stringify({ ok: true, mode: "updated_with_argon_ack", task: monitor.inspectTask(taskId) }, null, 2));
     } finally {
       db.close();
+    }
+
+    if (autoWait) {
+      await waitNextUnackedTask(timeoutSec);
     }
     return;
   }
