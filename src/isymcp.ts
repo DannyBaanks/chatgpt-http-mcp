@@ -1130,6 +1130,15 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
     });
     console.log(`${result.action} ${result.configPath} modelos=${result.models}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
     if (result.action === "dry-run") console.log("nada escrito (usa --apply para escribir con backup)");
+  } else if (sub === "spawn") {
+    const prompt = rest.find((a) => !a.startsWith("--")) || "Hola agy";
+    const cwd = flag("--cwd", rest);
+    const title = flag("--title", rest);
+    const mode = (flag("--mode", rest) as any) || "auto";
+    const { spawnAgyTui } = await import("./tui-launcher");
+    const res = await spawnAgyTui({ prompt, cwd, title, mode });
+    console.log(res.ok ? `✓ ${res.message}` : `✗ Error: ${res.error || res.message}`);
+    process.exitCode = res.ok ? 0 : 1;
   } else {
     help();
     process.exit(2);

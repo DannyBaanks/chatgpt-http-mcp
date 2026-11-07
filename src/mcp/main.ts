@@ -57,6 +57,7 @@ import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
 import { registerComfyTools } from "../comfyui/register";
 import { registerGitHubTools } from "../github/register";
+import { spawnAgyTui } from "../tui-launcher";
 import { registerTableroTools } from "../tablero/register";
 import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
 import { handleQueueLeaseMcpCall, isQueueLeaseToken } from "../remote-monitor";
@@ -780,6 +781,34 @@ if (!disableAux) {
 }
 // Solo si el usuario creo tablero.json; apagado por defecto (ver src/tablero/config.ts).
 registerTableroTools(server);
+
+server.registerTool(
+  "spawn_agy_tui",
+  {
+    description:
+      "Abre una consola TUI de Antigravity (agy) en una ventana de terminal visible en el escritorio de Danny para ejecutar una tarea o continuar una sesión coordinada con ISyMCP.",
+    inputSchema: {
+      prompt: z.string().describe("Instrucción o tarea que ejecutará el nuevo agente"),
+      cwd: z.string().optional().describe("Directorio de trabajo (por defecto workspace actual)"),
+      title: z.string().optional().describe("Título de la ventana de la terminal"),
+      mode: z.enum(["auto", "plan", "accept-edits"]).optional().describe("Modo de ejecución del agente (auto por defecto)"),
+      terminal: z.enum(["auto", "gui", "tmux"]).optional().describe("Preferencia de terminal"),
+      include_monitor_hint: z.boolean().optional().describe("Si incluye el recordatorio de sincronización con el monitor de ISyMCP"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  async (input) => {
+    const res = await spawnAgyTui({
+      prompt: String(input.prompt ?? ""),
+      cwd: input.cwd ? String(input.cwd) : undefined,
+      title: input.title ? String(input.title) : undefined,
+      mode: input.mode as any,
+      terminalPreference: input.terminal as any,
+      includeMonitorHint: input.include_monitor_hint !== false,
+    });
+    return jsonText(res);
+  }
+);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
