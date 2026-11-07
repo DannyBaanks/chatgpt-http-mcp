@@ -3,14 +3,23 @@
 // Implementa la arquitectura acordada entre Danny, ChatGPT (revisor/planificador)
 // y Gemini (ejecutor local) sobre ISyMCP:
 //   - Contrato inmutable (goal_hash) fuera de la autoridad de los modelos.
-//   - Verificación independiente ejecutada por el coordinador (no por el ejecutor).
-//   - Exclusión mutua multi-proceso mediante lockfile atómico (O_CREAT | O_EXCL) + fsyncSync + renameSync.
-//   - Validación estructural e integridad (HMAC opcional) del archivo de estado persistido.
-//   - Allowlist de operaciones completas (subcomandos, flags y rutas confinadas), no solo nombres de binarios.
-//   - Verificación de cobertura completa de acceptance_criteria antes de permitir PASS o DONE.
+//   - Verificación independiente ejecutada por el coordinador: ignora cualquier valor de
+//     `independent_verification` suministrado por el ejecutor cuando existe `verifier`, y marca
+//     internamente la autenticidad del resultado (`verified_by_coordinator`).
+//   - Exclusión mutua multi-proceso mediante lockfile exclusivo (`O_CREAT | O_EXCL`) que registra
+//     `{ pid, created_at }`. En caso de excepción en la sección crítica, el bloque `finally`
+//     libera el lock de forma determinista. Si un proceso muere abruptamente (SIGKILL) dejando un
+//     lock huérfano, el coordinador falla cerrado (`goal_state_lock_timeout`) sin borrar
+//     automáticamente locks de propiedad incierta (requiere verificación humana del PID antes de removerlo).
+//   - Integridad de estado en disco: soporta modo opcional (garantía reducida solo estructural)
+//     y modo estricto (`requireStateSecret: true` o archivo previamente firmado con HMAC), donde
+//     la ausencia, cambio o incorrección de `stateSecret` impide continuar.
+//   - Allowlist de operaciones completas (`isOperationAllowed`): restringe binarios, subcomandos,
+//     flags y rutas. NOTA DE FRONTERA DE CONFIANZA: permitir `bun test` ejecuta código de test del
+//     repositorio; la allowlist de argumentos acota la invocación CLI pero NO sustituye un sandbox de OS.
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { resolveWithinReal } from "./codex-sessions";
 
@@ -35,6 +44,10 @@ export interface IndependentVerificationResult {
   exit_code: number;
   output_summary: string;
   artifact_hash: string;
+  /** Criterios verificados directamente por el runner del coordinador (si aplica). */
+  verified_criteria?: string[];
+  /** Sello interno asignado exclusivamente por el coordinador cuando ejecuta `this.verifier`. */
+  verified_by_coordinator?: boolean;
 }
 
 export interface EvidencePacket {
@@ -88,8 +101,21 @@ export interface CoordinatorVerdict {
 export interface CoordinatorOptions {
   /** Ruta opcional para persistir el estado atómicamente con lock multi-proceso. */
   statePath?: string;
-  /** Secreto opcional para autenticar (HMAC-SHA256) el estado persistido en disco. */
+  /**
+   * Secreto para autenticar (HMAC-SHA256) el estado persistido en disco.
+   * Si no se provee y `requireStateSecret` es false, la persistencia solo ofrece garantía
+   * de consistencia estructural (garantía reducida ante actores con escritura local).
+   */
   stateSecret?: string;
+  /**
+   * Cuando es true, exige `stateSecret` no vacío para iniciar o continuar; su ausencia lanza error.
+   */
+  requireStateSecret?: boolean;
+  /**
+   * Cuando es true, exige que `verifier` esté configurado en el coordinador y que `DONE` / `PASS`
+   * provengan exclusivamente de resultados autenticados por `this.verifier` (nunca de campos del ejecutor).
+   */
+  requireAuthenticVerifier?: boolean;
   /**
    * Runner de verificación independiente controlado por el coordinador (nunca por el ejecutor).
    */
@@ -177,12 +203,14 @@ export function runContractVerification(
     exit_code: exitCode,
     output_summary: rawOut.slice(0, 500),
     artifact_hash: `sha256:${hash.digest("hex")}`,
+    verified_by_coordinator: true,
   };
 }
 
 /**
- * Valida la operación completa (binario + subcomando + flags + confinamiento de argumentos de ruta),
- * rechazando subcomandos arbitrarios, hooks, scripts, instalaciones o configuraciones externas.
+ * Valida la operación completa (binario + subcomando + flags + confinamiento de argumentos de ruta).
+ * Nota: `bun test` ejecuta código contenido en los archivos de prueba del workspace; esta allowlist
+ * restringe la superficie de invocación CLI pero no reemplaza el aislamiento por contenedor/sandbox.
  */
 export function isOperationAllowed(cmd: string[], contract: GoalContract): boolean {
   if (!Array.isArray(cmd) || cmd.length === 0) return false;
@@ -190,19 +218,16 @@ export function isOperationAllowed(cmd: string[], contract: GoalContract): boole
     return false;
   }
 
-  // Bloqueo global de flags peligrosos de evaluación, precarga, redirección de config o compilación fuera del árbol
   for (const arg of cmd.slice(1)) {
     if (FORBIDDEN_FLAGS_RE.test(arg.trim())) return false;
   }
 
   const bin = cmd[0].trim();
 
-  // 1. tsc: únicamente `tsc --noEmit` exacto
   if (bin === "tsc") {
     return cmd.length === 2 && cmd[1] === "--noEmit";
   }
 
-  // 2. bun: únicamente `bun run typecheck` o `bun test <archivos-dentro-del-workspace>`
   if (bin === "bun") {
     const sub = cmd[1];
     if (sub === "run") {
@@ -219,7 +244,6 @@ export function isOperationAllowed(cmd: string[], contract: GoalContract): boole
           continue;
         }
         if (arg.startsWith("-")) return false;
-        // Cualquier argumento de ruta de test debe resolver dentro de allowed_cwd (sin escapar por symlink ni ..)
         const candidate = join(contract.allowed_cwd, arg);
         if (!resolveWithinReal(contract.allowed_cwd, candidate)) {
           return false;
@@ -230,13 +254,11 @@ export function isOperationAllowed(cmd: string[], contract: GoalContract): boole
     return false;
   }
 
-  // 3. git: únicamente subcomandos de solo lectura sin overrides de configuración
   if (bin === "git") {
     const sub = cmd[1];
     if (!sub || !SAFE_GIT_READONLY_SUBCOMMANDS.has(sub)) return false;
     for (const arg of cmd.slice(2)) {
       if (arg.startsWith("-")) {
-        // Solo permitir flags inocuos de formato en lectura
         if (!/^(--oneline|--stat|--decorate|--no-pager|-n\d*)$/.test(arg)) return false;
       } else {
         const candidate = join(contract.allowed_cwd, arg);
@@ -249,9 +271,19 @@ export function isOperationAllowed(cmd: string[], contract: GoalContract): boole
   return false;
 }
 
-function allCriteriaDemonstrated(contract: GoalContract, packet: EvidencePacket): boolean {
+function allCriteriaDemonstrated(
+  contract: GoalContract,
+  packet: EvidencePacket,
+  requireAuthenticVerifier: boolean,
+): boolean {
   if (packet.evidence.not_demonstrated.length > 0) return false;
-  const demSet = new Set(packet.evidence.demonstrated);
+  if (requireAuthenticVerifier && packet.independent_verification.verified_by_coordinator !== true) {
+    return false;
+  }
+  // Si el verifier del coordinador reportó explícitamente qué criterios comprobó, usar esa fuente
+  // en lugar de confiar en las cadenas declaradas por el ejecutor en `evidence.demonstrated`.
+  const sourceCriteria = packet.independent_verification.verified_criteria ?? packet.evidence.demonstrated;
+  const demSet = new Set(sourceCriteria);
   return contract.acceptance_criteria.every((crit) => demSet.has(crit));
 }
 
@@ -281,6 +313,8 @@ export class GoalCoordinator {
   private readonly history: EvidencePacket[] = [];
   private readonly statePath?: string;
   private readonly stateSecret?: string;
+  private readonly requireStateSecret: boolean;
+  private readonly requireAuthenticVerifier: boolean;
   private readonly verifier?: (contract: GoalContract) => IndependentVerificationResult;
 
   constructor(contract: GoalContract, options: CoordinatorOptions = {}) {
@@ -290,8 +324,17 @@ export class GoalCoordinator {
     }
     this.contract = Object.freeze({ ...contract });
     this.statePath = options.statePath;
-    this.stateSecret = options.stateSecret;
+    this.stateSecret = options.stateSecret?.trim() || undefined;
+    this.requireStateSecret = Boolean(options.requireStateSecret);
+    this.requireAuthenticVerifier = Boolean(options.requireAuthenticVerifier);
     this.verifier = options.verifier;
+
+    if (this.requireStateSecret && !this.stateSecret) {
+      throw new Error("goal_state_secret_required: el despliegue exige stateSecret no vacío para autenticar el estado");
+    }
+    if (this.requireAuthenticVerifier && !this.verifier) {
+      throw new Error("goal_verifier_required: requireAuthenticVerifier exige un runner verifier en el coordinador");
+    }
 
     if (this.statePath && existsSync(this.statePath)) {
       this.loadAndValidateStateFromDisk();
@@ -306,6 +349,11 @@ export class GoalCoordinator {
     while (lockFd === null) {
       try {
         lockFd = openSync(lockPath, "wx", 0o600);
+        const ownerMeta = Buffer.from(
+          JSON.stringify({ pid: process.pid, created_at: new Date().toISOString() }),
+          "utf8",
+        );
+        writeSync(lockFd, ownerMeta, 0, ownerMeta.length);
       } catch (err: unknown) {
         if ((err as NodeJS.ErrnoException)?.code !== "EEXIST" || Date.now() >= deadline) {
           throw new Error(`goal_state_lock_timeout: no se pudo adquirir lock exclusivo ${lockPath}`);
@@ -361,6 +409,12 @@ export class GoalCoordinator {
         throw new Error("goal_state_corrupted: operation_id del historial ausente en seenOperations");
       }
     }
+
+    // Si el archivo en disco tiene HMAC pero la instancia actual no proveyó stateSecret, rechazar degradación
+    if (typeof raw.hmac === "string" && !this.stateSecret) {
+      throw new Error("goal_state_secret_required: el estado en disco está autenticado con HMAC pero falta stateSecret");
+    }
+
     if (this.stateSecret) {
       if (typeof raw.hmac !== "string" || !/^[0-9a-f]{64}$/i.test(raw.hmac)) {
         throw new Error("goal_state_corrupted: falta firma HMAC en el estado persistido");
@@ -374,7 +428,7 @@ export class GoalCoordinator {
       const a = Buffer.from(raw.hmac, "hex");
       const b = Buffer.from(expectedHmac, "hex");
       if (a.length !== b.length || !timingSafeEqual(a, b)) {
-        throw new Error("goal_state_corrupted: firma HMAC inválida (estado adulterado en disco)");
+        throw new Error("goal_state_corrupted: firma HMAC inválida (stateSecret incorrecto o estado adulterado)");
       }
     }
 
@@ -403,7 +457,7 @@ export class GoalCoordinator {
       const buf = Buffer.from(JSON.stringify(payload, null, 2), "utf8");
       let offset = 0;
       while (offset < buf.length) {
-        offset += require("node:fs").writeSync(fd, buf, offset, buf.length - offset);
+        offset += writeSync(fd, buf, offset, buf.length - offset);
       }
       fsyncSync(fd);
     } finally {
@@ -450,13 +504,26 @@ export class GoalCoordinator {
         return { decision: "PAUSE", reason: "max_iterations_reached", iteration: this.currentIteration };
       }
 
-      let effectivePacket = packet;
+      // Despojar cualquier `verified_by_coordinator` o `verified_criteria` inyectado por el ejecutor.
+      // Solo `this.verifier` del coordinador puede establecer `verified_by_coordinator: true`.
+      const sanitizedExecVerif: IndependentVerificationResult = {
+        passed: packet.independent_verification.passed,
+        exit_code: packet.independent_verification.exit_code,
+        output_summary: packet.independent_verification.output_summary,
+        artifact_hash: packet.independent_verification.artifact_hash,
+      };
+      let effectivePacket: EvidencePacket = { ...packet, independent_verification: sanitizedExecVerif };
+
       if (this.verifier) {
         const verified = this.verifier(this.contract);
-        if (packet.independent_verification.passed && !verified.passed) {
+        const authenticVerif: IndependentVerificationResult = {
+          ...verified,
+          verified_by_coordinator: true,
+        };
+        if (packet.independent_verification.passed && !authenticVerif.passed) {
           this.seenOperations.add(packet.operation_id);
           this.currentIteration = packet.iteration;
-          effectivePacket = { ...packet, independent_verification: verified, status: "FAILED" };
+          effectivePacket = { ...packet, independent_verification: authenticVerif, status: "FAILED" };
           this.history.push(effectivePacket);
           this.persistState();
           return {
@@ -466,14 +533,19 @@ export class GoalCoordinator {
             packet_hash: computePacketHash(effectivePacket),
           };
         }
-        effectivePacket = { ...packet, independent_verification: verified };
+        effectivePacket = {
+          ...packet,
+          independent_verification: authenticVerif,
+          status: authenticVerif.passed ? packet.status : "FAILED",
+        };
       }
 
-      // Falla 1: El ejecutor reclama PASS pero la verificación independiente falló o la evidencia no cubre todos los acceptance_criteria
+      // Falla 1: El ejecutor reclama PASS pero la verificación independiente falló, no es auténtica o no cubre todos los criterios
+      const requireAuthentic = this.requireAuthenticVerifier || Boolean(this.verifier);
       if (
         effectivePacket.executor_claim === "PASS" &&
         (!effectivePacket.independent_verification.passed ||
-          !allCriteriaDemonstrated(this.contract, effectivePacket))
+          !allCriteriaDemonstrated(this.contract, effectivePacket, requireAuthentic))
       ) {
         this.seenOperations.add(effectivePacket.operation_id);
         this.currentIteration = effectivePacket.iteration;
@@ -529,12 +601,10 @@ export class GoalCoordinator {
         return { decision: "DENY", reason: "goal_id_mismatch", iteration: this.currentIteration };
       }
 
-      // Falla 3: Operación duplicada / reintento no reconciliado
       if (!proposal.operation_id || this.seenOperations.has(proposal.operation_id)) {
         return { decision: "DENY", reason: "duplicate_operation_id", iteration: this.currentIteration };
       }
 
-      // Falla 2: Respuesta correspondiente a una iteración anterior o futura
       if (proposal.reviewed_iteration !== this.currentIteration) {
         return {
           decision: "DENY",
@@ -548,7 +618,6 @@ export class GoalCoordinator {
         return { decision: "PAUSE", reason: "no_evidence_to_review", iteration: this.currentIteration };
       }
 
-      // Falla 2b: goal_hash válido pero reviewed_packet_hash obsoleto o alterado
       const expectedPacketHash = computePacketHash(latest);
       if (proposal.reviewed_packet_hash && proposal.reviewed_packet_hash !== expectedPacketHash) {
         return {
@@ -558,7 +627,6 @@ export class GoalCoordinator {
         };
       }
 
-      // Intento de mutar el hash del objetivo (autoridad circular)
       if (
         proposal.next_experiment?.override_goal_hash &&
         proposal.next_experiment.override_goal_hash !== this.contract.goal_hash
@@ -570,9 +638,12 @@ export class GoalCoordinator {
         };
       }
 
-      // Falla 1 / Autoridad circular: GPT intenta declarar DONE sin verificación independiente o sin cubrir todos los criterios del contrato
+      const requireAuthentic = this.requireAuthenticVerifier || Boolean(this.verifier);
       if (proposal.decision === "DONE") {
-        if (!latest.independent_verification.passed || !allCriteriaDemonstrated(this.contract, latest)) {
+        if (
+          !latest.independent_verification.passed ||
+          !allCriteriaDemonstrated(this.contract, latest, requireAuthentic)
+        ) {
           return {
             decision: "DENY",
             reason: "unverified_pass_claim",
@@ -610,7 +681,6 @@ export class GoalCoordinator {
 
       const nextExp = proposal.next_experiment;
       if (nextExp) {
-        // Falla 4a: Target CWD fuera del workspace autorizado (con resolución real de symlinks)
         if (nextExp.target_cwd) {
           const resolved = resolveWithinReal(this.contract.allowed_cwd, nextExp.target_cwd);
           if (!resolved) {
@@ -622,7 +692,6 @@ export class GoalCoordinator {
           }
         }
 
-        // Falla 4b: Allowlist de operaciones completas (subcomandos, flags y rutas confinadas)
         if (nextExp.command && nextExp.command.length > 0) {
           if (!isOperationAllowed(nextExp.command, this.contract)) {
             return {

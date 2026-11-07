@@ -696,4 +696,119 @@ describe("GOAL-001 — Autonomous Review Loop Coordinator", () => {
     expect(revDone.decision).toBe("DENY");
     expect(revDone.reason).toBe("unverified_pass_claim");
   });
+
+  // ── Pruebas Adversariales Solicitadas por ChatGPT en Iteración 3 ──────────
+
+  test("Adversarial 10: un paquete con todas las cadenas de acceptance_criteria y verified_by_coordinator falsificado NO produce DONE sin resultados auténticos del verifier", () => {
+    // 10a: El verifier del coordinador pasa exit_code=0 pero solo autentica 4 de los 5 criterios;
+    // el ejecutor miente poniendo los 5 criterios en `evidence.demonstrated` y `verified_by_coordinator: true`.
+    const coordWithPartialVerifier = new GoalCoordinator(contract, {
+      verifier: () => ({
+        passed: true,
+        exit_code: 0,
+        output_summary: "4 of 5 criteria verified by coordinator runner",
+        artifact_hash: "sha256:authentic_partial",
+        verified_criteria: contract.acceptance_criteria.slice(0, 4),
+      }),
+    });
+
+    const spoofedAllStringsPacket = makePacket({
+      iteration: 1,
+      operation_id: "op-spoofed-criteria-strings",
+      executor_claim: "PASS",
+      evidence: {
+        demonstrated: [...contract.acceptance_criteria], // Las 5 cadenas presentes en texto del ejecutor
+        inferred: [],
+        not_demonstrated: [],
+      },
+      independent_verification: {
+        passed: true,
+        exit_code: 0,
+        output_summary: "Executor claims all 5 passed",
+        artifact_hash: "sha256:forged",
+        verified_criteria: [...contract.acceptance_criteria],
+        verified_by_coordinator: true,
+      },
+      status: "VERIFIED",
+    });
+
+    const execVerdict = coordWithPartialVerifier.recordIteration(spoofedAllStringsPacket);
+    expect(execVerdict.decision).toBe("DENY");
+    expect(execVerdict.reason).toBe("unverified_pass_claim");
+
+    const revDone = coordWithPartialVerifier.evaluateReviewerProposal({
+      goal_id: contract.goal_id,
+      reviewed_iteration: 1,
+      operation_id: "rev-spoofed-done",
+      decision: "DONE",
+      rationale: "Intentar cerrar porque evidence.demonstrated tiene las 5 cadenas",
+      preconditions: [],
+    });
+    expect(revDone.decision).toBe("DENY");
+    expect(revDone.reason).toBe("unverified_pass_claim");
+  });
+
+  test("Adversarial 11: comportamiento determinista cuando stateSecret falta, se omite al reabrir o cambia entre reinicios", () => {
+    const secretStatePath = join(workspace, "strict-secret-state.json");
+
+    // 11a: Si requireStateSecret=true y falta stateSecret, impide iniciar
+    expect(() => new GoalCoordinator(contract, { statePath: secretStatePath, requireStateSecret: true })).toThrow(
+      /goal_state_secret_required/,
+    );
+
+    // 11b: Iniciamos con stateSecret válido y persistimos iteración 1
+    const coord1 = new GoalCoordinator(contract, {
+      statePath: secretStatePath,
+      stateSecret: "secret-v1",
+      requireStateSecret: true,
+    });
+    expect(coord1.recordIteration(makePacket({ iteration: 1, operation_id: "op-sec-1" })).decision).toBe("CONTINUE");
+
+    // 11c: Reabrir el archivo firmado sin proveer stateSecret impide continuar (evita degradación silenciosa)
+    expect(() => new GoalCoordinator(contract, { statePath: secretStatePath })).toThrow(/goal_state_secret_required/);
+
+    // 11d: Reabrir con un stateSecret distinto/incorrecto entre reinicios falla cerrado
+    expect(
+      () => new GoalCoordinator(contract, { statePath: secretStatePath, stateSecret: "secret-v2-wrong" }),
+    ).toThrow(/goal_state_corrupted/);
+  });
+
+  test("Adversarial 12: una excepción durante la sección crítica libera el lockfile y no corrompe ni duplica operaciones", () => {
+    const lockTestStatePath = join(workspace, "lock-exception-state.json");
+    let shouldThrow = true;
+
+    const coord = new GoalCoordinator(contract, {
+      statePath: lockTestStatePath,
+      verifier: () => {
+        if (shouldThrow) {
+          throw new Error("simulated_verifier_crash_inside_lock");
+        }
+        return {
+          passed: true,
+          exit_code: 0,
+          output_summary: "Recovered verifier",
+          artifact_hash: "sha256:recovered",
+          verified_criteria: [...contract.acceptance_criteria],
+        };
+      },
+    });
+
+    // La primera llamada lanza excepción dentro de withStateLock
+    expect(() => coord.recordIteration(makePacket({ iteration: 1, operation_id: "op-crash-1" }))).toThrow(
+      /simulated_verifier_crash_inside_lock/,
+    );
+
+    // El lockfile debe haberse liberado en el bloque finally y la iteración sigue en 0
+    expect(coord.iteration).toBe(0);
+
+    // Al recuperarse el verifier, la operación puede ejecutarse normalmente adquiriendo el lock y luego deduplicarse
+    shouldThrow = false;
+    const recovered = coord.recordIteration(makePacket({ iteration: 1, operation_id: "op-crash-1" }));
+    expect(recovered.decision).toBe("CONTINUE");
+    expect(coord.iteration).toBe(1);
+
+    const dupAfterRecovery = coord.recordIteration(makePacket({ iteration: 2, operation_id: "op-crash-1" }));
+    expect(dupAfterRecovery.decision).toBe("DENY");
+    expect(dupAfterRecovery.reason).toBe("duplicate_operation_id");
+  });
 });
