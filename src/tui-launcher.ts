@@ -60,7 +60,7 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
   const cwd = options.cwd || process.cwd();
   const mode = options.mode || "auto";
   const title = options.title || "Antigravity (AGY) Agent — [ISyMCP Dispatch]";
-  const skipPerms = options.dangerouslySkipPermissions ?? true;
+  const skipPerms = options.dangerouslySkipPermissions === true;
   const pref = options.terminalPreference || "auto";
 
   let finalPrompt = options.prompt.trim();
@@ -82,7 +82,7 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
   if (options.dryRun) {
     const targetTerm = (isX11OrWayland && guiTerm) ? guiTerm : (existsSync("/usr/bin/tmux") ? "tmux" : "none");
     const previewCmd = targetTerm === "tmux"
-      ? ["tmux", "new-session", "-d", "-s", "agy_dryrun", "-c", cwd, `${agyBin} ${agyArgs.join(" ")}`]
+      ? ["tmux", "new-session", "-d", "-s", "agy_dryrun", "-c", cwd, agyBin, ...agyArgs]
       : [guiTerm || "terminal", "--title", title, "--", agyBin, ...agyArgs];
     return {
       ok: true,
@@ -126,6 +126,17 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
           DISPLAY: process.env.DISPLAY || ":0",
         },
       });
+
+      if (child.exitCode !== null) {
+        return {
+          ok: false,
+          terminal: guiTerm,
+          cwd,
+          command: termCmd,
+          message: `Terminal falló al iniciar inmediatamente (código de salida: ${child.exitCode}).`,
+          error: "process_early_exit",
+        };
+      }
       child.unref();
 
       return {
@@ -158,7 +169,8 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
       "-d",
       "-s", sessionName,
       "-c", cwd,
-      `${agyBin} ${agyArgs.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`,
+      agyBin,
+      ...agyArgs,
     ];
 
     try {
@@ -167,6 +179,17 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         detached: true,
         stdio: "ignore",
       });
+
+      if (child.exitCode !== null) {
+        return {
+          ok: false,
+          terminal: "tmux",
+          cwd,
+          command: tmuxCmd,
+          message: `tmux falló al iniciar sesión (código de salida: ${child.exitCode}).`,
+          error: "tmux_early_exit",
+        };
+      }
       child.unref();
 
       return {
