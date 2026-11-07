@@ -1,7 +1,7 @@
 import { MediaCatalog, type Asset } from './catalog';
 import { audioScan, probe } from './audio';
 import { contactSheet } from './contact-sheet';
-import { youtubeSource } from './importer';
+import { mediaSource } from './importer';
 import { fingerprintArtifact, MediaPreparationStore, type PreparationArtifact, type PreparationManifest } from './preparation-store';
 
 const AUDIO_PARAMETERS = { chunkSeconds: 120, thresholdDbfs: -32, mergeGapSeconds: 0.1, minSegmentSeconds: 0.12, resolutionSeconds: 0.01 };
@@ -68,7 +68,14 @@ export async function prepareMedia(
   store: MediaPreparationStore,
   options: { onProgress?: Progress } = {},
 ): Promise<PreparationManifest> {
-  if (!asset.sourceUrl || youtubeSource(asset.sourceUrl) !== asset.sourceUrl) throw Error('Preparation requires a registered public YouTube source URL');
+  if (!asset.sourceUrl) throw Error('Preparation requires a registered public source URL');
+  try {
+    const src = mediaSource(asset.sourceUrl);
+    if (src.source_url !== asset.sourceUrl) throw Error('Preparation requires a registered canonical public media source URL');
+  } catch (err: any) {
+    if (err.message?.includes('canonical')) throw err;
+    throw Error('Preparation requires a registered public source URL');
+  }
   let generation: PreparationManifest | undefined;
   let phase = 'snapshot';
   let published = false;
