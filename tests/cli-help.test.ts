@@ -9,4 +9,6 @@ test('help documents guided preparation and the scriptable URL form', () => {
  expect(help).toContain('isymcp media prepare');
  expect(help).toContain('isymcp media prepare <url>');
  expect(help).toContain('isymcp doctor');
+ expect(help).toContain('isymcp ui | control-center');
+ expect(help).toContain('Control Center');
 }, 20000);

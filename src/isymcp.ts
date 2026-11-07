@@ -252,10 +252,10 @@ function openInBrowser(url: string): void {
   }
 }
 
-async function openPanel(): Promise<void> {
+async function openPanel(pathOrHash = ""): Promise<void> {
   if (!(await serverUp())) console.log(`ojo: el server (:${PORT}) esta abajo; el panel abre igual y lo muestra. Levantalo con: isymcp up`);
   if (await startPanelDetached()) {
-    let targetUrl = PANEL_URL;
+    let targetUrl = `${PANEL_URL}${pathOrHash}`;
     try {
       const res = await fetch(`${PANEL_URL}/api/ticket`, {
         method: "POST",
@@ -264,7 +264,10 @@ async function openPanel(): Promise<void> {
       });
       if (res.ok) {
         const data = (await res.json()) as { ticket?: string };
-        if (data.ticket) targetUrl = `${PANEL_URL}/?ticket=${data.ticket}`;
+        if (data.ticket) {
+          const sep = pathOrHash.includes("?") ? "&" : "?";
+          targetUrl = `${PANEL_URL}/${sep}ticket=${data.ticket}${pathOrHash.startsWith("#") ? pathOrHash : ""}`;
+        }
       }
     } catch {}
     openInBrowser(targetUrl);
@@ -640,6 +643,8 @@ function help(): void {
   isymcp menu [id]           menu (o una rama/accion: isymcp menu harness)
 
   isymcp panel               abre el panel :8798 (lo levanta detached si hace falta)
+  isymcp panel control-center abre directamente la vista del Control Center
+  isymcp ui | control-center interfaz gráfica web: catálogo CLI, monitor, AGY TUI y suites
   isymcp panel start|stop|status
   isymcp panel run [--port 8798]   panel en primer plano (Ctrl+C)
   isymcp monitor start|stop|status monitor residente continuo en background (no se cierra hasta stop)
@@ -1228,6 +1233,8 @@ EJEMPLOS:
     help();
     process.exit(2);
   }
+} else if (cmd === "ui" || cmd === "control-center" || (cmd === "panel" && (sub === "control-center" || sub === "ui"))) {
+  await openPanel("#control-center");
 } else if (cmd === "panel") {
   const argsAll = [sub, ...rest].filter((a): a is string => Boolean(a));
   if (sub === "run" || argsAll.includes("--foreground")) {
