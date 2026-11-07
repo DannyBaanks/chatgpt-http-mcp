@@ -1605,6 +1605,112 @@ export class MonitorCoordinator {
     const row = this.db.query("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as any;
     return row ? mapTaskRow(row) : null;
   }
+
+  /**
+   * Lista todas las tareas persistidas en el buzón ordenadas por fecha de creación.
+   */
+  public listTasks(limit = 50): TaskRecord[] {
+    const rows = this.db
+      .query("SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?")
+      .all(limit) as any[];
+    return rows.map(mapTaskRow);
+  }
+
+  /**
+   * Procesa en un ciclo todas las tareas que estén en estado READY en este instante
+   * sin cerrar el monitor. Si alguna falla o es revocada justo antes del inicio,
+   * captura el error de forma aislada y continúa con la siguiente tarea.
+   */
+  public drainReadyTasks(
+    runner?: (
+      task: TaskRecord,
+      confinedTargetPath: string,
+    ) => { exit_code: number; output_summary: string; artifact_hash: string },
+    onTaskCompleted?: (task: TaskRecord) => void,
+  ): TaskRecord[] {
+    const completed: TaskRecord[] = [];
+    while (true) {
+      const claimed = this.claimNextReadyTask();
+      if (!claimed) break;
+      try {
+        const receipt = this.worker.executeClaimedTask(
+          claimed.workerLease,
+          claimed.task,
+          runner,
+        );
+        const done = this.completeTask(receipt);
+        completed.push(done);
+        onTaskCompleted?.(done);
+      } catch (err: any) {
+        // Si la autorización se revocó justo antes del inicio (C05), la tarea ya quedó en CANCELLED.
+        // Para cualquier otro error inesperado del runner, el bucle del monitor NUNCA se cierra.
+        const current = this.inspectTask(claimed.task.task_id);
+        if (current) {
+          completed.push(current);
+          onTaskCompleted?.(current);
+        }
+      }
+    }
+    return completed;
+  }
+
+  /**
+   * Inicia el bucle continuo residente del monitor (`always-on background loop`).
+   * Reconcilia tareas huérfanas al arrancar y permanece activo indefinidamente
+   * procesando nuevas tareas conforme llegan (y guardando sus respuestas) sin cerrarse jamás,
+   * hasta que el propietario invoque explícitamente `stop()` (o mate el proceso con `isymcp monitor stop`).
+   */
+  public startContinuousLoop(options?: {
+    pollIntervalMs?: number;
+    runner?: (
+      task: TaskRecord,
+      confinedTargetPath: string,
+    ) => { exit_code: number; output_summary: string; artifact_hash: string };
+    onTaskCompleted?: (task: TaskRecord) => void;
+  }): {
+    readonly isRunning: () => boolean;
+    readonly processedCount: () => number;
+    readonly tickNow: () => TaskRecord[];
+    readonly stop: () => void;
+  } {
+    const pollIntervalMs = Math.max(20, options?.pollIntervalMs ?? 500);
+    this.reconcileOnStartup();
+
+    let running = true;
+    let totalProcessed = 0;
+    let busy = false;
+
+    const tickNow = (): TaskRecord[] => {
+      if (!running || busy) return [];
+      busy = true;
+      try {
+        const batch = this.drainReadyTasks(options?.runner, options?.onTaskCompleted);
+        totalProcessed += batch.length;
+        return batch;
+      } finally {
+        busy = false;
+      }
+    };
+
+    // Primer barrido inmediato al arrancar
+    tickNow();
+
+    const timer = setInterval(() => {
+      if (!running) return;
+      tickNow();
+    }, pollIntervalMs);
+
+    return {
+      isRunning: () => running,
+      processedCount: () => totalProcessed,
+      tickNow,
+      stop: () => {
+        if (!running) return;
+        running = false;
+        clearInterval(timer);
+      },
+    };
+  }
 }
 
 /**
@@ -1703,6 +1809,9 @@ export class MonitorRemoteTransport {
    */
   public async handleHttpRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
+    if (req.method === "GET" && url.pathname === "/ready") {
+      return Response.json({ ok: true, service: "isymcp-remote-monitor", pid: process.pid }, { status: 200 });
+    }
     const authHeader = req.headers.get("authorization") ?? "";
     const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 

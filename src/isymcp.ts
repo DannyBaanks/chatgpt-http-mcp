@@ -47,6 +47,10 @@ const PANEL_PID = join(RUN, "panel.pid");
 const PANEL_LOG = join(RUN, "panel.log");
 const PANEL_PORT = process.env.ISYMCP_PANEL_PORT?.trim() || "8798";
 const PANEL_URL = `http://127.0.0.1:${PANEL_PORT}`;
+const MONITOR_PID = join(RUN, "monitor.pid");
+const MONITOR_LOG = join(RUN, "monitor.log");
+const MONITOR_PORT = process.env.ISYMCP_MONITOR_PORT?.trim() || "8799";
+const MONITOR_URL = `http://127.0.0.1:${MONITOR_PORT}`;
 const BRIDGE = `http://127.0.0.1:${PORT}`;
 
 function sh(cmd: string[], timeout = 20_000): { code: number; out: string } {
@@ -177,6 +181,66 @@ function stopPanel(): void {
     console.log("panel no estaba corriendo (o lo levantaste en primer plano: Ctrl+C alli)");
   }
   try { writeFileSync(PANEL_PID, ""); } catch { /* pid file opcional */ }
+}
+
+// ── Monitor residente en background (GOAL-002) ─────────────────────────────
+// Demonio continuo (`while (!stopped)` / `setInterval`) que NO se cierra aunque
+// lleguen tareas o terminen respuestas; corre indefinidamente hasta `isymcp monitor stop`.
+
+async function monitorUp(port = MONITOR_PORT): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/ready`, { signal: AbortSignal.timeout(1_500) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function startMonitorDetached(port = MONITOR_PORT): Promise<boolean> {
+  if (await monitorUp(port)) {
+    const existing = readPid(MONITOR_PID);
+    console.log(`monitor continuo ya corre en http://127.0.0.1:${port}${existing ? ` (pid ${existing})` : ""}`);
+    return true;
+  }
+  mkdirSync(RUN, { recursive: true });
+  const logFd = openSync(MONITOR_LOG, "a");
+  const child = spawn(
+    "bun",
+    ["run", join(ROOT, "src", "isymcp.ts"), "monitor", "run", "--port", String(port)],
+    {
+      cwd: ROOT,
+      detached: true,
+      stdio: ["ignore", logFd, logFd],
+      env: { ...process.env, ISYMCP_MONITOR_PORT: String(port) },
+    },
+  );
+  child.unref();
+  writeFileSync(MONITOR_PID, `${child.pid}\n`);
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (await monitorUp(port)) {
+      console.log(`monitor continuo detached pid=${child.pid} http://127.0.0.1:${port} log=${MONITOR_LOG}`);
+      console.log("puedes cerrar esta terminal: el monitor seguira corriendo sin cerrarse hasta que ejecutes: isymcp monitor stop");
+      return true;
+    }
+  }
+  console.error(`el monitor no respondio en 5 s; mira ${MONITOR_LOG}`);
+  return false;
+}
+
+function stopMonitor(): void {
+  const pid = readPid(MONITOR_PID);
+  if (pid && alive(pid)) {
+    stopProcessTree(pid);
+    console.log(`monitor continuo parado (pid ${pid})`);
+  } else {
+    console.log("monitor no estaba corriendo");
+  }
+  try {
+    writeFileSync(MONITOR_PID, "");
+  } catch {
+    /* pid file opcional */
+  }
 }
 
 function openInBrowser(url: string): void {
@@ -540,6 +604,8 @@ async function status(): Promise<void> {
   const detail = sessions.map((s) => `${s.label}[${s.fp}]${s.writable ? "/rw" : "/ro"}`).join(", ");
   console.log(`  sessions  ${sessions.length}${detail ? ` -> ${detail}` : ""}`);
   console.log(`  panel    ${(await panelUp()) ? "up" : "down"}  ${PANEL_URL}`);
+  const monPid = readPid(MONITOR_PID);
+  console.log(`  monitor  ${(await monitorUp()) ? "up" : "down"}  ${MONITOR_URL}  pid=${monPid && alive(monPid) ? monPid : "-"}`);
   if (up) {
     try {
       const st = await bridgeJson("/isymcp/settings");
@@ -578,6 +644,13 @@ function help(): void {
   isymcp panel               abre el panel :8798 (lo levanta detached si hace falta)
   isymcp panel start|stop|status
   isymcp panel run [--port 8798]   panel en primer plano (Ctrl+C)
+  isymcp monitor start|stop|status monitor residente continuo en background (no se cierra hasta stop)
+  isymcp monitor run [--port 8799] monitor continuo en primer plano (Ctrl+C para matar)
+  isymcp monitor lease mint --workspace <id> --cwd <dir> [--ttl-seconds 7200] [--auto-grant]
+  isymcp monitor lease renew <lease-id> --ttl-seconds <seg>
+  isymcp monitor lease revoke <lease-id>
+  isymcp monitor approve <task-id>
+  isymcp monitor tasks             lista las tareas encoladas y sus respuestas/estados
   isymcp ask "texto" [--new] turno real con ChatGPT desde la terminal; sigue
                              el mismo chat (visible en el panel); --new abre otro.
                              Tambien por stdin: echo hola | isymcp ask
@@ -1117,6 +1190,8 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await healthCommand(sub, rest);
 } else if (cmd === "smoke" || cmd === "e2e") {
   await smokeCommand(sub, rest);
+} else if (cmd === "monitor") {
+  await monitorCommand(sub, rest);
 } else if (cmd === "logs") {
   logs([sub, ...rest].filter((part): part is string => Boolean(part)));
 } else {
@@ -1424,4 +1499,200 @@ async function codexCommand(sub: string | undefined, rest: string[]): Promise<vo
   const code = await spawnCodex(fullArgs, usesWebBridge(userArgs) ? { CODEX_WEB_HTTP_TOKEN: bridgeToken() } : {});
   // La invocacion desde el menu vuelve al menu; no termina todo isymcp.
   if (code !== 0) process.exitCode = code;
+}
+
+async function monitorCommand(sub: string | undefined, rest: string[]): Promise<void> {
+  const { openBridgeMonitorStack } = await import("./remote-monitor");
+  const argsAll = [sub, ...rest].filter((a): a is string => Boolean(a));
+  const port = Number(flag("--port", argsAll) ?? MONITOR_PORT);
+  const ownerId = flag("--owner", argsAll) ?? (process.env.USER || "owner");
+
+  if (!sub || sub === "status") {
+    const up = await monitorUp(String(port));
+    const pid = readPid(MONITOR_PID);
+    const { db, monitor } = openBridgeMonitorStack();
+    try {
+      const tasks = monitor.listTasks(20);
+      const activeLeases = db
+        .query("SELECT lease_id, workspace_id, scopes_json, expires_at, absolute_deadline FROM leases WHERE revoked_at IS NULL AND expires_at > ?")
+        .all(Date.now()) as any[];
+      console.log(`monitor continuo: ${up ? "UP ✓ (corriendo sin cerrarse)" : "DOWN"} · http://127.0.0.1:${port} · pid=${pid && alive(pid) ? pid : "-"}`);
+      console.log(`  leases activos: ${activeLeases.length}`);
+      for (const l of activeLeases) {
+        const minsLeft = Math.max(0, Math.round((Number(l.expires_at) - Date.now()) / 60_000));
+        console.log(`    · ${l.lease_id} · ws=${l.workspace_id} · expira en ${minsLeft} min (${new Date(Number(l.expires_at)).toISOString()})`);
+      }
+      console.log(`  tareas recientes: ${tasks.length}`);
+      for (const t of tasks.slice(0, 10)) {
+        console.log(`    · ${t.task_id} [${t.state}] ws=${t.workspace_id} kind=${t.kind} attempts=${t.attempt_count} — ${t.description.slice(0, 60)}`);
+      }
+    } finally {
+      db.close();
+    }
+    return;
+  }
+
+  if (sub === "start") {
+    if (!(await startMonitorDetached(String(port)))) process.exitCode = 1;
+    return;
+  }
+
+  if (sub === "stop") {
+    stopMonitor();
+    return;
+  }
+
+  if (sub === "run") {
+    const intervalMs = Number(flag("--interval-ms", argsAll) ?? "500");
+    const { db, monitor, transport } = openBridgeMonitorStack();
+    const server = transport.startLoopbackServer(port);
+    const loop = monitor.startContinuousLoop({
+      pollIntervalMs: intervalMs,
+      onTaskCompleted: (task) => {
+        console.log(
+          `[${new Date().toISOString()}] [monitor] tarea procesada ${task.task_id} -> state=${task.state} (sigue esperando nuevas tareas...)`,
+        );
+      },
+    });
+    console.log(
+      `[${new Date().toISOString()}] [monitor] demonio continuo activo en http://127.0.0.1:${server.port} (pid=${process.pid}, poll=${intervalMs}ms). NO se cerrará hasta recibir SIGINT/SIGTERM o 'isymcp monitor stop'.`,
+    );
+
+    await new Promise<void>((resolve) => {
+      const shutdown = (sig: string) => {
+        console.log(`[${new Date().toISOString()}] [monitor] recibida señal ${sig}; deteniendo bucle continuo...`);
+        loop.stop();
+        server.stop(true);
+        db.close();
+        resolve();
+      };
+      process.once("SIGINT", () => shutdown("SIGINT"));
+      process.once("SIGTERM", () => shutdown("SIGTERM"));
+    });
+    return;
+  }
+
+  if (sub === "tasks") {
+    const { db, monitor } = openBridgeMonitorStack();
+    try {
+      const tasks = monitor.listTasks(50);
+      if (argsAll.includes("--json")) {
+        console.log(JSON.stringify(tasks, null, 2));
+        return;
+      }
+      if (tasks.length === 0) {
+        console.log("sin tareas en el buzón del monitor");
+        return;
+      }
+      for (const t of tasks) {
+        console.log(`${t.task_id}\t${t.state}\tws=${t.workspace_id}\tkind=${t.kind}\t${t.description}`);
+        if (t.result) {
+          console.log(`  ↳ resultado (exit=${t.result.exit_code}): ${t.result.output_summary}`);
+        }
+      }
+    } finally {
+      db.close();
+    }
+    return;
+  }
+
+  if (sub === "approve") {
+    const taskId = rest.find((a) => !a.startsWith("--"));
+    if (!taskId) throw new Error("uso: isymcp monitor approve <task-id>");
+    const { db, authority, monitor } = openBridgeMonitorStack();
+    try {
+      const task = monitor.inspectTask(taskId);
+      if (!task) throw new Error(`no existe la tarea: ${taskId}`);
+      const ogGrant = authority.mintOwnerGrant({ owner_id: ownerId, scopes: ["task:grant"] });
+      const grant = authority.createTaskGrant(ogGrant, {
+        workspace_id: task.workspace_id,
+        allowed_kinds: [task.kind],
+        allowed_actions: task.requested_actions.length > 0 ? task.requested_actions : ["tests:run"],
+      });
+      const ogApprove = authority.mintOwnerGrant({ owner_id: ownerId, scopes: ["task:grant"] });
+      const updated = authority.authorizePendingTask(ogApprove, {
+        task_id: taskId,
+        grant_id: grant.grant_id,
+      });
+      console.log(`tarea aprobada: ${updated.task_id} -> state=${updated.state} (grant=${grant.grant_id})`);
+    } finally {
+      db.close();
+    }
+    return;
+  }
+
+  if (sub === "lease") {
+    const action = rest[0];
+    const leaseArgs = rest.slice(1);
+    const { db, authority } = openBridgeMonitorStack();
+    try {
+      if (action === "mint") {
+        const wsId = flag("--workspace", leaseArgs) ?? "default-ws";
+        const cwd = flag("--cwd", leaseArgs) ?? process.cwd();
+        const ttlSeconds = Number(flag("--ttl-seconds", leaseArgs) ?? "7200");
+        const autoGrant = leaseArgs.includes("--auto-grant");
+
+        const ogWs = authority.mintOwnerGrant({ owner_id: ownerId, scopes: ["workspace:register"] });
+        authority.registerWorkspace(ogWs, { workspace_id: wsId, root_path: cwd });
+
+        const ogMint = authority.mintOwnerGrant({ owner_id: ownerId, scopes: ["lease:mint"] });
+        const minted = authority.mintQueueLease(ogMint, {
+          workspace_id: wsId,
+          scopes: ["queue:submit", "queue:status"],
+          ttlSeconds,
+        });
+
+        let autoGrantId: string | null = null;
+        if (autoGrant) {
+          const ogTaskGrant = authority.mintOwnerGrant({ owner_id: ownerId, scopes: ["task:grant"] });
+          const tg = authority.createTaskGrant(ogTaskGrant, {
+            workspace_id: wsId,
+            allowed_kinds: ["verify_only", "review_and_test", "run_task"],
+            allowed_actions: ["tests:run", "report:write", "status:read"],
+            ttlSeconds,
+          });
+          autoGrantId = tg.grant_id;
+        }
+
+        console.log(`QueueLease emitido (tipo API-key por tiempo):`);
+        console.log(`  token (turn_token): ${minted.token}`);
+        console.log(`  lease_id:           ${minted.lease_id}`);
+        console.log(`  workspace_id:       ${minted.workspace_id} (${cwd})`);
+        console.log(`  scopes:             ${minted.scopes.join(", ")}`);
+        console.log(`  expira:             ${new Date(minted.expires_at).toISOString()} (TTL=${ttlSeconds}s)`);
+        console.log(`  tope absoluto:      ${new Date(minted.absolute_deadline).toISOString()}`);
+        if (autoGrantId) {
+          console.log(`  task_grant activo:  ${autoGrantId} (las tareas entrantes pasan directo a READY para el monitor continuo)`);
+        }
+        return;
+      }
+
+      if (action === "renew") {
+        const leaseId = leaseArgs.find((a) => !a.startsWith("--"));
+        const ttlSeconds = Number(flag("--ttl-seconds", leaseArgs) ?? "7200");
+        if (!leaseId) throw new Error("uso: isymcp monitor lease renew <lease-id> --ttl-seconds <seg>");
+        const ogRenew = authority.mintOwnerGrant({ owner_id: ownerId, scopes: ["lease:renew"] });
+        const renewed = authority.renewQueueLease(ogRenew, {
+          lease_id: leaseId,
+          additionalTtlSeconds: ttlSeconds,
+        });
+        console.log(`QueueLease renovado: ${renewed.lease_id} · nueva expiracion=${new Date(renewed.expires_at).toISOString()} (gen=${renewed.generation})`);
+        return;
+      }
+
+      if (action === "revoke") {
+        const leaseId = leaseArgs.find((a) => !a.startsWith("--"));
+        if (!leaseId) throw new Error("uso: isymcp monitor lease revoke <lease-id>");
+        const ogRevoke = authority.mintOwnerGrant({ owner_id: ownerId, scopes: ["lease:revoke"] });
+        const revoked = authority.revokeQueueLease(ogRevoke, leaseId);
+        console.log(`QueueLease revocado inmediatamente: ${revoked.lease_id} (revoked_at=${new Date(revoked.revoked_at!).toISOString()})`);
+        return;
+      }
+    } finally {
+      db.close();
+    }
+    throw new Error("uso: isymcp monitor lease mint|renew|revoke ...");
+  }
+
+  throw new Error("uso: isymcp monitor start|stop|status|run|tasks|approve|lease");
 }

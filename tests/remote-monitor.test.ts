@@ -1677,4 +1677,85 @@ describe("GOAL-002 — ISyMCP Remote Task Monitor (A01..A15)", () => {
       db.close();
     }
   });
+
+  test("Continuous resident monitor loop: stays alive across multiple tasks and responses over time without closing until explicitly stopped", async () => {
+    const { db, authority, queue, monitor } = setupStack();
+    const ogMint = authority.mintOwnerGrant({ owner_id: "danny", scopes: ["lease:mint"] });
+    const lease = authority.mintQueueLease(ogMint, {
+      workspace_id: "isy-mcp-workspace",
+      scopes: ["queue:submit", "queue:status"],
+      ttlSeconds: 7200,
+    });
+    const ogGrant = authority.mintOwnerGrant({ owner_id: "danny", scopes: ["task:grant"] });
+    authority.createTaskGrant(ogGrant, {
+      workspace_id: "isy-mcp-workspace",
+      allowed_kinds: ["review_and_test"],
+      allowed_actions: ["tests:run"],
+    });
+
+    const completedIds: string[] = [];
+    const loop = monitor.startContinuousLoop({
+      pollIntervalMs: 25,
+      onTaskCompleted: (task) => {
+        completedIds.push(task.task_id);
+      },
+    });
+
+    try {
+      expect(loop.isRunning()).toBe(true);
+
+      // Llega Tarea 1 mientras el monitor corre en background
+      const sub1 = queue.submitTask({
+        schema_version: 1,
+        operation_id: "op-cont-1",
+        goal_id: "GOAL-002",
+        conversation_ref: "thread-continuous",
+        lease_token: lease.token,
+        task: {
+          kind: "review_and_test",
+          workspace_id: "isy-mcp-workspace",
+          description: "First task in continuous daemon",
+          requested_actions: ["tests:run"],
+        },
+        idempotency_key: "ik-cont-1",
+        requested_at: new Date(currentNow).toISOString(),
+      });
+      await Bun.sleep(60);
+      expect(queue.getTaskStatus(lease.token, sub1.task_id!).state).toBe("SUCCEEDED");
+      // El monitor NO se cierra tras terminar la Tarea 1 y devolver respuesta
+      expect(loop.isRunning()).toBe(true);
+      expect(loop.processedCount()).toBe(1);
+
+      // Pasa el tiempo en reposo y luego llega Tarea 2
+      await Bun.sleep(40);
+      expect(loop.isRunning()).toBe(true);
+
+      const sub2 = queue.submitTask({
+        schema_version: 1,
+        operation_id: "op-cont-2",
+        goal_id: "GOAL-002",
+        conversation_ref: "thread-continuous",
+        lease_token: lease.token,
+        task: {
+          kind: "review_and_test",
+          workspace_id: "isy-mcp-workspace",
+          description: "Second task arriving later in the same continuous daemon",
+          requested_actions: ["tests:run"],
+        },
+        idempotency_key: "ik-cont-2",
+        requested_at: new Date(currentNow).toISOString(),
+      });
+      await Bun.sleep(60);
+      expect(queue.getTaskStatus(lease.token, sub2.task_id!).state).toBe("SUCCEEDED");
+      // Sigue vivo tras procesar la segunda tarea y su respuesta
+      expect(loop.isRunning()).toBe(true);
+      expect(loop.processedCount()).toBe(2);
+      expect(completedIds).toEqual([sub1.task_id!, sub2.task_id!]);
+    } finally {
+      // Solo se detiene cuando el propietario lo mata explícitamente
+      loop.stop();
+      expect(loop.isRunning()).toBe(false);
+      db.close();
+    }
+  });
 });
