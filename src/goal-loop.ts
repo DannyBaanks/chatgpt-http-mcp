@@ -2,14 +2,16 @@
 //
 // Implementa la arquitectura acordada entre Danny, ChatGPT (revisor/planificador)
 // y Gemini (ejecutor local) sobre ISyMCP:
-//   - El objetivo y los criterios de aceptación viven en un contrato inmutable (goal_hash).
-//   - La conversación NO es la fuente de verdad; cada iteración produce un EvidencePacket canónico.
-//   - La verificación independiente la ejecuta el propio coordinador (no confía en el booleano del ejecutor).
-//   - El estado (iteración, operation_ids vistos, historial) puede persistirse en disco de forma atómica.
-//   - Valida formato real de SHA Git, resuelve symlinks con realpath y aplica allowlist de binarios.
+//   - Contrato inmutable (goal_hash) fuera de la autoridad de los modelos.
+//   - Verificación independiente ejecutada por el coordinador (no por el ejecutor).
+//   - Exclusión mutua multi-proceso mediante lockfile atómico (O_CREAT | O_EXCL) + fsyncSync + renameSync.
+//   - Validación estructural e integridad (HMAC opcional) del archivo de estado persistido.
+//   - Allowlist de operaciones completas (subcomandos, flags y rutas confinadas), no solo nombres de binarios.
+//   - Verificación de cobertura completa de acceptance_criteria antes de permitir PASS o DONE.
 
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { resolveWithinReal } from "./codex-sessions";
 
 export type CoordinatorDecision = "CONTINUE" | "PAUSE" | "DENY" | "DONE";
@@ -84,16 +86,14 @@ export interface CoordinatorVerdict {
 }
 
 export interface CoordinatorOptions {
-  /** Ruta opcional para persistir el estado atómicamente entre reinicios. */
+  /** Ruta opcional para persistir el estado atómicamente con lock multi-proceso. */
   statePath?: string;
+  /** Secreto opcional para autenticar (HMAC-SHA256) el estado persistido en disco. */
+  stateSecret?: string;
   /**
    * Runner de verificación independiente controlado por el coordinador (nunca por el ejecutor).
-   * Cuando se provee, el coordinador ejecuta este verificador y rechaza cualquier intento
-   * del ejecutor de falsificar `independent_verification.passed = true`.
    */
   verifier?: (contract: GoalContract) => IndependentVerificationResult;
-  /** Binarios permitidos para next_experiment.command (por defecto: bun, git, tsc). */
-  allowedBinaries?: string[];
 }
 
 interface PersistedCoordinatorState {
@@ -101,21 +101,15 @@ interface PersistedCoordinatorState {
   currentIteration: number;
   seenOperations: string[];
   history: EvidencePacket[];
+  hmac?: string;
 }
 
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/i;
-const DEFAULT_ALLOWED_BINARIES = new Set(["bun", "git", "tsc"]);
-const SHELL_OR_INTERPRETER_FLAGS = new Set(["-c", "-e", "--eval", "/c", "-command"]);
 
-const DESTRUCTIVE_PATTERNS = [
-  /\brm\s+-[a-zA-Z]*[rf]/i,
-  /\bgit\s+reset\s+--hard\b/i,
-  /\bgit\s+clean\s+-[a-zA-Z]*f/i,
-  /\bgit\s+push\s+.*--force\b/i,
-  /\bgit\s+checkout\s+--\b/i,
-  /\bmkfs\b/i,
-  /\bdd\s+if=/i,
-];
+const FORBIDDEN_FLAGS_RE =
+  /^(-c|-e|--eval|--preload|-r|--require|--import|--env-file|--config|--git-dir|--work-tree|--exec-path|--upload-pack|--receive-pack|--project|-p|--outDir|--outFile|--tsBuildInfoFile)(\b|=)/i;
+
+const SAFE_GIT_READONLY_SUBCOMMANDS = new Set(["status", "diff", "log", "rev-parse", "show"]);
 
 export function computeGoalHash(spec: GoalSpec): string {
   const canonical = JSON.stringify({
@@ -186,20 +180,79 @@ export function runContractVerification(
   };
 }
 
-function isCommandAllowed(cmd: string[], allowedBinaries: Set<string>, allowDestructive: boolean): boolean {
-  if (cmd.length === 0) return false;
-  const bin = cmd[0].trim();
-  // Prohibir rutas relativas/absolutas arbitrarias o shells; exigir binario en allowlist
-  if (!allowedBinaries.has(bin)) return false;
-  // Bloquear ejecución de código arbitrario inline (-e, -c, --eval)
-  if (cmd.some((arg) => SHELL_OR_INTERPRETER_FLAGS.has(arg.trim().toLowerCase()))) {
+/**
+ * Valida la operación completa (binario + subcomando + flags + confinamiento de argumentos de ruta),
+ * rechazando subcomandos arbitrarios, hooks, scripts, instalaciones o configuraciones externas.
+ */
+export function isOperationAllowed(cmd: string[], contract: GoalContract): boolean {
+  if (!Array.isArray(cmd) || cmd.length === 0) return false;
+  if (cmd.some((arg) => typeof arg !== "string" || arg.length === 0 || arg.includes("\0"))) {
     return false;
   }
-  if (!allowDestructive) {
-    const joined = cmd.join(" ");
-    if (DESTRUCTIVE_PATTERNS.some((re) => re.test(joined))) return false;
+
+  // Bloqueo global de flags peligrosos de evaluación, precarga, redirección de config o compilación fuera del árbol
+  for (const arg of cmd.slice(1)) {
+    if (FORBIDDEN_FLAGS_RE.test(arg.trim())) return false;
   }
-  return true;
+
+  const bin = cmd[0].trim();
+
+  // 1. tsc: únicamente `tsc --noEmit` exacto
+  if (bin === "tsc") {
+    return cmd.length === 2 && cmd[1] === "--noEmit";
+  }
+
+  // 2. bun: únicamente `bun run typecheck` o `bun test <archivos-dentro-del-workspace>`
+  if (bin === "bun") {
+    const sub = cmd[1];
+    if (sub === "run") {
+      return cmd.length === 3 && cmd[2] === "typecheck";
+    }
+    if (sub === "test") {
+      for (let i = 2; i < cmd.length; i++) {
+        const arg = cmd[i];
+        if (arg === "--bail") continue;
+        if (arg === "--timeout") {
+          const next = cmd[i + 1];
+          if (!next || !/^\d+$/.test(next)) return false;
+          i++;
+          continue;
+        }
+        if (arg.startsWith("-")) return false;
+        // Cualquier argumento de ruta de test debe resolver dentro de allowed_cwd (sin escapar por symlink ni ..)
+        const candidate = join(contract.allowed_cwd, arg);
+        if (!resolveWithinReal(contract.allowed_cwd, candidate)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // 3. git: únicamente subcomandos de solo lectura sin overrides de configuración
+  if (bin === "git") {
+    const sub = cmd[1];
+    if (!sub || !SAFE_GIT_READONLY_SUBCOMMANDS.has(sub)) return false;
+    for (const arg of cmd.slice(2)) {
+      if (arg.startsWith("-")) {
+        // Solo permitir flags inocuos de formato en lectura
+        if (!/^(--oneline|--stat|--decorate|--no-pager|-n\d*)$/.test(arg)) return false;
+      } else {
+        const candidate = join(contract.allowed_cwd, arg);
+        if (!resolveWithinReal(contract.allowed_cwd, candidate)) return false;
+      }
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function allCriteriaDemonstrated(contract: GoalContract, packet: EvidencePacket): boolean {
+  if (packet.evidence.not_demonstrated.length > 0) return false;
+  const demSet = new Set(packet.evidence.demonstrated);
+  return contract.acceptance_criteria.every((crit) => demSet.has(crit));
 }
 
 function progressSignature(packet: EvidencePacket): string {
@@ -211,14 +264,24 @@ function progressSignature(packet: EvidencePacket): string {
   });
 }
 
+function computeStateHmac(secret: string, state: Omit<PersistedCoordinatorState, "hmac">): string {
+  const canonical = JSON.stringify({
+    goal_hash: state.goal_hash,
+    currentIteration: state.currentIteration,
+    seenOperations: state.seenOperations,
+    history: state.history,
+  });
+  return createHmac("sha256", secret).update(canonical, "utf8").digest("hex");
+}
+
 export class GoalCoordinator {
   readonly contract: GoalContract;
   private currentIteration = 0;
   private readonly seenOperations = new Set<string>();
   private readonly history: EvidencePacket[] = [];
   private readonly statePath?: string;
+  private readonly stateSecret?: string;
   private readonly verifier?: (contract: GoalContract) => IndependentVerificationResult;
-  private readonly allowedBinaries: Set<string>;
 
   constructor(contract: GoalContract, options: CoordinatorOptions = {}) {
     const expectedHash = computeGoalHash(contract);
@@ -227,30 +290,125 @@ export class GoalCoordinator {
     }
     this.contract = Object.freeze({ ...contract });
     this.statePath = options.statePath;
+    this.stateSecret = options.stateSecret;
     this.verifier = options.verifier;
-    this.allowedBinaries = new Set(options.allowedBinaries ?? DEFAULT_ALLOWED_BINARIES);
 
     if (this.statePath && existsSync(this.statePath)) {
-      const raw = JSON.parse(readFileSync(this.statePath, "utf8")) as PersistedCoordinatorState;
-      if (raw.goal_hash !== this.contract.goal_hash) {
-        throw new Error("goal_state_hash_mismatch: el estado persistido pertenece a otro contrato");
-      }
-      this.currentIteration = raw.currentIteration;
-      for (const op of raw.seenOperations) this.seenOperations.add(op);
-      for (const pkt of raw.history) this.history.push(pkt);
+      this.loadAndValidateStateFromDisk();
     }
+  }
+
+  private withStateLock<T>(fn: () => T): T {
+    if (!this.statePath) return fn();
+    const lockPath = `${this.statePath}.lock`;
+    const deadline = Date.now() + 3_000;
+    let lockFd: number | null = null;
+    while (lockFd === null) {
+      try {
+        lockFd = openSync(lockPath, "wx", 0o600);
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException)?.code !== "EEXIST" || Date.now() >= deadline) {
+          throw new Error(`goal_state_lock_timeout: no se pudo adquirir lock exclusivo ${lockPath}`);
+        }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+    }
+    try {
+      if (existsSync(this.statePath)) {
+        this.loadAndValidateStateFromDisk();
+      }
+      return fn();
+    } finally {
+      try {
+        closeSync(lockFd);
+      } catch {}
+      try {
+        unlinkSync(lockPath);
+      } catch {}
+    }
+  }
+
+  private loadAndValidateStateFromDisk(): void {
+    if (!this.statePath) return;
+    let raw: PersistedCoordinatorState;
+    try {
+      raw = JSON.parse(readFileSync(this.statePath, "utf8")) as PersistedCoordinatorState;
+    } catch {
+      throw new Error("goal_state_corrupted: JSON inválido en archivo de estado");
+    }
+    if (
+      !raw ||
+      typeof raw.goal_hash !== "string" ||
+      typeof raw.currentIteration !== "number" ||
+      !Array.isArray(raw.seenOperations) ||
+      !Array.isArray(raw.history)
+    ) {
+      throw new Error("goal_state_corrupted: estructura de estado inválida");
+    }
+    if (raw.goal_hash !== this.contract.goal_hash) {
+      throw new Error("goal_state_hash_mismatch: el estado persistido pertenece a otro contrato");
+    }
+    if (raw.currentIteration !== raw.history.length || raw.currentIteration > this.contract.max_iterations) {
+      throw new Error("goal_state_corrupted: currentIteration inconsistente con el historial");
+    }
+    const opSet = new Set(raw.seenOperations);
+    for (let i = 0; i < raw.history.length; i++) {
+      const pkt = raw.history[i];
+      if (!pkt || pkt.iteration !== i + 1 || pkt.goal_hash !== this.contract.goal_hash) {
+        throw new Error("goal_state_corrupted: secuencia de historial alterada");
+      }
+      if (!opSet.has(pkt.operation_id)) {
+        throw new Error("goal_state_corrupted: operation_id del historial ausente en seenOperations");
+      }
+    }
+    if (this.stateSecret) {
+      if (typeof raw.hmac !== "string" || !/^[0-9a-f]{64}$/i.test(raw.hmac)) {
+        throw new Error("goal_state_corrupted: falta firma HMAC en el estado persistido");
+      }
+      const expectedHmac = computeStateHmac(this.stateSecret, {
+        goal_hash: raw.goal_hash,
+        currentIteration: raw.currentIteration,
+        seenOperations: raw.seenOperations,
+        history: raw.history,
+      });
+      const a = Buffer.from(raw.hmac, "hex");
+      const b = Buffer.from(expectedHmac, "hex");
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
+        throw new Error("goal_state_corrupted: firma HMAC inválida (estado adulterado en disco)");
+      }
+    }
+
+    this.currentIteration = raw.currentIteration;
+    this.seenOperations.clear();
+    for (const op of raw.seenOperations) this.seenOperations.add(op);
+    this.history.length = 0;
+    for (const pkt of raw.history) this.history.push(pkt);
   }
 
   private persistState(): void {
     if (!this.statePath) return;
     const tmp = `${this.statePath}.tmp-${process.pid}-${Date.now()}`;
-    const payload: PersistedCoordinatorState = {
+    const basePayload: Omit<PersistedCoordinatorState, "hmac"> = {
       goal_hash: this.contract.goal_hash,
       currentIteration: this.currentIteration,
       seenOperations: Array.from(this.seenOperations),
       history: this.history,
     };
-    writeFileSync(tmp, JSON.stringify(payload, null, 2), { mode: 0o600 });
+    const payload: PersistedCoordinatorState = this.stateSecret
+      ? { ...basePayload, hmac: computeStateHmac(this.stateSecret, basePayload) }
+      : basePayload;
+
+    const fd = openSync(tmp, "w", 0o600);
+    try {
+      const buf = Buffer.from(JSON.stringify(payload, null, 2), "utf8");
+      let offset = 0;
+      while (offset < buf.length) {
+        offset += require("node:fs").writeSync(fd, buf, offset, buf.length - offset);
+      }
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     renameSync(tmp, this.statePath);
   }
 
@@ -269,37 +427,56 @@ export class GoalCoordinator {
 
   /**
    * Registra el paquete de evidencia de una iteración local del ejecutor (Gemini)
-   * y evalúa invariantes antes de enviarlo al revisor (ChatGPT).
+   * bajo lock exclusivo multi-proceso y evalúa invariantes antes de enviarlo al revisor.
    */
   recordIteration(packet: EvidencePacket): CoordinatorVerdict {
-    if (packet.goal_id !== this.contract.goal_id) {
-      return { decision: "DENY", reason: "goal_id_mismatch", iteration: this.currentIteration };
-    }
-    if (packet.goal_hash !== this.contract.goal_hash) {
-      return { decision: "DENY", reason: "goal_mutation_forbidden", iteration: this.currentIteration };
-    }
-    if (!packet.operation_id || this.seenOperations.has(packet.operation_id)) {
-      return { decision: "DENY", reason: "duplicate_operation_id", iteration: this.currentIteration };
-    }
-    if (!GIT_SHA_RE.test(packet.repo.base_sha) || !GIT_SHA_RE.test(packet.repo.head_sha)) {
-      return { decision: "DENY", reason: "invalid_git_sha", iteration: this.currentIteration };
-    }
-    if (packet.iteration !== this.currentIteration + 1) {
-      return { decision: "DENY", reason: "invalid_iteration_sequence", iteration: this.currentIteration };
-    }
-    if (packet.iteration > this.contract.max_iterations) {
-      return { decision: "PAUSE", reason: "max_iterations_reached", iteration: this.currentIteration };
-    }
+    return this.withStateLock(() => {
+      if (packet.goal_id !== this.contract.goal_id) {
+        return { decision: "DENY", reason: "goal_id_mismatch", iteration: this.currentIteration };
+      }
+      if (packet.goal_hash !== this.contract.goal_hash) {
+        return { decision: "DENY", reason: "goal_mutation_forbidden", iteration: this.currentIteration };
+      }
+      if (!packet.operation_id || this.seenOperations.has(packet.operation_id)) {
+        return { decision: "DENY", reason: "duplicate_operation_id", iteration: this.currentIteration };
+      }
+      if (!GIT_SHA_RE.test(packet.repo.base_sha) || !GIT_SHA_RE.test(packet.repo.head_sha)) {
+        return { decision: "DENY", reason: "invalid_git_sha", iteration: this.currentIteration };
+      }
+      if (packet.iteration !== this.currentIteration + 1) {
+        return { decision: "DENY", reason: "invalid_iteration_sequence", iteration: this.currentIteration };
+      }
+      if (packet.iteration > this.contract.max_iterations) {
+        return { decision: "PAUSE", reason: "max_iterations_reached", iteration: this.currentIteration };
+      }
 
-    // Si el coordinador tiene un runner independiente configurado, ejecuta su propia verificación
-    // y detecta cualquier intento del ejecutor de falsificar `independent_verification.passed = true`.
-    let effectivePacket = packet;
-    if (this.verifier) {
-      const verified = this.verifier(this.contract);
-      if (packet.independent_verification.passed && !verified.passed) {
-        this.seenOperations.add(packet.operation_id);
-        this.currentIteration = packet.iteration;
-        effectivePacket = { ...packet, independent_verification: verified, status: "FAILED" };
+      let effectivePacket = packet;
+      if (this.verifier) {
+        const verified = this.verifier(this.contract);
+        if (packet.independent_verification.passed && !verified.passed) {
+          this.seenOperations.add(packet.operation_id);
+          this.currentIteration = packet.iteration;
+          effectivePacket = { ...packet, independent_verification: verified, status: "FAILED" };
+          this.history.push(effectivePacket);
+          this.persistState();
+          return {
+            decision: "DENY",
+            reason: "unverified_pass_claim",
+            iteration: this.currentIteration,
+            packet_hash: computePacketHash(effectivePacket),
+          };
+        }
+        effectivePacket = { ...packet, independent_verification: verified };
+      }
+
+      // Falla 1: El ejecutor reclama PASS pero la verificación independiente falló o la evidencia no cubre todos los acceptance_criteria
+      if (
+        effectivePacket.executor_claim === "PASS" &&
+        (!effectivePacket.independent_verification.passed ||
+          !allCriteriaDemonstrated(this.contract, effectivePacket))
+      ) {
+        this.seenOperations.add(effectivePacket.operation_id);
+        this.currentIteration = effectivePacket.iteration;
         this.history.push(effectivePacket);
         this.persistState();
         return {
@@ -309,182 +486,164 @@ export class GoalCoordinator {
           packet_hash: computePacketHash(effectivePacket),
         };
       }
-      effectivePacket = { ...packet, independent_verification: verified };
-    }
 
-    // Falla 1: El ejecutor reclama PASS pero la verificación independiente falló o faltan criterios
-    if (
-      effectivePacket.executor_claim === "PASS" &&
-      (!effectivePacket.independent_verification.passed || effectivePacket.evidence.not_demonstrated.length > 0)
-    ) {
+      // Falla 5: Detección de estancamiento (2 iteraciones consecutivas sin progreso verificable)
+      const prev = this.history[this.history.length - 1];
+      if (
+        prev &&
+        !effectivePacket.independent_verification.passed &&
+        progressSignature(prev) === progressSignature(effectivePacket)
+      ) {
+        this.seenOperations.add(effectivePacket.operation_id);
+        this.currentIteration = effectivePacket.iteration;
+        this.history.push(effectivePacket);
+        this.persistState();
+        return {
+          decision: "PAUSE",
+          reason: "stagnation_detected",
+          iteration: this.currentIteration,
+          packet_hash: computePacketHash(effectivePacket),
+        };
+      }
+
       this.seenOperations.add(effectivePacket.operation_id);
       this.currentIteration = effectivePacket.iteration;
       this.history.push(effectivePacket);
       this.persistState();
+
       return {
-        decision: "DENY",
-        reason: "unverified_pass_claim",
+        decision: "CONTINUE",
+        reason: "evidence_recorded_awaiting_review",
         iteration: this.currentIteration,
         packet_hash: computePacketHash(effectivePacket),
       };
-    }
-
-    // Falla 5: Detección de estancamiento (2 iteraciones consecutivas sin progreso verificable)
-    const prev = this.history[this.history.length - 1];
-    if (
-      prev &&
-      !effectivePacket.independent_verification.passed &&
-      progressSignature(prev) === progressSignature(effectivePacket)
-    ) {
-      this.seenOperations.add(effectivePacket.operation_id);
-      this.currentIteration = effectivePacket.iteration;
-      this.history.push(effectivePacket);
-      this.persistState();
-      return {
-        decision: "PAUSE",
-        reason: "stagnation_detected",
-        iteration: this.currentIteration,
-        packet_hash: computePacketHash(effectivePacket),
-      };
-    }
-
-    this.seenOperations.add(effectivePacket.operation_id);
-    this.currentIteration = effectivePacket.iteration;
-    this.history.push(effectivePacket);
-    this.persistState();
-
-    return {
-      decision: "CONTINUE",
-      reason: "evidence_recorded_awaiting_review",
-      iteration: this.currentIteration,
-      packet_hash: computePacketHash(effectivePacket),
-    };
+    });
   }
 
   /**
-   * Evalúa la propuesta devuelta por el revisor (ChatGPT) contra el contrato,
-   * la iteración actual y la evidencia independiente registrada.
+   * Evalúa la propuesta devuelta por el revisor (ChatGPT) bajo lock exclusivo multi-proceso.
    */
   evaluateReviewerProposal(proposal: ReviewerProposal): CoordinatorVerdict {
-    if (proposal.goal_id !== this.contract.goal_id) {
-      return { decision: "DENY", reason: "goal_id_mismatch", iteration: this.currentIteration };
-    }
+    return this.withStateLock(() => {
+      if (proposal.goal_id !== this.contract.goal_id) {
+        return { decision: "DENY", reason: "goal_id_mismatch", iteration: this.currentIteration };
+      }
 
-    // Falla 3: Operación duplicada / reintento no reconciliado
-    if (!proposal.operation_id || this.seenOperations.has(proposal.operation_id)) {
-      return { decision: "DENY", reason: "duplicate_operation_id", iteration: this.currentIteration };
-    }
+      // Falla 3: Operación duplicada / reintento no reconciliado
+      if (!proposal.operation_id || this.seenOperations.has(proposal.operation_id)) {
+        return { decision: "DENY", reason: "duplicate_operation_id", iteration: this.currentIteration };
+      }
 
-    // Falla 2: Respuesta correspondiente a una iteración anterior o futura
-    if (proposal.reviewed_iteration !== this.currentIteration) {
-      return {
-        decision: "DENY",
-        reason: "stale_iteration_response",
-        iteration: this.currentIteration,
-      };
-    }
-
-    const latest = this.history[this.history.length - 1];
-    if (!latest) {
-      return { decision: "PAUSE", reason: "no_evidence_to_review", iteration: this.currentIteration };
-    }
-
-    // Falla 2b: goal_hash válido pero reviewed_packet_hash obsoleto o alterado
-    const expectedPacketHash = computePacketHash(latest);
-    if (proposal.reviewed_packet_hash && proposal.reviewed_packet_hash !== expectedPacketHash) {
-      return {
-        decision: "DENY",
-        reason: "stale_iteration_response",
-        iteration: this.currentIteration,
-      };
-    }
-
-    // Intento de mutar el hash del objetivo (autoridad circular)
-    if (
-      proposal.next_experiment?.override_goal_hash &&
-      proposal.next_experiment.override_goal_hash !== this.contract.goal_hash
-    ) {
-      return {
-        decision: "DENY",
-        reason: "goal_mutation_forbidden",
-        iteration: this.currentIteration,
-      };
-    }
-
-    // Falla 1 / Autoridad circular: GPT intenta declarar DONE sin verificación independiente completa
-    if (proposal.decision === "DONE") {
-      if (!latest.independent_verification.passed || latest.evidence.not_demonstrated.length > 0) {
+      // Falla 2: Respuesta correspondiente a una iteración anterior o futura
+      if (proposal.reviewed_iteration !== this.currentIteration) {
         return {
           decision: "DENY",
-          reason: "unverified_pass_claim",
+          reason: "stale_iteration_response",
           iteration: this.currentIteration,
         };
       }
-      this.seenOperations.add(proposal.operation_id);
-      this.persistState();
-      return {
-        decision: "DONE",
-        reason: "all_criteria_demonstrated",
-        iteration: this.currentIteration,
-        packet_hash: expectedPacketHash,
-      };
-    }
 
-    if (proposal.decision === "PAUSE" || proposal.decision === "DENY") {
-      this.seenOperations.add(proposal.operation_id);
-      this.persistState();
-      return {
-        decision: proposal.decision,
-        reason: proposal.rationale || "reviewer_requested_stop",
-        iteration: this.currentIteration,
-        packet_hash: expectedPacketHash,
-      };
-    }
+      const latest = this.history[this.history.length - 1];
+      if (!latest) {
+        return { decision: "PAUSE", reason: "no_evidence_to_review", iteration: this.currentIteration };
+      }
 
-    // Si propone CONTINUE, validar límites de iteración y alcance del siguiente experimento
-    if (this.currentIteration >= this.contract.max_iterations) {
-      return {
-        decision: "PAUSE",
-        reason: "max_iterations_reached",
-        iteration: this.currentIteration,
-      };
-    }
+      // Falla 2b: goal_hash válido pero reviewed_packet_hash obsoleto o alterado
+      const expectedPacketHash = computePacketHash(latest);
+      if (proposal.reviewed_packet_hash && proposal.reviewed_packet_hash !== expectedPacketHash) {
+        return {
+          decision: "DENY",
+          reason: "stale_iteration_response",
+          iteration: this.currentIteration,
+        };
+      }
 
-    const nextExp = proposal.next_experiment;
-    if (nextExp) {
-      // Falla 4a: Target CWD fuera del workspace autorizado (con resolución real de symlinks)
-      if (nextExp.target_cwd) {
-        const resolved = resolveWithinReal(this.contract.allowed_cwd, nextExp.target_cwd);
-        if (!resolved) {
+      // Intento de mutar el hash del objetivo (autoridad circular)
+      if (
+        proposal.next_experiment?.override_goal_hash &&
+        proposal.next_experiment.override_goal_hash !== this.contract.goal_hash
+      ) {
+        return {
+          decision: "DENY",
+          reason: "goal_mutation_forbidden",
+          iteration: this.currentIteration,
+        };
+      }
+
+      // Falla 1 / Autoridad circular: GPT intenta declarar DONE sin verificación independiente o sin cubrir todos los criterios del contrato
+      if (proposal.decision === "DONE") {
+        if (!latest.independent_verification.passed || !allCriteriaDemonstrated(this.contract, latest)) {
           return {
             decision: "DENY",
-            reason: "out_of_scope_or_destructive",
+            reason: "unverified_pass_claim",
             iteration: this.currentIteration,
           };
         }
+        this.seenOperations.add(proposal.operation_id);
+        this.persistState();
+        return {
+          decision: "DONE",
+          reason: "all_criteria_demonstrated",
+          iteration: this.currentIteration,
+          packet_hash: expectedPacketHash,
+        };
       }
 
-      // Falla 4b: Validación por allowlist de binarios, bloqueo de shell inline y patrones destructivos
-      if (nextExp.command && nextExp.command.length > 0) {
-        if (!isCommandAllowed(nextExp.command, this.allowedBinaries, this.contract.allow_destructive)) {
-          return {
-            decision: "DENY",
-            reason: "out_of_scope_or_destructive",
-            iteration: this.currentIteration,
-          };
+      if (proposal.decision === "PAUSE" || proposal.decision === "DENY") {
+        this.seenOperations.add(proposal.operation_id);
+        this.persistState();
+        return {
+          decision: proposal.decision,
+          reason: proposal.rationale || "reviewer_requested_stop",
+          iteration: this.currentIteration,
+          packet_hash: expectedPacketHash,
+        };
+      }
+
+      if (this.currentIteration >= this.contract.max_iterations) {
+        return {
+          decision: "PAUSE",
+          reason: "max_iterations_reached",
+          iteration: this.currentIteration,
+        };
+      }
+
+      const nextExp = proposal.next_experiment;
+      if (nextExp) {
+        // Falla 4a: Target CWD fuera del workspace autorizado (con resolución real de symlinks)
+        if (nextExp.target_cwd) {
+          const resolved = resolveWithinReal(this.contract.allowed_cwd, nextExp.target_cwd);
+          if (!resolved) {
+            return {
+              decision: "DENY",
+              reason: "out_of_scope_or_destructive",
+              iteration: this.currentIteration,
+            };
+          }
+        }
+
+        // Falla 4b: Allowlist de operaciones completas (subcomandos, flags y rutas confinadas)
+        if (nextExp.command && nextExp.command.length > 0) {
+          if (!isOperationAllowed(nextExp.command, this.contract)) {
+            return {
+              decision: "DENY",
+              reason: "out_of_scope_or_destructive",
+              iteration: this.currentIteration,
+            };
+          }
         }
       }
-    }
 
-    this.seenOperations.add(proposal.operation_id);
-    this.persistState();
-    return {
-      decision: "CONTINUE",
-      reason: "authorized_next_step",
-      iteration: this.currentIteration,
-      packet_hash: expectedPacketHash,
-      authorized_command: nextExp?.command,
-    };
+      this.seenOperations.add(proposal.operation_id);
+      this.persistState();
+      return {
+        decision: "CONTINUE",
+        reason: "authorized_next_step",
+        iteration: this.currentIteration,
+        packet_hash: expectedPacketHash,
+        authorized_command: nextExp?.command,
+      };
+    });
   }
 }
 
