@@ -105,4 +105,22 @@ export function registerMediaTools(server:McpServer, service=new MediaService())
   description:'Devuelve un fotograma real de un video local registrado usando Video Vision. No requiere turn_token.',
   inputSchema:{asset_id,timestamp_seconds:z.number().finite().min(0)},annotations,
  },traced(service,'video_frame'));
+ server.registerTool('media_transcribe',{
+  description:
+    ('Extrae o genera la transcripción de voz determinista de un medio local registrado (subtítulos embebidos o segmentación de actividad de audio). ' +
+      'Devuelve texto completo, lista de segmentos temporizados y marcas de tiempo por palabra.'),
+  inputSchema:{asset_id,track_index:z.number().int().min(0).optional()},annotations,
+ },traced(service,'media_transcribe'));
+ server.registerTool('media_timeline_search',{
+  description:
+    ('Busca palabras o frases clave en la transcripción y marcas de tiempo del video registrado. ' +
+      'Devuelve los intervalos exactos en segundos [inicio, fin] y contexto para poder consultar fotogramas exactos con video_frame sin adivinar.'),
+  inputSchema:{asset_id,query:z.string().min(1).max(500),limit:z.number().int().min(1).max(50).optional(),track_index:z.number().int().min(0).optional()},annotations,
+ },traced(service,'media_timeline_search'));
+ server.registerTool('video_vmm',{
+  description:
+    ('Obtiene el Video Multimodal Manifest (VMM): timeline cronológico unificado sincronizando fotogramas clave I-frame, ' +
+      'cambios visuales, capas de voz y metadatos con hashes SHA-256.'),
+  inputSchema:{asset_id},annotations,
+ },traced(service,'video_vmm'));
 }

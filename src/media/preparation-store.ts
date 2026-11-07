@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { digest } from './catalog';
 import { securePrivatePath } from '../platform/private-path';
 
-export type ArtifactKind = 'audio_scan' | 'contact_sheet';
+export type ArtifactKind = 'audio_scan' | 'contact_sheet' | 'vmm' | 'transcription';
 export type PreparationStatus = 'preparing' | 'partial' | 'failed' | 'ready';
 export type PreparationProgress = { phase: string; completed?: number; total?: number };
 export type PreparationArtifact = {
@@ -68,7 +68,8 @@ function validateArtifactId(artifactId: string): void {
 }
 function artifactFilename(artifact: Pick<PreparationArtifact, 'id' | 'kind'>): string {
   validateArtifactId(artifact.id);
-  return `${artifact.id}.${artifact.kind === 'audio_scan' ? 'json' : 'jpg'}`;
+  const isJson = artifact.kind === 'audio_scan' || artifact.kind === 'vmm' || artifact.kind === 'transcription';
+  return `${artifact.id}.${isJson ? 'json' : 'jpg'}`;
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

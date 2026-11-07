@@ -679,6 +679,9 @@ function help(): void {
   isymcp command "texto"     texto para pegar en chatgpt.com
   isymcp media prepare      pega una URL, elige carpeta y confirma el paquete
   isymcp media prepare <url> prepara de forma no interactiva y devuelve JSON
+  isymcp media transcribe <id> transcribe subtítulos y habla con marcas de tiempo
+  isymcp media search <id> <q> busca coincidencias temporales exactas en la transcripción
+  isymcp media vmm <id>     genera el Video Multimodal Manifest (timeline de keyframes + voz)
   isymcp comfy workflow add <workflow.json> registra un workflow API local de ComfyUI
   isymcp comfy workflow list lista los workflows registrados
   isymcp comfy status         comprueba la instancia local de ComfyUI

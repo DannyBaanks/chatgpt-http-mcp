@@ -166,5 +166,29 @@ export async function mediaCommand(command:string|undefined,args:string[],depend
   const prepared=await prepareSource(catalog,asset,dependencies,errorOut);
   out(JSON.stringify({asset_id:asset.id,status:prepared.manifest.status,duration_seconds:prepared.manifest.duration_seconds??null,
    sheet_count:prepared.sheetCount,segment_count:prepared.segmentCount}));
- } else throw new MediaFailure('media_invalid_request','Usage: isymcp media add <file> | list | revoke <asset_id> | prepare [youtube-url]');
+ }
+ else if(command==='transcribe' && args.length>=1) {
+  const assetId=args[0];
+  const trackIndex=args[1]?parseInt(args[1],10):undefined;
+  const { transcribeMedia } = await import('./transcription');
+  const res=await catalog.snapshot(assetId, async (_, path) => transcribeMedia(path, { trackIndex }));
+  out(JSON.stringify(res, null, 2));
+ }
+ else if(command==='search' && args.length>=2) {
+  const assetId=args[0];
+  const query=args.slice(1).join(' ');
+  const { transcribeMedia, searchTimelineText } = await import('./transcription');
+  const res=await catalog.snapshot(assetId, async (_, path) => {
+    const t=await transcribeMedia(path);
+    return { query, matches: searchTimelineText(t.segments, query) };
+  });
+  out(JSON.stringify(res, null, 2));
+ }
+ else if(command==='vmm' && args.length===1) {
+  const assetId=args[0];
+  const verified=await catalog.resolve(assetId);
+  const { buildVideoMultimodalManifest } = await import('./vmm');
+  const vmm=await catalog.snapshot(assetId, async (_, path) => buildVideoMultimodalManifest(verified.id, verified.sha256, path));
+  out(JSON.stringify(vmm, null, 2));
+ } else throw new MediaFailure('media_invalid_request','Usage: isymcp media add <file> | list | revoke <asset_id> | prepare [youtube-url] | transcribe <asset_id> | search <asset_id> <query> | vmm <asset_id>');
 }

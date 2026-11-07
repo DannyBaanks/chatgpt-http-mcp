@@ -7,6 +7,8 @@ import { videoFrame } from './video-vision';
 import { youtubeSource } from './importer';
 import { MediaPreparationStore } from './preparation-store';
 import { MEDIA_ERROR_CODES, classifyMediaError, type MediaErrorCode } from './error-codes';
+import { transcribeMedia, searchTimelineText } from './transcription';
+import { buildVideoMultimodalManifest, formatVmmForLlm } from './vmm';
 
 /** Respuesta de error MCP con codigo estable y mensaje accionable. */
 function mediaFailure(code: MediaErrorCode, message?: string, detail?: string) {
@@ -44,7 +46,7 @@ export class MediaService {
    if(this.busy||this.importer.active) return mediaFailure('media_busy');
    this.busy=true;
    try {
-    if(!['media_info','audio_analyze','audio_segments','audio_scan','video_frame','video_contact_sheet'].includes(name)) {this.busy=false;
+    if(!['media_info','audio_analyze','audio_segments','audio_scan','video_frame','video_contact_sheet','media_transcribe','media_timeline_search','video_vmm'].includes(name)) {this.busy=false;
       throw Error('Unknown media tool');}
    return await withinDeadline(()=>this.catalog.snapshot(args.asset_id,async(asset,path)=>{
     let result:any,images:any[]=[],window:any;
@@ -60,6 +62,18 @@ export class MediaService {
       window=result.window;}
     else if(name==='video_contact_sheet'){const sheet=await contactSheet(path,args.start_seconds,args.end_seconds,args.columns??4);result=sheet.metadata;
       images=[sheet.image];}
+    else if(name==='media_transcribe') {
+      result=await transcribeMedia(path,{trackIndex:args.track_index});
+    }
+    else if(name==='media_timeline_search') {
+      const transcription=await transcribeMedia(path,{trackIndex:args.track_index});
+      const matches=searchTimelineText(transcription.segments,String(args.query||''),args.limit??20);
+      result={query:args.query,match_count:matches.length,matches,transcription_source:transcription.source};
+    }
+    else if(name==='video_vmm') {
+      const vmm=await buildVideoMultimodalManifest(asset.id,asset.sha256,path);
+      result={vmm,summary:formatVmmForLlm(vmm)};
+    }
     else {
      const info=await probe(path); if(!info.streams.some(s=>s.codec_type==='video')) throw Error('Media has no video stream');
      const t=args.timestamp_seconds; windowRange(t,t+0.000001,info.duration_seconds); if(t>=info.duration_seconds) throw Error(
@@ -69,6 +83,9 @@ export class MediaService {
     const method=name==='media_info'?'ffprobe source container and stream metadata':name==='video_frame'?'Video Vision extract_frame_at':name===
       'video_contact_sheet'?'FFmpeg contact sheet; labelled sample times; aspect ratio preserved':name==='audio_segments'?
       'FFmpeg RMS activity segmentation; mono 16 kHz':name==='audio_scan'?'FFmpeg full-window audio activity scan in chunks of at most 120 seconds':
+      name==='media_transcribe'?'FFmpeg subtitle extraction and deterministic speech segmentation':
+      name==='media_timeline_search'?'Indexed temporal search across speech segments and keyframe events':
+      name==='video_vmm'?'Multimodal video manifest: unified keyframe and speech timeline':
       `FFmpeg/ffprobe; audio ${args.channel&&args.channel!=='mix'?`channel ${args.channel}`:'mono mix'} at 16 kHz`;
     return {content:[{type:'text' as const,text:JSON.stringify({asset_id:asset.id,sha256:asset.sha256,source_url:asset.sourceUrl,window,method,
       version:'isymcp-media/1',result,limitations:name==='audio_analyze'?
