@@ -22,6 +22,19 @@ export const MENU: MenuItem[] = [
   { id: "conversation-new", group: "USAR", label: "Nueva conversación Codex…", hint: "CLI o App con perfil propio" },
   { id: "command", group: "USAR", label: "Armar comando @…", hint: "texto para pegar en chatgpt.com" },
   {
+    id: "github",
+    group: "CONFIGURAR",
+    label: "🐙 GitHub Extension…",
+    hint: "tokens, API y GitHub Actions",
+    children: [
+      { id: "github-status", group: "GITHUB", label: "○ Estado y cuenta", hint: "DannyBaanks y scopes" },
+      { id: "github-tokens-wizard", group: "GITHUB", label: "🧙 Asistente Wizard: Tokens…", hint: "tiempo en horas, permisos y alias" },
+      { id: "github-tokens-list", group: "GITHUB", label: "≣ Listar Tokens guardados", hint: "vigencia, expiración y scopes" },
+      { id: "github-repos", group: "GITHUB", label: "📁 Repositorios", hint: "listar tus repos" },
+      { id: "hook.github", hidden: true, label: "hook.github" },
+    ],
+  },
+  {
     id: "settings",
     group: "CONFIGURAR",
     label: "Ajustes de ChatGPT…",

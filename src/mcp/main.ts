@@ -56,6 +56,7 @@ import { CODEX_TOOLS, buildInstructions } from "./identity";
 import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
 import { registerComfyTools } from "../comfyui/register";
+import { registerGitHubTools } from "../github/register";
 import { registerTableroTools } from "../tablero/register";
 import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
 import { handleQueueLeaseMcpCall, isQueueLeaseToken } from "../remote-monitor";
@@ -775,6 +776,7 @@ const disableAux = process.env.CODEX_WEB_HTTP_DISABLE_AUX_TOOLS === "true" ||
 if (!disableAux) {
   registerMediaTools(server);
   registerComfyTools(server);
+  registerGitHubTools(server);
 }
 // Solo si el usuario creo tablero.json; apagado por defecto (ver src/tablero/config.ts).
 registerTableroTools(server);

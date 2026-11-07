@@ -649,6 +649,8 @@ function help(): void {
   isymcp monitor lease revoke <lease-id>
   isymcp monitor approve <task-id>
   isymcp monitor tasks             lista las tareas encoladas y sus respuestas/estados
+  isymcp github [cmd]              suite de GitHub: tokens con TTL en horas, asistente
+                                   wizard interactivo, API REST y GitHub Actions
   isymcp ask "texto" [--new] turno real con ChatGPT desde la terminal; sigue
                              el mismo chat (visible en el panel); --new abre otro.
                              Tambien por stdin: echo hola | isymcp ask
@@ -946,6 +948,10 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
     if (target) await menuSession("revoke", [target]);
   },
   "session-cookies": () => guardarSesion("default"),
+  "github-status": async () => { await (await import("./github/cli")).githubCommand("status"); },
+  "github-tokens-wizard": async () => { await (await import("./github/cli")).githubCommand("tokens", ["wizard"]); },
+  "github-tokens-list": async () => { await (await import("./github/cli")).githubCommand("tokens", ["list"]); },
+  "github-repos": async () => { await (await import("./github/cli")).githubCommand("repos"); },
 };
 
 async function runAction(id: string): Promise<void> {
@@ -1009,6 +1015,13 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
 } else if (cmd === "comfy") {
   try { await (await import("./comfyui/cli")).comfyCommand(sub, rest); }
   catch (error) {
+    console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
+} else if (cmd === "github") {
+  try {
+    process.exitCode = await (await import("./github/cli")).githubCommand(sub, rest);
+  } catch (error) {
     console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   }
