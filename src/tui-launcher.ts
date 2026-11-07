@@ -79,6 +79,21 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
   const isX11OrWayland = Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
   const guiTerm = detectTerminalEmulator();
 
+  if (options.dryRun) {
+    const targetTerm = (isX11OrWayland && guiTerm) ? guiTerm : (existsSync("/usr/bin/tmux") ? "tmux" : "none");
+    const previewCmd = targetTerm === "tmux"
+      ? ["tmux", "new-session", "-d", "-s", "agy_dryrun", "-c", cwd, `${agyBin} ${agyArgs.join(" ")}`]
+      : [guiTerm || "terminal", "--title", title, "--", agyBin, ...agyArgs];
+    return {
+      ok: true,
+      pid: 0,
+      terminal: targetTerm,
+      cwd,
+      command: previewCmd,
+      message: "Dry-run: comando preparado exitosamente sin spawn real.",
+    };
+  }
+
   // 1. Terminal GUI si hay pantalla disponible
   if ((pref === "auto" || pref === "gui") && isX11OrWayland && guiTerm) {
     let termCmd: string[] = [];
@@ -99,17 +114,6 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         "-e",
         `${agyBin} ${agyArgs.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`,
       ];
-    }
-
-    if (options.dryRun) {
-      return {
-        ok: true,
-        pid: 0,
-        terminal: guiTerm,
-        cwd,
-        command: termCmd,
-        message: "Dry-run: comando preparado exitosamente sin spawn real.",
-      };
     }
 
     try {
