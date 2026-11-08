@@ -168,8 +168,12 @@ function withRegistryLock<T>(work: () => T): T {
       // de 4 procesos morian aqui). Solo se admite como "ocupado" si el lock realmente
       // esta ahi: si no existe y aun asi falla el open, es un problema real de permisos
       // sobre bridgeHome y debe gritar ya, no caducar contra el deadline de 10 s.
-      if (error?.code === "EPERM" && !existsSync(lock)) throw error;
-      if (error?.code !== "EEXIST" && error?.code !== "EPERM") throw error;
+      // Windows can also surface an already-open lock as EACCES. Treat it as
+      // contention ONLY while the lock file exists; missing files and real ACL
+      // failures must still propagate rather than silently granting access.
+      const busyCode = error?.code === "EEXIST" || error?.code === "EPERM" ||
+        (process.platform === "win32" && error?.code === "EACCES");
+      if (!busyCode || (error?.code !== "EEXIST" && !existsSync(lock))) throw error;
       try {
         if (Date.now() - statSync(lock).mtimeMs > REGISTRY_LOCK_STALE_MS) { unlinkSync(lock); continue; }
       } catch { continue; /* el dueño lo solto entre medias */ }
