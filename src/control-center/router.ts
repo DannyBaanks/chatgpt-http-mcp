@@ -42,18 +42,21 @@ export async function handleControlCenterApi(
     });
   }
 
-  // 4. Aprobación de tareas en AWAITING_APPROVAL
+  // 4. Aprobación de tareas en AWAITING_APPROVAL (con verificación de workspace)
   if (path === "/api/control-center/tasks/approve" && req.method === "POST") {
-    const body = (await req.json().catch(() => null)) as { task_id?: unknown } | null;
+    const body = (await req.json().catch(() => null)) as { task_id?: unknown; workspace_id?: unknown } | null;
     const taskId = String(body?.task_id || "").trim();
     if (!taskId) {
       return Response.json({ ok: false, error: "task_id es requerido" }, { status: 400 });
     }
-    const result = approveControlCenterTask(taskId);
+    const expectedWorkspaceId = typeof body?.workspace_id === "string" && body.workspace_id.trim()
+      ? body.workspace_id.trim()
+      : undefined;
+    const result = approveControlCenterTask(taskId, expectedWorkspaceId);
     return Response.json(result, { status: result.ok ? 200 : 400 });
   }
 
-  // 5. Despacho seguro de acciones (con confirmación de comandos peligrosos)
+  // 5. Despacho seguro de acciones (con protocolo de OperatorGrant)
   if (path === "/api/control-center/dispatch" && req.method === "POST") {
     const body = (await req.json().catch(() => null)) as ControlCenterDispatchRequest | null;
     if (!body || !body.action) {
@@ -62,13 +65,13 @@ export async function handleControlCenterApi(
     const result = await dispatchControlCenterAction(
       body.action,
       body.arguments || {},
-      { confirmed: body.confirmed === true }
+      { confirmed: body.confirmed === true, operator_grant: body.operator_grant }
     );
     const status = result.requires_confirmation ? 403 : result.ok ? 200 : 400;
     return Response.json(result, { status });
   }
 
-  // 6. Ejecución directa e interactiva de comandos CLI de isymcp
+  // 6. Ejecución directa e interactiva de comandos CLI de isymcp (con OperatorGrant)
   if (path === "/api/control-center/cli" && req.method === "POST") {
     const body = (await req.json().catch(() => null)) as CliExecutionRequest | null;
     if (!body || !body.command) {
@@ -79,6 +82,7 @@ export async function handleControlCenterApi(
       body.args || [],
       {
         confirmed: body.confirmed === true,
+        operator_grant: body.operator_grant,
         cwd: body.cwd,
         timeoutMs: body.timeoutMs,
       }

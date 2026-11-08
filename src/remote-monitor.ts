@@ -22,7 +22,8 @@ export type OwnerGrantScope =
   | "lease:revoke"
   | "task:grant"
   | "task:revoke"
-  | "workspace:register";
+  | "workspace:register"
+  | "operator:confirm";
 
 export type TaskState =
   | "QUEUED"

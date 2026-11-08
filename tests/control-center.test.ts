@@ -118,11 +118,21 @@ describe("ISyMCP Control Center — Seguridad y Control de Comandos Peligrosos",
     expect(res.warning).toContain("shell");
   });
 
-  test("CC-06: shell.exec con confirmación explícita ejecuta en el host", async () => {
+  test("CC-06: shell.exec con challenge-response de OperatorGrant ejecuta en el host", async () => {
+    // 1. Sin grant: recibe 403 challenge con operator_grant
+    const challenge = await dispatchControlCenterAction(
+      "shell.exec",
+      { command: "echo cc_verified" }
+    );
+    expect(challenge.ok).toBe(false);
+    expect(challenge.requires_confirmation).toBe(true);
+    expect(challenge.operator_grant).toBeDefined();
+
+    // 2. Con grant firmado: ejecuta legítimamente
     const res = await dispatchControlCenterAction(
       "shell.exec",
       { command: "echo cc_verified" },
-      { confirmed: true }
+      { operator_grant: challenge.operator_grant }
     );
     expect(res.ok).toBe(true);
     expect(res.requires_confirmation).toBeUndefined();

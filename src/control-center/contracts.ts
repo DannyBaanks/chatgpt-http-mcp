@@ -57,6 +57,7 @@ export interface ControlCenterDispatchRequest {
   action: string;
   arguments?: Record<string, unknown>;
   confirmed?: boolean;
+  operator_grant?: unknown;
 }
 
 export interface ControlCenterDispatchResponse {
@@ -66,12 +67,14 @@ export interface ControlCenterDispatchResponse {
   error?: string;
   requires_confirmation?: boolean;
   warning?: string;
+  operator_grant?: unknown;
 }
 
 export interface CliExecutionRequest {
   command: string;
   args?: string[];
   confirmed?: boolean;
+  operator_grant?: unknown;
   cwd?: string;
   timeoutMs?: number;
 }
@@ -86,6 +89,7 @@ export interface CliExecutionResult {
   duration_ms: number;
   requires_confirmation?: boolean;
   warning?: string;
+  operator_grant?: unknown;
   error?: string;
 }
 

@@ -127,10 +127,16 @@ describe("CC-01 Adversarial Suite — Falsación de Frontera de Autoridad", () =
   describe("4. Fuga de Secretos y Sanitización (Zero Token Leakage)", () => {
     test("ADV-12: Tokens de GitHub (ghp_...) en la salida de comandos son redactados automáticamente", async () => {
       const fakeToken = "ghp_111122223333444455556666777788889999";
+      const challenge = await dispatchControlCenterAction(
+        "shell.exec",
+        { command: `echo "token=${fakeToken}"` }
+      );
+      expect(challenge.operator_grant).toBeDefined();
+
       const res = await dispatchControlCenterAction(
         "shell.exec",
         { command: `echo "token=${fakeToken}"` },
-        { confirmed: true }
+        { operator_grant: challenge.operator_grant }
       );
       expect(res.ok).toBe(true);
       const out = JSON.stringify(res.result);
@@ -140,10 +146,16 @@ describe("CC-01 Adversarial Suite — Falsación de Frontera de Autoridad", () =
 
     test("ADV-13: Tokens de QueueLease (ql_...) en respuestas son redactados automáticamente", async () => {
       const fakeLease = "ql_abcdef1234567890abcdef1234567890";
+      const challenge = await dispatchControlCenterAction(
+        "shell.exec",
+        { command: `echo "lease=${fakeLease}"` }
+      );
+      expect(challenge.operator_grant).toBeDefined();
+
       const res = await dispatchControlCenterAction(
         "shell.exec",
         { command: `echo "lease=${fakeLease}"` },
-        { confirmed: true }
+        { operator_grant: challenge.operator_grant }
       );
       expect(res.ok).toBe(true);
       const out = JSON.stringify(res.result);

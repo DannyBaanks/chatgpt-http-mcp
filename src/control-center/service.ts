@@ -44,12 +44,15 @@ const ACTION_ALIAS_MAP: Record<string, string> = {
 
 function sanitizeOutput(data: unknown): unknown {
   if (typeof data === "string") {
-    // Redactar tokens y secrets que puedan haber llegado
+    // Redactar tokens, secrets y rutas sensibles
     return data
       .replace(/(ghp_[A-Za-z0-9_]{36,})/g, "[REDACTED_GH_TOKEN]")
       .replace(/(x-isymcp-token:\s*)[^\s\r\n]+/gi, "$1[REDACTED]")
       .replace(/(ql_[A-Za-z0-9_-]{20,})/g, "[REDACTED_LEASE_TOKEN]")
-      .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, "$1[REDACTED]");
+      .replace(/(og-[A-Za-z0-9_-]{16,})/g, "[REDACTED_OWNER_GRANT]")
+      .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, "$1[REDACTED]")
+      .replace(/(\.codex-web-http\/storage-state\.json)/g, "[REDACTED_STORAGE_PATH]")
+      .replace(/(\.codex-web-http\/token)/g, "[REDACTED_TOKEN_PATH]");
   }
   if (Array.isArray(data)) {
     return data.map(sanitizeOutput);
@@ -57,7 +60,7 @@ function sanitizeOutput(data: unknown): unknown {
   if (data !== null && typeof data === "object") {
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(data)) {
-      if (/token|secret|password|key/i.test(k) && typeof v === "string" && v.length > 10) {
+      if (/token|secret|password|key|cookie|session_id|auth_header|worker_secret|turn_token|storage_state/i.test(k)) {
         clean[k] = "[REDACTED]";
       } else {
         clean[k] = sanitizeOutput(v);
@@ -242,14 +245,24 @@ export function getControlCenterTasks(
   }
 }
 
-export function approveControlCenterTask(taskId: string): { ok: boolean; task?: unknown; error?: string } {
+export function approveControlCenterTask(
+  taskId: string,
+  expectedWorkspaceId?: string,
+  env: Record<string, string | undefined> = process.env
+): { ok: boolean; task?: unknown; error?: string } {
   if (!taskId || typeof taskId !== "string") {
     return { ok: false, error: "task_id inválido o requerido" };
   }
-  const { db, authority, monitor } = openBridgeMonitorStack();
+  const { db, authority, monitor } = openBridgeMonitorStack(env);
   try {
     const task = monitor.inspectTask(taskId);
     if (!task) return { ok: false, error: `No existe la tarea: ${taskId}` };
+    if (expectedWorkspaceId && task.workspace_id !== expectedWorkspaceId) {
+      return {
+        ok: false,
+        error: `DENY: workspace_mismatch: tarea pertenece a '${task.workspace_id}', pero se esperaba '${expectedWorkspaceId}'`,
+      };
+    }
     const ownerId = "local_owner";
     const ogGrant = authority.mintOwnerGrant({ owner_id: ownerId, scopes: ["task:grant"] });
     const grant = authority.createTaskGrant(ogGrant, {
@@ -273,7 +286,7 @@ export function approveControlCenterTask(taskId: string): { ok: boolean; task?: 
 export async function dispatchControlCenterAction(
   action: string,
   args: Record<string, unknown> = {},
-  options: { confirmed?: boolean } = {}
+  options: { confirmed?: boolean; operator_grant?: unknown } = {}
 ): Promise<ControlCenterDispatchResponse> {
   const normAction = (action || "").trim().toLowerCase();
   const canonicalAction = ACTION_ALIAS_MAP[normAction] ?? normAction;
@@ -284,28 +297,59 @@ export async function dispatchControlCenterAction(
     (canonicalAction === "tui.spawn" &&
       (args.mode === "accept-edits" || args.dangerously_skip_permissions === true));
 
-  if (isDangerous && options.confirmed !== true) {
+  if (isDangerous) {
     let warningMsg = "Esta acción puede modificar el sistema, ejecutar código en el host o alterar repositorios.";
     if (canonicalAction === "shell.exec") {
-      warningMsg = `Ejecución de shell arbitraria: se requiere confirmación explícita para ejecutar "${String(
+      warningMsg = `Ejecución de shell arbitraria: se requiere confirmación explícita con grant firmado para ejecutar "${String(
         args.command || args.cmd || ""
       ).slice(0, 100)}".`;
     } else if (canonicalAction === "github.dispatch") {
-      warningMsg = `Disparo de CI en GitHub (${String(args.workflow_id || "")}): requiere confirmación del operador.`;
+      warningMsg = `Disparo de CI en GitHub (${String(args.workflow_id || "")}): requiere autorización de operador con grant firmado.`;
     } else if (canonicalAction === "github.exec") {
-      warningMsg = `Ejecución de comandos nativos de GitHub CLI (gh): requiere confirmación del operador.`;
+      warningMsg = `Ejecución de comandos nativos de GitHub CLI (gh): requiere autorización de operador con grant firmado.`;
     } else if (canonicalAction === "github.api") {
-      warningMsg = `Invocación REST a GitHub API con potencial mutación (${String(args.method || "GET")}): requiere confirmación del operador.`;
+      warningMsg = `Invocación REST a GitHub API con potencial mutación (${String(args.method || "GET")}): requiere autorización de operador con grant firmado.`;
     } else if (canonicalAction === "tui.spawn") {
-      warningMsg = `Lanzamiento de TUI en modo '${String(args.mode)}': requiere confirmación del operador.`;
+      warningMsg = `Lanzamiento de TUI en modo '${String(args.mode)}': requiere autorización de operador con grant firmado.`;
     }
 
-    return {
-      ok: false,
-      action: canonicalAction,
-      requires_confirmation: true,
-      warning: warningMsg,
-    };
+    // Protocolo de Autoridad Criptográfica: Si no se provee operator_grant, emitir challenge
+    if (!options.operator_grant) {
+      const { db, authority } = openBridgeMonitorStack();
+      let grant: unknown = null;
+      try {
+        grant = authority.mintOwnerGrant({
+          owner_id: "operator_local",
+          scopes: ["operator:confirm"],
+          ttlSeconds: 60,
+        });
+      } finally {
+        db.close();
+      }
+      return {
+        ok: false,
+        action: canonicalAction,
+        requires_confirmation: true,
+        warning: warningMsg,
+        operator_grant: grant,
+      };
+    }
+
+    // Si se envía operator_grant, consumirlo con validación estricta de un solo uso
+    const { db, authority } = openBridgeMonitorStack();
+    try {
+      authority.consumeOwnerGrant(options.operator_grant, "operator:confirm");
+    } catch (err) {
+      return {
+        ok: false,
+        action: canonicalAction,
+        requires_confirmation: true,
+        warning: `DENY: Autorización de operador inválida o consumida (${err instanceof Error ? err.message : String(err)})`,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      db.close();
+    }
   }
 
   try {
@@ -388,7 +432,7 @@ export function isCliCommandDestructive(
 export async function executeIsyMcpCli(
   command: string,
   args: string[] = [],
-  options: { confirmed?: boolean; cwd?: string; timeoutMs?: number } = {}
+  options: { confirmed?: boolean; operator_grant?: unknown; cwd?: string; timeoutMs?: number } = {}
 ): Promise<CliExecutionResult> {
   const trimmed = (command || "").trim();
   if (!trimmed) {
@@ -422,18 +466,52 @@ export async function executeIsyMcpCli(
   const fullCommand = `isymcp ${[base, ...cmdArgs].join(" ")}`.trim();
   const check = isCliCommandDestructive(base, cmdArgs);
 
-  if (check.isDestructive && options.confirmed !== true) {
-    return {
-      ok: false,
-      command: base,
-      full_command: fullCommand,
-      stdout: "",
-      stderr: `Bloqueado por seguridad: ${check.warning}`,
-      exit_code: 1,
-      duration_ms: 0,
-      requires_confirmation: true,
-      warning: check.warning,
-    };
+  if (check.isDestructive) {
+    if (!options.operator_grant) {
+      const { db, authority } = openBridgeMonitorStack();
+      let grant: unknown = null;
+      try {
+        grant = authority.mintOwnerGrant({
+          owner_id: "operator_local",
+          scopes: ["operator:confirm"],
+          ttlSeconds: 60,
+        });
+      } finally {
+        db.close();
+      }
+      return {
+        ok: false,
+        command: base,
+        full_command: fullCommand,
+        stdout: "",
+        stderr: `Bloqueado por seguridad: ${check.warning}`,
+        exit_code: 1,
+        duration_ms: 0,
+        requires_confirmation: true,
+        warning: check.warning,
+        operator_grant: grant,
+      };
+    }
+
+    const { db, authority } = openBridgeMonitorStack();
+    try {
+      authority.consumeOwnerGrant(options.operator_grant, "operator:confirm");
+    } catch (err) {
+      return {
+        ok: false,
+        command: base,
+        full_command: fullCommand,
+        stdout: "",
+        stderr: `DENY: Autorización de operador inválida o consumida (${err instanceof Error ? err.message : String(err)})`,
+        exit_code: 1,
+        duration_ms: 0,
+        requires_confirmation: true,
+        warning: `DENY: Autorización denegada (${err instanceof Error ? err.message : String(err)})`,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      db.close();
+    }
   }
 
   const isyCliPath = join(import.meta.dir, "..", "isymcp.ts");

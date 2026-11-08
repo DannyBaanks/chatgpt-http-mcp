@@ -1032,6 +1032,7 @@ async function ccSubmitAction(ev) {
   }
 
   const confirmed = document.getElementById('cc-confirm-checkbox').checked;
+  const operatorGrant = ccSelectedAction.operator_grant || undefined;
   const out = document.getElementById('cc-action-output');
   out.textContent = 'Ejecutando ' + ccSelectedAction.name + '...';
 
@@ -1039,14 +1040,21 @@ async function ccSubmitAction(ev) {
     const res = await fetch('/api/control-center/dispatch', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: ccSelectedAction.name, arguments: args, confirmed })
+      body: JSON.stringify({
+        action: ccSelectedAction.name,
+        arguments: args,
+        confirmed,
+        operator_grant: confirmed ? operatorGrant : undefined,
+      })
     });
     const data = await res.json();
     if (res.status === 403 && data.requires_confirmation) {
+      ccSelectedAction.operator_grant = data.operator_grant;
       document.getElementById('cc-action-danger').style.display = 'block';
       document.getElementById('cc-action-danger-text').textContent = data.warning;
       out.textContent = '⚠️ Bloqueado: ' + data.warning;
     } else {
+      ccSelectedAction.operator_grant = null;
       out.textContent = JSON.stringify(data, null, 2);
     }
   } catch (err) {
@@ -1291,9 +1299,9 @@ async function ccRunPendingDestructive() {
     return;
   }
   if (!ccPendingDestructive) return;
-  const { cmd, args } = ccPendingDestructive;
+  const { cmd, args, operator_grant } = ccPendingDestructive;
   ccCancelPendingDestructive();
-  await ccExecuteCliCommand(cmd, args, { confirmed: true });
+  await ccExecuteCliCommand(cmd, args, { confirmed: true, operator_grant });
 }
 
 async function ccExecuteCliCommand(cmd, args = [], options = {}) {
@@ -1323,7 +1331,8 @@ async function ccExecuteCliCommand(cmd, args = [], options = {}) {
       body: JSON.stringify({
         command: cmd,
         args,
-        confirmed: options.confirmed === true
+        confirmed: options.confirmed === true,
+        operator_grant: options.operator_grant,
       })
     });
 
@@ -1334,7 +1343,7 @@ async function ccExecuteCliCommand(cmd, args = [], options = {}) {
         badge.className = 'cc-badge warn';
         badge.textContent = 'CONFIRMACIÓN REQUERIDA';
       }
-      ccPendingDestructive = { cmd, args };
+      ccPendingDestructive = { cmd, args, operator_grant: data.operator_grant };
       const box = document.getElementById('cc-cli-confirm-box');
       const msg = document.getElementById('cc-cli-confirm-msg');
       if (box && msg) {
