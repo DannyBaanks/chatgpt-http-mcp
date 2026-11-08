@@ -7,11 +7,11 @@
 // Store: ~/.codex-web-http/turns/<sha256(turnId)[:32]>.json (0600, best-effort).
 // Limite v0 documentado: respuestas 5xx son ambiguas y NO se cachean (un retry
 // puede re-ejecutar); 2xx/4xx son definitivas y se cachean.
-import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { securePrivatePath } from "./platform/private-path";
 import { bridgeHome } from "./codex-sessions";
+import { sha256Hex } from "./crypto";
 
 export interface TurnRecord {
   ts: string;
@@ -26,7 +26,7 @@ function storeDir(): string {
 
 function recordPath(turnId: string): string {
   // Hash del id: evita path traversal y limita el nombre del archivo.
-  return join(storeDir(), `${createHash("sha256").update(turnId).digest("hex").slice(0, 32)}.json`);
+  return join(storeDir(), `${sha256Hex(turnId).slice(0, 32)}.json`);
 }
 
 export function readTurnRecord(turnId: string): TurnRecord | null {

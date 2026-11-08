@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { lstatSync, existsSync, chmodSync } from 'node:fs';
 import { createServer, createConnection } from 'node:net';
 import { isAbsolute, join } from 'node:path';
@@ -6,6 +6,7 @@ import { isWindowsPipePath, localIpcPath } from '../platform/ipc';
 import { ensurePrivatePath } from '../platform/private-path';
 import { submitOnce, type BrowserDriverPort, type SubmissionRequest, type SubmissionReceipt } from './browser-driver';
 import type { ConversationSnapshot } from './browser-observer';
+import { safeEqualHex } from '../crypto';
 
 const MAX_FRAME = 1024 * 1024;
 function privatePath(path: string, socket = false) {
@@ -23,8 +24,7 @@ function privatePath(path: string, socket = false) {
 }
 function authorized(actual: unknown, expected: string) {
   if (typeof actual !== 'string') return false;
-  const a = Buffer.from(actual), b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return safeEqualHex(actual, expected);
 }
 
 // Only browser operations cross this private socket. Execution remains owned

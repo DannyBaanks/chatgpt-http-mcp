@@ -18,11 +18,17 @@ Para permanecer activo y recibir órdenes continuas de ChatGPT sin cerrarse ni d
 - Esto registra una \`/task\` en segundo plano en Antigravity. Cuando ChatGPT envíe un nuevo requerimiento al monitor, Antigravity despertará automáticamente al agente en un nuevo turno para procesarlo.
 
 ### Paso 2: Emitir el Recibo de Confirmación (ACK)
-Para notificar inmediatamente a ChatGPT que la consola está abierta y lista:
+Para notificar inmediatamente a ChatGPT que la consola está abierta y lista (el ACK NO cierra la tarea):
 - Ejecutar:
   \`\`\`bash
-  bun run "<isymcpCliPath>" monitor respond <TASK_ID> --summary "Consola TUI iniciada con éxito. Tarea de escucha en segundo plano activa." --no-wait
+  bun run "<isymcpCliPath>" monitor ack <TASK_ID> --console <CONSOLE_ID> --summary "Consola TUI iniciada. Listener activo."
   \`\`\`
+- Avance: \`monitor respond <TASK_ID> --console <CONSOLE_ID> --progress --summary "..."\`; cierre: \`--complete\` o \`--fail\`.
+
+### Identificar consolas (ChatGPT)
+- \`isymcp(action='tui.consoles')\` lista cada consola con console_id, PID real de agy, alive, token_fp, estado (SPAWNED/ACKED/RUNNING/COMPLETED/FAILED) y ack firmado.
+- \`isymcp(action='tui.log', arguments={ console_id: '...' })\` devuelve el log cronológico de esa consola.
+- Para dirigir una tarea a una consola concreta: \`monitor.submit\` con \`console_id\`.
 
 ## 3. Despacho Universal de Herramientas (Estilo REA)
 Todo agente o cliente conectado dispone de la herramienta universal \`isymcp\`:
@@ -44,6 +50,8 @@ export interface AgentBootstrapParams {
   operationId: string;
   monitorUrl: string;
   isymcpCliPath: string;
+  /** Identidad determinista de la consola (console-registry). Si existe, el ACK es por consola. */
+  consoleId?: string;
 }
 
 export function buildAgentBootstrapProtocol(params: AgentBootstrapParams): string {
@@ -56,7 +64,7 @@ Estás ejecutándote en una consola interactiva Antigravity (AGY) coordinada por
 • TASK_ID: ${params.taskId}
 • OPERATION_ID: ${params.operationId}
 • MONITOR_URL: ${params.monitorUrl}
-• ISYMCP_CLI: ${params.isymcpCliPath}
+• ISYMCP_CLI: ${params.isymcpCliPath}${params.consoleId ? `\n• CONSOLE_ID: ${params.consoleId} (tu identidad; el token ISYMCP_ACK_TOKEN y el PID ya están en tu entorno)` : ""}
 
 PASOS DE INICIALIZACIÓN INMEDIATA (Ejecuta en tu primer turno):
 1. PERSISTENCIA DE TAREA EN BACKGROUND (/task):

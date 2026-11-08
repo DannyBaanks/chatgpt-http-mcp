@@ -15,10 +15,11 @@
 // lo mandan ellos mismos, asi que el usuario no configura nada.
 
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
 import { ensurePrivatePath, securePrivatePath } from "./platform/private-path";
+import { safeEqualHex, sha256Hex } from "./crypto";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{20,256}$/;
@@ -65,7 +66,7 @@ export interface GuardOptions {
 
 /** Hash opaco derivado del token para la cookie de sesion del panel (no reversible). */
 export function panelSessionCookie(expectedToken: string): string {
-  return createHash("sha256").update(`isymcp-panel-cookie:${expectedToken}`).digest("hex");
+  return sha256Hex(`isymcp-panel-cookie:${expectedToken}`);
 }
 
 /** Cabecera con el token del bridge (no usa Authorization: esa viaja al upstream). */
@@ -226,9 +227,7 @@ export function guardLocalRequest(req: Request, options: GuardOptions = {}): Res
       const m = /(?:^|;\s*)isymcp_session=([^;]+)/.exec(cookieHeader);
       if (m && m[1]) {
         try {
-          const b1 = Buffer.from(m[1]);
-          const b2 = Buffer.from(expectedCookie);
-          if (b1.length === b2.length && timingSafeEqual(b1, b2)) matched = true;
+          if (safeEqualHex(m[1], expectedCookie)) matched = true;
         } catch {}
       }
     }

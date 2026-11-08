@@ -1,5 +1,9 @@
 // codex-sessions.ts — session tokens del MCP nativo (Codex ISyMCP).
 //
+// NOTA ARQUITECTÓNICA: Este archivo gestiona tokens de autorización de capacidades locales
+// para Codex CLI, sandboxing (bwrap/docker/windows) y workspaces (~/.codex-web-http/codex-sessions.json).
+// Para sesiones de navegación Web y cookies del navegador ChatGPT, ver `src/sessions.ts`.
+//
 // Un session token es una capacidad opaca ligada a un workspace y a un modo
 // (read-only | writable). Sustituye al turn_token efimero que hoy exige el
 // contrato nativo: cuando el broker no tiene un turno pendiente, un token que
@@ -9,7 +13,7 @@
 //
 // Regla de secretos: el token completo solo se muestra al crearlo. En
 // receipts, listados y logs se usa siempre el fingerprint sha256[:12].
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync,
   writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -17,6 +21,7 @@ import { delimiter as pathDelimiter, dirname, isAbsolute, join, relative, resolv
 import { buildCodexWindowsSandboxPlan, cleanupCodexWindowsSandboxPath, findCodexWindowsCli } from "./platform/codex-windows-sandbox";
 import { buildWindowsDockerSandboxPlan } from "./platform/docker-sandbox";
 import { ensurePrivatePath, securePrivatePath } from "./platform/private-path";
+import { safeEqualBuffer, sha256Hex } from "./crypto";
 
 export interface CodexSession {
   /** Explicit native owner; never inferred from a model, port or token prefix. */
@@ -74,7 +79,7 @@ export function sessionRegistryExists(): boolean {
 }
 
 export function fingerprint(token: string): string {
-  return createHash("sha256").update(token).digest("hex").slice(0, 12);
+  return sha256Hex(token).slice(0, 12);
 }
 
 function readRegistry(): Registry {
@@ -163,8 +168,12 @@ function withRegistryLock<T>(work: () => T): T {
       // de 4 procesos morian aqui). Solo se admite como "ocupado" si el lock realmente
       // esta ahi: si no existe y aun asi falla el open, es un problema real de permisos
       // sobre bridgeHome y debe gritar ya, no caducar contra el deadline de 10 s.
-      if (error?.code === "EPERM" && !existsSync(lock)) throw error;
-      if (error?.code !== "EEXIST" && error?.code !== "EPERM") throw error;
+      // Windows can also surface an already-open lock as EACCES. Treat it as
+      // contention ONLY while the lock file exists; missing files and real ACL
+      // failures must still propagate rather than silently granting access.
+      const busyCode = error?.code === "EEXIST" || error?.code === "EPERM" ||
+        (process.platform === "win32" && error?.code === "EACCES");
+      if (!busyCode || (error?.code !== "EEXIST" && !existsSync(lock))) throw error;
       try {
         if (Date.now() - statSync(lock).mtimeMs > REGISTRY_LOCK_STALE_MS) { unlinkSync(lock); continue; }
       } catch { continue; /* el dueño lo solto entre medias */ }
@@ -246,7 +255,7 @@ function readLocalRequest(session: CodexSession, filename: string): { filename: 
     try { content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data); }
     catch { throw new Error("session_request_invalid: request must be UTF-8 text"); }
     if (!content.trim() || content.includes("\0")) throw new Error("session_request_invalid: request must contain usable text");
-    return { filename, content, sha256: createHash("sha256").update(data).digest("hex") };
+    return { filename, content, sha256: sha256Hex(data) };
   } finally { if (fd !== undefined) closeSync(fd); }
 }
 
@@ -361,7 +370,7 @@ export function findSessionByToken(token: string): CodexSession | null {
   for (const session of sessions) {
     const a = Buffer.from(session.token);
     const b = Buffer.from(token);
-    if (a.length === b.length && timingSafeEqual(a, b)) {
+    if (safeEqualBuffer(a, b)) {
       // Retain native tombstones so expiry/closure is an explicit native error,
       // never a compatibility stub or a switch to the standalone sandbox.
       if (isExpired(session) && !session.nativeOwner) return null;
@@ -376,45 +385,11 @@ export function findSessionByToken(token: string): CodexSession | null {
   return null;
 }
 
-/** Ruta confinada: resuelve `candidate` dentro de `root`; null si se escapa. */
-export function resolveWithin(root: string, candidate: string): string | null {
-  const resolved = candidate ? resolve(root, candidate) : resolve(root);
-  const rel = relative(root, resolved);
-  if (rel === "") return resolved;
-  if (rel.startsWith("..") || isAbsolute(rel)) return null;
-  return resolved;
-}
-
-/**
- * Como resolveWithin, pero ademas sigue symlinks del path existente: un link
- * dentro del workspace que apunta afuera se niega (incluyendo ancestros no existentes aun).
- */
-export function resolveWithinReal(root: string, candidate: string): string | null {
-  const lexical = resolveWithin(root, candidate);
-  if (!lexical) return null;
-  let realRoot: string;
-  try {
-    realRoot = realpathSync(root);
-  } catch {
-    return null;
-  }
-  let cur = lexical;
-  while (!existsSync(cur)) {
-    const parent = dirname(cur);
-    if (parent === cur) break;
-    cur = parent;
-  }
-  let realAncestor: string;
-  try {
-    realAncestor = realpathSync(cur);
-  } catch {
-    return null;
-  }
-  return resolveWithin(realRoot, realAncestor) ? lexical : null;
-}
+import { resolveWithin, resolveWithinReal } from "./path";
+export { resolveWithin, resolveWithinReal } from "./path";
 
 export const BWRAP = "/usr/bin/bwrap";
-export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.2";
+export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.1.0";
 
 export interface SandboxPlan {
   argv: string[];

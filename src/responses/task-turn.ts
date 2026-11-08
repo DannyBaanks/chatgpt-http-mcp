@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "../codex-sessions";
+import { sha256Hex } from "../crypto";
 import { securePrivatePath } from "../platform/private-path";
 import type { AppConfig } from "../config";
 import { selectComposerSettings } from "../chatgpt-settings";
@@ -12,7 +12,7 @@ import { decodeToolReply, nativeToolChoice, nativeTools, toolPrompt, type Native
 import { commitConversationReceipt } from "../codex-conversation";
 
 export interface TaskIdentity { key: string; threadId: string; turnId: string }
-const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+const hash = sha256Hex;
 function one(values: unknown[], field: string, required = false): string {
   const present = values.filter((v) => v !== undefined && v !== null);
   if (present.some((v) => typeof v !== "string" || !v.trim() || v.length > 256))

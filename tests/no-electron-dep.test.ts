@@ -40,7 +40,7 @@ describe("M2: Electron fuera de este path", () => {
     const offenders: string[] = [];
     for (const file of [...tsFiles(join(ROOT, "src")), ...tsFiles(join(ROOT, "scripts"))]) {
       // Desktop-only profile/launch surfaces; none imports Electron or runs the Web bridge.
-      if ([join(ROOT, "src", "codex-app.ts"), join(ROOT, "src", "visible", "native-app-probe.ts"),
+      if ([join(ROOT, "src", "visible", "native-app-probe.ts"),
         join(ROOT, "scripts", "probe-active-isymcp-app.ts")].includes(file)) continue;
       for (const line of codeLines(file)) {
         if (/\belectron\b/i.test(line)) offenders.push(`${file.slice(ROOT.length + 1)}: ${line.slice(0, 100)}`);

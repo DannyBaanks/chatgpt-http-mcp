@@ -1,0 +1,32 @@
+{
+  "name": "isymcp-chatgpt-plugin",
+  "version": "1.2.0",
+  "title": "ISyMCP Control Center Private ChatGPT Plugin",
+  "author": "Danny Baanks",
+  "license": "UNLICENSED",
+  "platform": {
+    "target": "chatgpt-developer-plugin",
+    "fallback": "gpt-action",
+    "ui_url": "http://127.0.0.1:8798/control-center",
+    "tunnel_compatible": true
+  },
+  "security": {
+    "auth_type": "none",
+    "optional_header": "x-isymcp-token",
+    "operator_grant_required": [
+      "/api/control-center/cli",
+      "/api/control-center/dispatch"
+    ],
+    "default_bind": "127.0.0.1",
+    "token_leak_protection": true
+  },
+  "endpoints": {
+    "overview": "/api/control-center/overview",
+    "glossary": "/api/control-center/glossary",
+    "tasks": "/api/control-center/tasks",
+    "tasks_approve": "/api/control-center/tasks/approve",
+    "protocol": "/api/control-center/protocol",
+    "cli": "/api/control-center/cli",
+    "dispatch": "/api/control-center/dispatch"
+  }
+}

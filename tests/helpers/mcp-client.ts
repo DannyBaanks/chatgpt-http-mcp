@@ -22,8 +22,13 @@ export class McpClient {
   private nextId = 2;
   private pending = new Map<number, (payload: Record<string, unknown>) => void>();
 
-  private constructor(home: string, extraEnv: Record<string, string>) {
-    this.proc = Bun.spawn(["bun", "src/mcp/main.ts", "--contract", "native"], {
+  private constructor(
+    home: string,
+    extraEnv: Record<string, string>,
+    entrypoint: string = "src/mcp/main.ts",
+    extraArgs: string[] = ["--contract", "native"]
+  ) {
+    this.proc = Bun.spawn(["bun", entrypoint, ...extraArgs], {
       cwd: ROOT,
       env: { ...process.env, CODEX_WEB_HTTP_HOME: home, ...extraEnv },
       stdin: "pipe",
@@ -52,8 +57,33 @@ export class McpClient {
             if (msg.id !== undefined && this.pending.has(Number(msg.id))) {
               const resolve = this.pending.get(Number(msg.id))!;
               this.pending.delete(Number(msg.id));
+              if (msg.error) {
+                const errText = typeof msg.error === "object" ? JSON.stringify(msg.error) : String(msg.error);
+                resolve({ error: errText, isError: true, rawError: msg.error as any });
+                continue;
+              }
+              if ((msg.result as any)?.tools) {
+                resolve({ tools: (msg.result as any).tools } as any);
+                continue;
+              }
               const text = msg.result?.content?.find((c) => c.type === "text")?.text;
-              resolve(text ? (JSON.parse(text) as Record<string, unknown>) : { error: String(msg.error ?? "sin contenido") });
+              const isError = (msg.result as any)?.isError === true;
+              if (text === undefined) {
+                const resObj = (msg.result as Record<string, unknown>) ?? { error: "sin contenido" };
+                if (isError) (resObj as any).isError = true;
+                resolve(resObj);
+                continue;
+              }
+              let payload: Record<string, unknown>;
+              try {
+                payload = JSON.parse(text) as Record<string, unknown>;
+              } catch {
+                payload = { text, error: text };
+              }
+              if (isError) {
+                payload.isError = true;
+              }
+              resolve(payload);
             }
           }
         }
@@ -63,8 +93,13 @@ export class McpClient {
     })();
   }
 
-  static async start(home: string, extraEnv: Record<string, string> = {}): Promise<McpClient> {
-    const client = new McpClient(home, extraEnv);
+  static async start(
+    home: string,
+    extraEnv: Record<string, string> = {},
+    entrypoint: string = "src/mcp/main.ts",
+    extraArgs: string[] = ["--contract", "native"]
+  ): Promise<McpClient> {
+    const client = new McpClient(home, extraEnv, entrypoint, extraArgs);
     const initId = 1;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("initialize sin respuesta")), 15_000);
@@ -92,6 +127,18 @@ export class McpClient {
         resolve(payload);
       });
       this.send({ jsonrpc: "2.0", id, method: "tools/call", params: { name: tool, arguments: args } });
+    });
+  }
+
+  async listTools(): Promise<any[]> {
+    const id = this.nextId++;
+    return new Promise<any[]>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("sin respuesta de tools/list")), 30_000);
+      this.pending.set(id, (payload) => {
+        clearTimeout(timer);
+        resolve((payload as any).tools ?? []);
+      });
+      this.send({ jsonrpc: "2.0", id, method: "tools/list", params: {} });
     });
   }
 

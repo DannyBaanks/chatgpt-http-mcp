@@ -7,10 +7,13 @@
 // sin reintento ciego para operaciones no idempotentes).
 
 import { Database } from "bun:sqlite";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { bridgeHome, resolveWithinReal } from "./codex-sessions";
+import { bridgeHome } from "./codex-sessions";
+import { ensureConsoleSchema } from "./console-registry";
+import { hmacHex, safeEqualHex, sha256Hex, sha256Prefixed } from "./crypto";
+import { resolveWithinReal } from "./path";
 
 export type AuthorityKind = "turn_token" | "queue_lease" | "worker_lease" | "owner_grant";
 
@@ -22,7 +25,8 @@ export type OwnerGrantScope =
   | "lease:revoke"
   | "task:grant"
   | "task:revoke"
-  | "workspace:register";
+  | "workspace:register"
+  | "operator:confirm";
 
 export type TaskState =
   | "QUEUED"
@@ -186,19 +190,7 @@ export interface TaskRecord {
   receipt_hmac: string | null;
 }
 
-function sha256Hex(input: string): string {
-  return createHash("sha256").update(input, "utf8").digest("hex");
-}
-
-function hmacHex(secret: string, payload: string): string {
-  return createHmac("sha256", secret).update(payload, "utf8").digest("hex");
-}
-
-function safeEqualHex(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
-  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
-}
+export { hmacHex, safeEqualHex, sha256Hex, sha256Prefixed };
 
 const SAFE_IDENTIFIER_RE = /^[a-zA-Z0-9._:-]{1,128}$/;
 const SAFE_ACTION_RE = /^[a-z0-9_]+:[a-z0-9_]+$/;
@@ -285,6 +277,7 @@ export function openMonitorDatabase(dbPath: string): Database {
       receipt_hmac TEXT
     );
   `);
+  ensureConsoleSchema(db);
 
   return db;
 }
@@ -1127,6 +1120,99 @@ export class QueueService {
   }
 
   /**
+   * Encola una alerta o notificación del sistema (ej. GitHub CI, webhooks externos, hooks).
+   * Se inserta en la cola SQLite WAL para despertar inmediatamente a los agentes suscritos (wait-next).
+   */
+  public submitAlertTask(alert: {
+    source?: string;
+    event?: string;
+    title: string;
+    summary: string;
+    metadata?: Record<string, unknown>;
+  }): { accepted: boolean; task_id: string; operation_id: string; state: TaskState } {
+    const now = this.nowFn();
+    const source = (alert.source || "system").toLowerCase();
+    const taskId = `alert-${randomBytes(8).toString("hex")}`;
+    const operationId = `op-alert-${randomBytes(8).toString("hex")}`;
+    const idempotencyKey = `idemp-alert-${randomBytes(8).toString("hex")}`;
+
+    let ws = this.db.query("SELECT workspace_id, owner_id FROM workspaces LIMIT 1").get() as {
+      workspace_id: string;
+      owner_id: string;
+    } | null;
+    let wsId = ws?.workspace_id;
+    let ownerId = ws?.owner_id || (process.env.USER || "owner");
+    if (!wsId) {
+      wsId = "ws-system";
+      this.db
+        .query(
+          "INSERT OR IGNORE INTO workspaces (workspace_id, owner_id, root_path, created_at) VALUES (?, ?, '/', ?)",
+        )
+        .run(wsId, ownerId, now);
+    }
+
+    let lease = this.db
+      .query(
+        "SELECT lease_id FROM leases WHERE workspace_id = ? AND revoked_at IS NULL AND expires_at > ? LIMIT 1",
+      )
+      .get(wsId, now) as { lease_id: string } | null;
+    let leaseId = lease?.lease_id;
+    if (!leaseId) {
+      leaseId = `lease-alert-${randomBytes(6).toString("hex")}`;
+      const tokenHash = `th_${randomBytes(16).toString("hex")}`;
+      const fp = `fp_${randomBytes(8).toString("hex")}`;
+      this.db
+        .query(
+          `INSERT OR IGNORE INTO leases (
+            lease_id, token_hash, fp, generation, owner_id, workspace_id,
+            scopes_json, audience, policy_version, created_at, expires_at, absolute_deadline, revoked_at
+          ) VALUES (?, ?, ?, 1, ?, ?, '["alerts"]', 'isymcp_remote', 1, ?, ?, ?, NULL)`,
+        )
+        .run(leaseId, tokenHash, fp, ownerId, wsId, now, now + 86400000, now + 86400000);
+    }
+
+    const description = `[ALERT:${source.toUpperCase()}] ${alert.title}: ${alert.summary}`;
+    const actionPayload = {
+      action: "notify",
+      source,
+      event: alert.event ?? "alert",
+      title: alert.title,
+      summary: alert.summary,
+      metadata: alert.metadata ?? {},
+    };
+
+    const resultObj = {
+      exit_code: 0,
+      output_summary: description,
+      completed_at: now,
+    };
+
+    this.db
+      .query(
+        `INSERT INTO tasks (
+          task_id, operation_id, idempotency_key, goal_id, conversation_ref,
+          lease_id, workspace_id, kind, description, requested_actions_json,
+          target_relpath, idempotent, state, reason, grant_id, worker_lease_id,
+          attempt_count, created_at, updated_at, result_json, receipt_hmac
+        ) VALUES (?, ?, ?, 'goal-alerts', 'ref-system-alerts', ?, ?, 'system_alert', ?, ?, NULL, 1, 'SUCCEEDED', 'system_alert_notification', NULL, NULL, 1, ?, ?, ?, NULL)`,
+      )
+      .run(
+        taskId,
+        operationId,
+        idempotencyKey,
+        leaseId,
+        wsId,
+        description,
+        JSON.stringify([actionPayload]),
+        now,
+        now,
+        JSON.stringify(resultObj),
+      );
+
+    return { accepted: true, task_id: taskId, operation_id: operationId, state: "SUCCEEDED" };
+  }
+
+  /**
    * Consulta el estado y resultado persistido de una tarea usando un queue_lease con scope `queue:status`.
    */
   public getTaskStatus(leaseToken: string, taskId: string): TaskRecord {
@@ -1327,7 +1413,7 @@ export class WorkerAdapter {
       : {
           exit_code: 0,
           output_summary: `Executed ${task.kind} (${task.requested_actions.join(",")}) in ${task.workspace_id}`,
-          artifact_hash: `sha256:${sha256Hex(`${task.task_id}:${task.operation_id}:ok`)}`,
+          artifact_hash: sha256Prefixed(`${task.task_id}:${task.operation_id}:ok`),
         };
 
     const completed_at = this.nowFn();
@@ -1826,6 +1912,47 @@ export class MonitorRemoteTransport {
       );
     }
 
+    if (req.method === "POST" && (url.pathname === "/isymcp/monitor/alert" || url.pathname === "/isymcp/monitor/webhook/github")) {
+      let body: Record<string, unknown>;
+      try {
+        body = (await req.json()) as Record<string, unknown>;
+      } catch {
+        return Response.json(
+          { accepted: false, state: "DENIED", reason: "invalid_json_body" },
+          { status: 400 },
+        );
+      }
+
+      if (url.pathname === "/isymcp/monitor/webhook/github") {
+        const ghEvent = req.headers.get("x-github-event") || "workflow_run";
+        const workflowRun = (body.workflow_run || body) as Record<string, any>;
+        const repoName = (body.repository as any)?.full_name || "repository";
+        const workflowName = workflowRun.name || "CI";
+        const conclusion = workflowRun.conclusion || workflowRun.status || "completed";
+        const branch = workflowRun.head_branch || "main";
+        const runId = workflowRun.id || "unknown";
+        const htmlUrl = workflowRun.html_url || "";
+
+        const alertRes = this.queue.submitAlertTask({
+          source: "github",
+          event: ghEvent,
+          title: `GitHub CI [${repoName}]`,
+          summary: `Workflow '${workflowName}' #${runId} on ${branch} finished: ${conclusion}`,
+          metadata: { repo: repoName, workflow: workflowName, run_id: runId, conclusion, branch, url: htmlUrl },
+        });
+        return Response.json(alertRes, { status: 200 });
+      }
+
+      const alertRes = this.queue.submitAlertTask({
+        source: typeof body.source === "string" ? body.source : "system",
+        event: typeof body.event === "string" ? body.event : "alert",
+        title: typeof body.title === "string" ? body.title : "Notificación del Monitor",
+        summary: typeof body.summary === "string" ? body.summary : String(body.message || ""),
+        metadata: typeof body.metadata === "object" && body.metadata ? (body.metadata as Record<string, unknown>) : {},
+      });
+      return Response.json(alertRes, { status: 200 });
+    }
+
     if (req.method === "POST" && url.pathname === "/isymcp/monitor/submit") {
       let body: Record<string, unknown>;
       try {
@@ -1934,7 +2061,7 @@ export function openBridgeMonitorStack(env: Record<string, string | undefined> =
   const worker = new WorkerAdapter({ workerSecret, db });
   const monitor = new MonitorCoordinator(db, worker);
   const transport = new MonitorRemoteTransport(queue, authority);
-  return { db, dbPath, authority, queue, worker, monitor, transport };
+  return { db, dbPath, authority, queue, worker, monitor, transport, workerSecret, env };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../crypto';
 import { probe } from './audio';
 import {
   detectKeyframes,
@@ -120,7 +120,7 @@ export async function buildVideoMultimodalManifest(
   };
 
   const serialized = JSON.stringify(manifestBase);
-  const manifestSha256 = createHash('sha256').update(serialized).digest('hex');
+  const manifestSha256 = sha256Hex(serialized);
 
   return {
     ...manifestBase,

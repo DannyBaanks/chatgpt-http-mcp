@@ -18,6 +18,8 @@ import { CHAT_SCRIPT, CHAT_STYLE, renderChatView } from "./panel-chat";
 import { apply as harnessApply, detect as harnessDetect, plan as harnessPlan, type HarnessAction } from "./harness";
 import type { SystemMetrics } from "./metrics";
 import { nativeBrowserStatus, rejectUnavailableBrowser } from "./visible/native-browser";
+import { renderControlCenterView, CONTROL_CENTER_STYLE, CONTROL_CENTER_SCRIPT } from "./control-center/ui";
+import { handleControlCenterApi } from "./control-center/router";
 
 function pgrep(pattern: string): boolean {
   return processMatches(pattern);
@@ -600,7 +602,10 @@ const SHELL_STYLE = (`
 .top .live{margin-left:auto}
 .drawer-btn{background:none;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:5px 9px;font:13px var(--mono);cursor:pointer}
 body.tab-chat{overflow:hidden}
-body:not(.tab-chat) #view-chat,body.tab-chat #view-estado{display:none}
+#view-chat,#view-estado,#view-control-center{display:none}
+body.tab-chat #view-chat{display:flex}
+body.tab-estado #view-estado{display:block}
+body.tab-control-center #view-control-center{display:block}
 @media (max-width:520px){.top{gap:8px;padding:0 10px}.top .logo{font-size:14px}.tabs{margin-left:0}.tabs a{padding:6px 8px}.live span.lbl{display:none}}
 `);
 
@@ -666,13 +671,13 @@ document.getElementById('f').onsubmit=async(e)=>{
 </body></html>`;
 }
 
-export function renderPanel(state: PanelState): string {
+export function renderPanel(state: PanelState, defaultTab = "chat"): string {
   return (`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ISyMCP</title><style>${STYLE}${SHELL_STYLE}${CHAT_STYLE}</style></head>
-<body class="tab-chat">
+<title>ISyMCP</title><style>${STYLE}${SHELL_STYLE}${CHAT_STYLE}${CONTROL_CENTER_STYLE}</style></head>
+<body class="tab-${defaultTab}">
 <header class="top">
   <span class="logo">ISyMCP</span>
-  <nav class="tabs"><a href="#chat" data-tab="chat" class="on">Chat</a><a href="#estado" data-tab="estado">Estado</a></nav>
+  <nav class="tabs"><a href="#chat" data-tab="chat"${defaultTab === "chat" ? ' class="on"' : ""}>Chat</a><a href="#estado" data-tab="estado"${defaultTab === "estado" ? ' class="on"' : ""}>Estado</a><a href="#control-center" data-tab="control-center"${defaultTab === "control-center" ? ' class="on"' : ""}>Control Center</a></nav>
   <span class="live"><i></i><span class="lbl"> en vivo</span></span>
 </header>
 <div id="view-chat">${renderChatView()}</div>
@@ -691,10 +696,20 @@ ${renderMain(state)}
 </section>
 <footer>127.0.0.1 only · Host/Origin protegidos · <code>isymcp panel</code></footer>
 </div></div>
+<div id="view-control-center">${renderControlCenterView()}</div>
 <div class="toasts"></div>
 <script>${SCRIPT}
-function showTab(){const t=location.hash.startsWith('#estado')?'estado':'chat';document.body.classList.toggle('tab-chat',t==='chat');
-document.querySelectorAll('.tabs a').forEach(a=>a.classList.toggle('on',a.dataset.tab===t));if(t==='estado')refresh();}
+${CONTROL_CENTER_SCRIPT}
+function showTab(){
+  const h=location.hash;
+  const t=h.startsWith('#control-center')?'control-center':h.startsWith('#estado')?'estado':'chat';
+  document.body.classList.toggle('tab-chat',t==='chat');
+  document.body.classList.toggle('tab-estado',t==='estado');
+  document.body.classList.toggle('tab-control-center',t==='control-center');
+  document.querySelectorAll('.tabs a').forEach(a=>a.classList.toggle('on',a.dataset.tab===t));
+  if(t==='estado')refresh();
+  if(t==='control-center'&&typeof ccRefreshOverview==='function')ccRefreshOverview();
+}
 window.addEventListener('hashchange',showTab);showTab();
 ${CHAT_SCRIPT}
 ${HARNESS_SCRIPT}</script></body></html>`);
@@ -730,6 +745,112 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
     port,
     async fetch(req) {
       const url = new URL(req.url);
+
+      // Endpoints públicos de integración ChatGPT Private Plugin y preflight CORS
+      const isPluginMetadata =
+        url.pathname === "/.well-known/ai-plugin.json" ||
+        url.pathname === "/openapi.json" ||
+        url.pathname === "/plugin-logo.png" ||
+        url.pathname === "/legal";
+
+      if (isPluginMetadata || (url.pathname.startsWith("/api/control-center") && req.method === "OPTIONS")) {
+        const corsHeaders: Record<string, string> = {
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "GET, POST, OPTIONS",
+          "access-control-allow-headers": "Content-Type, Authorization, x-isymcp-token",
+        };
+
+        if (req.method === "OPTIONS") {
+          return new Response(null, { status: 204, headers: corsHeaders });
+        }
+
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
+        }
+
+        const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || `127.0.0.1:${port}`;
+        const proto = req.headers.get("x-forwarded-proto") || (host.includes("trycloudflare.com") ? "https" : "http");
+        const originUrl = `${proto}://${host}`;
+
+        if (url.pathname === "/.well-known/ai-plugin.json") {
+          const manifestPath = join(ROOT, "plugin", ".well-known", "ai-plugin.json");
+          let manifest: any;
+          try {
+            manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+          } catch {
+            manifest = {
+              schema_version: "v1",
+              name_for_human: "ISyMCP Control Center",
+              name_for_model: "isymcp_control_center",
+              description_for_human: "Visual control center, real-time monitor, and command deck for ISyMCP.",
+              description_for_model: "Control center and inspection gateway for ISyMCP.",
+              auth: { type: "none" },
+              api: { type: "openapi", url: `${originUrl}/openapi.json`, is_user_authenticated: false },
+              logo_url: `${originUrl}/plugin-logo.png`,
+              contact_email: "danny@isymcp.local",
+              legal_info_url: `${originUrl}/legal`,
+            };
+          }
+          if (manifest.api) manifest.api.url = `${originUrl}/openapi.json`;
+          manifest.logo_url = `${originUrl}/plugin-logo.png`;
+          manifest.legal_info_url = `${originUrl}/legal`;
+
+          return new Response(JSON.stringify(manifest, null, 2), {
+            headers: {
+              "content-type": "application/json; charset=utf-8",
+              "cache-control": "no-cache",
+              ...corsHeaders,
+            },
+          });
+        }
+
+        if (url.pathname === "/openapi.json") {
+          const schemaPath = join(ROOT, "plugin", "openapi.json");
+          let schema: any;
+          try {
+            schema = JSON.parse(readFileSync(schemaPath, "utf8"));
+            if (Array.isArray(schema.servers) && schema.servers.length > 0) {
+              schema.servers[0].url = originUrl;
+            }
+          } catch {
+            schema = { openapi: "3.1.0", info: { title: "ISyMCP Control Center", version: "1.2.0" }, paths: {} };
+          }
+          return new Response(JSON.stringify(schema, null, 2), {
+            headers: {
+              "content-type": "application/json; charset=utf-8",
+              "cache-control": "no-cache",
+              ...corsHeaders,
+            },
+          });
+        }
+
+        if (url.pathname === "/plugin-logo.png") {
+          const logoPath = join(ROOT, "plugin", "plugin-logo.png");
+          try {
+            return new Response(readFileSync(logoPath), {
+              headers: {
+                "content-type": "image/png",
+                "cache-control": "public, max-age=86400",
+                "x-content-type-options": "nosniff",
+                ...corsHeaders,
+              },
+            });
+          } catch {
+            return new Response("Not Found", { status: 404, headers: corsHeaders });
+          }
+        }
+
+        if (url.pathname === "/legal") {
+          const legalText = `ISyMCP Control Center — Private Local Operator Tool.\nAuthorized local and tunnel usage only. All operations require local session token or OperatorGrant.`;
+          return new Response(legalText, {
+            headers: {
+              "content-type": "text/plain; charset=utf-8",
+              ...corsHeaders,
+            },
+          });
+        }
+      }
+
       // Bloqueo inmediato de host no-loopback para cualquier ruta (DNS rebinding / Host injection)
       const hostDenied = guardLocalRequest(req, { loopbackOnly: true });
       if (hostDenied) return hostDenied;
@@ -803,8 +924,8 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
       const authStrict = process.env.CODEX_WEB_HTTP_PANEL_AUTH !== "off" &&
         process.env.CODEX_WEB_HTTP_SECURITY_PROFILE !== "v1_compat";
 
-      // 6. Carga de la UI (GET / y GET /fragment)
-      if (url.pathname === "/" || url.pathname === "/fragment") {
+      // 6. Carga de la UI (GET / y GET /fragment y GET /control-center)
+      if (url.pathname === "/" || url.pathname === "/fragment" || url.pathname === "/control-center") {
         const denied = guardLocalRequest(req, { requireToken: authStrict, allowCookie: true, loopbackOnly: true });
         if (denied) {
           if (url.pathname === "/fragment") return denied;
@@ -815,7 +936,8 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
           });
         }
         const state = await buildPanelState(bridgePort);
-        const html = url.pathname === "/fragment" ? renderMain(state) : renderPanel(state);
+        const defTab = url.pathname === "/control-center" ? "control-center" : "chat";
+        const html = url.pathname === "/fragment" ? renderMain(state) : renderPanel(state, defTab);
         return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
       }
 
@@ -829,6 +951,8 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
         loopbackOnly: true,
       });
       if (denied) return denied;
+
+      if (url.pathname.startsWith("/api/control-center")) return handleControlCenterApi(req, url, bridgePort);
 
       if (url.pathname === "/api/native-browser/status") {
         if (req.method !== "GET") return apiError(405, "method_not_allowed", "GET");
