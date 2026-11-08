@@ -20,18 +20,25 @@ describe("CC-04 — MCP Streamable HTTP (SSE) Suite", () => {
     });
   });
 
-  it("SSE-01: Health check retorna transporte mcp-sse y las 4 herramientas autorizadas", async () => {
+  it("SSE-01: Health check retorna transporte mcp-sse, herramientas autorizadas y recursos Apps SDK", async () => {
     const res = await fetch(`http://127.0.0.1:${TEST_PORT}/health`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.transport).toBe("mcp-sse");
-    expect(body.tools_count).toBe(4);
+    expect(body.tools_count).toBe(5);
     expect(body.allowed_tools).toEqual([
       "isymcp_get_overview",
       "isymcp_get_glossary",
       "isymcp_get_tasks",
       "isymcp_get_protocol",
+      "isymcp_open_control_center",
+    ]);
+    expect(body.resources_count).toBe(3);
+    expect(body.allowed_resources).toEqual([
+      "isymcp://protocol/agents.md",
+      "ui://isymcp/control-center",
+      "ui://widgets/control-center",
     ]);
   });
 

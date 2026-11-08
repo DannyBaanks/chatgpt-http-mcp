@@ -49,12 +49,19 @@ export function createMcpHttpServer(port = PORT, host = HOST): http.Server {
           transport: "mcp-sse",
           profile: "readonly",
           active_sessions: sessions.size,
-          tools_count: 4,
+          tools_count: 5,
           allowed_tools: [
             "isymcp_get_overview",
             "isymcp_get_glossary",
             "isymcp_get_tasks",
             "isymcp_get_protocol",
+            "isymcp_open_control_center",
+          ],
+          resources_count: 3,
+          allowed_resources: [
+            "isymcp://protocol/agents.md",
+            "ui://isymcp/control-center",
+            "ui://widgets/control-center",
           ],
         })
       );

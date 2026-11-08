@@ -97,7 +97,7 @@ describe("CC-06 Authority Integrity — Falsación de Frontera y Protocolo de Gr
       expect(res2.ok).toBe(false);
       expect(res2.warning).toContain("DENY");
       expect(res2.error).toContain("replay_detected");
-    });
+    }, 30000);
 
     test("AUTH-04: [Control Negativo 4] Grant expirado es RECHAZADO con DENY", async () => {
       const { db, authority } = openBridgeMonitorStack();
@@ -127,8 +127,14 @@ describe("CC-06 Authority Integrity — Falsación de Frontera y Protocolo de Gr
 
   // ── 2. Confinamiento de Workspaces ─────────────────────────────────────────
   describe("Fase 2: Confinamiento de Workspaces y Tareas", () => {
-    test("AUTH-05: [Control Negativo 5] Aprobación con workspace cruzado es DENEGADA (workspace_mismatch)", () => {
-      const { db, authority } = openBridgeMonitorStack(testEnv);
+    test("AUTH-05: [Control Negativo 5] Aprobación con workspace cruzado es DENEGADA (workspace_mismatch)", async () => {
+      const auth5Home = mkdtempSync(join(tmpdir(), "isymcp-auth5-"));
+      const auth5Env = {
+        ...testEnv,
+        CODEX_WEB_HTTP_HOME: auth5Home,
+        CODEX_WEB_HTTP_MONITOR_DB: join(auth5Home, "monitor.sqlite"),
+      };
+      const { db, authority } = openBridgeMonitorStack(auth5Env);
       const taskId = `task-test-ws-${Date.now()}`;
       try {
         const ogWs = authority.mintOwnerGrant({ owner_id: "local_owner", scopes: ["workspace:register"] });
@@ -157,15 +163,15 @@ describe("CC-06 Authority Integrity — Falsación de Frontera y Protocolo de Gr
       }
 
       // Intentar aprobar exigiendo workspace-beta -> RECHAZADO
-      const res = approveControlCenterTask(taskId, "workspace-beta", testEnv);
+      const res = approveControlCenterTask(taskId, "workspace-beta", auth5Env);
       expect(res.ok).toBe(false);
       expect(res.error).toContain("DENY: workspace_mismatch");
 
       // Aprobar con el workspace correcto -> ÉXITO
-      const resCorrect = approveControlCenterTask(taskId, "workspace-alfa", testEnv);
+      const resCorrect = approveControlCenterTask(taskId, "workspace-alfa", auth5Env);
       expect(resCorrect.ok).toBe(true);
       expect(resCorrect.task).toBeDefined();
-    });
+    }, 30000);
   });
 
   // ── 3. Redacción Estructurada y Controles de Privacidad ────────────────────

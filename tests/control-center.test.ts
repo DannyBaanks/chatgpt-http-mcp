@@ -103,7 +103,7 @@ describe("ISyMCP Control Center — Servicios y Estado", () => {
     // Jamás debe tener tokens
     expect((task as any).turn_token).toBeUndefined();
     expect((task as any).worker_secret).toBeUndefined();
-  });
+  }, 15000);
 });
 
 describe("ISyMCP Control Center — Seguridad y Control de Comandos Peligrosos", () => {

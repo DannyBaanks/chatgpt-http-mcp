@@ -72,12 +72,13 @@ describe("CC-03 — Suite Integral: Transporte, Aislamiento de Autoridad y E2E",
       const tools = await client.listTools();
       const names = tools.map((t) => t.name).sort();
 
-      // Comprobar catálogo exacto
+      // Comprobar catálogo exacto de solo lectura
       expect(names).toEqual([
         "isymcp_get_glossary",
         "isymcp_get_overview",
         "isymcp_get_protocol",
         "isymcp_get_tasks",
+        "isymcp_open_control_center",
       ]);
 
       // Ninguna herramienta de mutación, shell o ejecución existe en el catálogo

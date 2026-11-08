@@ -668,8 +668,16 @@ export function registerIsyMcpGateway(server: McpServer): void {
 /**
  * Registra las herramientas de solo lectura del Control Center para integración oficial con ChatGPT (CC-02).
  * Exclusivamente inspección: overview, glossary, tasks, protocol. Cero mutaciones ni shell.
+ * Integra metadatos oficiales del OpenAI Apps SDK (ui.resourceUri y openai/outputTemplate)
+ * para proyectar el Control Center como Página Conectada nativa dentro de ChatGPT.
  */
 export function registerControlCenterMcpTools(server: McpServer): void {
+  const APPS_SDK_META = {
+    "ui.resourceUri": "ui://isymcp/control-center",
+    "openai/outputTemplate": "ui://isymcp/control-center",
+    "ui.visibility": ["model", "app"],
+  };
+
   // 1. isymcp_get_overview
   server.registerTool(
     "isymcp_get_overview",
@@ -684,6 +692,7 @@ export function registerControlCenterMcpTools(server: McpServer): void {
       const overview = await getControlCenterOverview();
       return {
         content: [{ type: "text" as const, text: JSON.stringify(overview, null, 2) }],
+        _meta: APPS_SDK_META,
       };
     }
   );
@@ -700,6 +709,7 @@ export function registerControlCenterMcpTools(server: McpServer): void {
     async () => {
       return {
         content: [{ type: "text" as const, text: JSON.stringify(ISYMCP_GLOSSARY, null, 2) }],
+        _meta: APPS_SDK_META,
       };
     }
   );
@@ -720,6 +730,7 @@ export function registerControlCenterMcpTools(server: McpServer): void {
       const tasks = getControlCenterTasks(input.limit);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(tasks, null, 2) }],
+        _meta: APPS_SDK_META,
       };
     }
   );
@@ -737,6 +748,38 @@ export function registerControlCenterMcpTools(server: McpServer): void {
       const { ISYMCP_AGENT_PROTOCOL_MD } = await import("../agent-protocol");
       return {
         content: [{ type: "text" as const, text: ISYMCP_AGENT_PROTOCOL_MD }],
+        _meta: APPS_SDK_META,
+      };
+    }
+  );
+
+  // 5. isymcp_open_control_center (OpenAI Apps SDK View Launcher)
+  server.registerTool(
+    "isymcp_open_control_center",
+    {
+      description:
+        "Abre y proyecta la interfaz interactiva de ISyMCP Control Center en ChatGPT como Página Conectada / Apps SDK View.",
+      inputSchema: {
+        tab: z
+          .enum(["dashboard", "cli", "catalog", "monitor", "tui", "github", "media", "comfy", "fuzz"])
+          .optional()
+          .default("dashboard")
+          .describe("Pestaña inicial a enfocar en el Control Center"),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `ISyMCP Control Center desplegado en la vista interactiva de ChatGPT (pestaña solicitada: ${input.tab}).`,
+          },
+        ],
+        _meta: {
+          ...APPS_SDK_META,
+          "ui.initialTab": input.tab,
+        },
       };
     }
   );

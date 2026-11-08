@@ -24,7 +24,7 @@ export function createReadOnlyMcpServer(): McpServer {
     }
   );
 
-  // Exclusivamente las 4 herramientas de solo lectura auditadas
+  // Exclusivamente las herramientas de solo lectura y apertura del Control Center
   registerControlCenterMcpTools(server);
 
   // Recurso oficial: Protocolo de coordinación de agentes
@@ -44,6 +44,50 @@ export function createReadOnlyMcpServer(): McpServer {
         },
       ],
     })
+  );
+
+  // Recurso oficial OpenAI Apps SDK: Vista interactiva del Control Center (Página Conectada)
+  server.resource(
+    "isymcp_control_center_ui",
+    "ui://isymcp/control-center",
+    {
+      mimeType: "text/html",
+      description: "ISyMCP Control Center Interactive Dashboard and Command Deck (OpenAI Apps SDK View)",
+    },
+    async () => {
+      const { renderControlCenterEmbeddedHtml } = await import("../control-center/ui");
+      return {
+        contents: [
+          {
+            uri: "ui://isymcp/control-center",
+            mimeType: "text/html",
+            text: renderControlCenterEmbeddedHtml(),
+          },
+        ],
+      };
+    }
+  );
+
+  // Alias estándar de compatibilidad para hosts MCP-UI
+  server.resource(
+    "isymcp_control_center_widget",
+    "ui://widgets/control-center",
+    {
+      mimeType: "text/html",
+      description: "Widget interactivo de ISyMCP Control Center para MCP-UI y clientes compatibles",
+    },
+    async () => {
+      const { renderControlCenterEmbeddedHtml } = await import("../control-center/ui");
+      return {
+        contents: [
+          {
+            uri: "ui://widgets/control-center",
+            mimeType: "text/html",
+            text: renderControlCenterEmbeddedHtml(),
+          },
+        ],
+      };
+    }
   );
 
   return server;

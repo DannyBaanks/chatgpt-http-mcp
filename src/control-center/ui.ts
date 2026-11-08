@@ -1410,3 +1410,102 @@ document.getElementById('cc-cli-custom-input')?.addEventListener('keydown', (ev)
 setTimeout(ccRefreshOverview, 100);
 
 `;
+
+export function renderControlCenterEmbeddedHtml(options: { bridgeOrigin?: string } = {}): string {
+  const origin = options.bridgeOrigin || "";
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ISyMCP Control Center — OpenAI Apps SDK View</title>
+  <style>
+:root {
+  --bg: #090b0a;
+  --panel: #101412;
+  --line: #1d2420;
+  --ink: #d9e4dc;
+  --mute: #6f8076;
+  --ok: #7cff9b;
+  --warn: #ffcc66;
+  --bad: #ff6b6b;
+  --idle: #5b6b62;
+  --mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: Inter, "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.45 var(--sans);
+  background-image: linear-gradient(rgba(124,255,155,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(124,255,155,.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+  min-height: 100vh;
+}
+.btn {
+  background: #141b17;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font: 600 12px var(--mono);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn:hover {
+  background: #1a241f;
+  border-color: rgba(124,255,155,.3);
+}
+.btn-go {
+  background: rgba(124,255,155,.12);
+  color: var(--ok);
+  border-color: rgba(124,255,155,.35);
+}
+.btn-go:hover {
+  background: rgba(124,255,155,.22);
+}
+.btn-stop {
+  background: rgba(255,107,107,.12);
+  color: var(--bad);
+  border-color: rgba(255,107,107,.35);
+}
+.btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.toasts {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+}
+${CONTROL_CENTER_STYLE}
+  </style>
+</head>
+<body>
+  ${renderControlCenterView()}
+  <div class="toasts"></div>
+  <script>
+    window.ISYMCP_BRIDGE_ORIGIN = ${JSON.stringify(origin)};
+    ${CONTROL_CENTER_SCRIPT}
+    // Puente con OpenAI Apps SDK si se ejecuta en iframe de ChatGPT
+    if (typeof window !== "undefined") {
+      window.addEventListener("message", (event) => {
+        if (event.data && event.data.type === "openai:set-theme") {
+          document.documentElement.setAttribute("data-theme", event.data.theme);
+        }
+      });
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: "openai:app-ready", view: "control-center" }, "*");
+      }
+    }
+  </script>
+</body>
+</html>`;
+}
+
