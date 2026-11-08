@@ -1,7 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, renameSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { extname, join } from 'node:path';
+import { sha256Hex } from '../crypto';
 
 const MAX_WORKFLOW_BYTES = 10 * 1024 * 1024;
 const WORKFLOW_ID = /^workflow_[a-f0-9-]{36}$/;
@@ -36,9 +37,7 @@ function object(value: unknown): value is Record<string, any> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function digest(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
+const digest = sha256Hex;
 
 function validateValue(name: string, binding: WorkflowInputBinding, value: unknown): void {
   const valid = binding.type === 'string' ? typeof value === 'string' && value.length <= 8192

@@ -7,6 +7,7 @@ import { callGitHubApi } from "../github/client";
 import { openBridgeMonitorStack } from "../remote-monitor";
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
 import { executeShellCommand } from "../shell/executor";
+import { sha256Prefixed } from "../crypto";
 
 export interface GlossaryEntry {
   description: string;
@@ -54,6 +55,20 @@ export const ISYMCP_GLOSSARY: {
               mode: "plan",
             },
           },
+        },
+        "tui.consoles": {
+          description:
+            "Lista las consolas TUI lanzadas con su identidad determinista: console_id, PID real de agy, alive (kill -0 en vivo), estado (SPAWNED/ACKED/RUNNING/COMPLETED/FAILED), token_fp, task_id y ACK firmado. Úsala para saber qué consola es cuál.",
+          parameters: { limit: "number (opcional, por defecto 20)" },
+          example: { action: "tui.consoles" },
+        },
+        "tui.log": {
+          description: "Log cronológico (JSONL) de una consola: spawn, PID registrado, ACK firmado, avances y cierre.",
+          parameters: {
+            console_id: "string (con-xxxxxxxx) o task_id",
+            tail: "number (opcional, últimos N eventos, por defecto 50)",
+          },
+          example: { action: "tui.log", arguments: { console_id: "con-8f3a19c2", tail: 20 } },
         },
       },
     },
@@ -149,6 +164,7 @@ export const ISYMCP_GLOSSARY: {
           description: "Encola una tarea estructurada para ejecución o supervisión.",
           parameters: {
             operation_id: "string",
+            console_id: "string (opcional: dirige la tarea SOLO a esa consola; su wait-next --console la recibe)",
             kind: "string (ej. 'diagnostics', 'review_and_test')",
             description: "string",
             requested_actions: "array de strings (ej. ['status:read', 'tests:run', 'report:write'])",
@@ -324,6 +340,22 @@ export async function dispatchIsyMcpAction(
   }
 
   try {
+    // 2b. Registro determinista de consolas
+    if (normalized === "tui.consoles" || normalized === "monitor.consoles" || normalized === "tui.log" || normalized === "monitor.console_log") {
+      const { listConsoles, readConsoleLog } = await import("../console-registry");
+      const { db, env } = openBridgeMonitorStack();
+      try {
+        if (normalized.endsWith("consoles")) return { ok: true, result: listConsoles(db, Number(args.limit ?? 20), env) };
+        const target = String(args.console_id ?? args.task_id ?? "");
+        if (!target) return { ok: false, result: null, error: "tui.log requiere console_id (o task_id)" };
+        return { ok: true, result: readConsoleLog(db, target, Number(args.tail ?? 50)) };
+      } catch (e) {
+        return { ok: false, result: null, error: (e as Error).message };
+      } finally {
+        db.close();
+      }
+    }
+
     // 3. Familia TUI
     if (normalized === "tui.spawn" || normalized === "spawn" || normalized === "tui") {
       const res = await spawnAgyTui({
@@ -466,7 +498,7 @@ export async function dispatchIsyMcpAction(
           operationId,
           String(args.idempotency_key ?? `idemp-${taskId}`),
           String(args.goal_id ?? "GOAL-002"),
-          String(args.conversation_ref ?? "chatgpt-mcp"),
+          args.console_id ? `console:${String(args.console_id)}` : String(args.conversation_ref ?? "chatgpt-mcp"),
           "lease-mcp-submit",
           String(args.workspace_id ?? "default"),
           kind,
@@ -495,13 +527,12 @@ export async function dispatchIsyMcpAction(
       const taskId = String(args.task_id ?? "");
       const summaryText = String(args.summary ?? "Confirmado por ISyMCP.");
       if (!taskId) throw new Error("monitor.respond requiere task_id");
-      const { createHash } = await import("node:crypto");
       const { db, worker, monitor } = openBridgeMonitorStack();
       try {
         const task = monitor.inspectTask(taskId);
         if (!task) throw new Error(`Tarea no encontrada: ${taskId}`);
         const fullSummary = summaryText.includes("[ARGON-ACK]") ? summaryText : `[ARGON-ACK] ${summaryText}`;
-        const artifactHash = `sha256:${createHash("sha256").update(`${taskId}:${fullSummary}`).digest("hex")}`;
+        const artifactHash = sha256Prefixed(`${taskId}:${fullSummary}`);
         const now = Date.now();
         const resultObj = {
           exit_code: 0,
@@ -741,6 +772,36 @@ export function registerControlCenterMcpTools(server: McpServer): void {
         content: [{ type: "text" as const, text: ISYMCP_AGENT_PROTOCOL_MD }],
       };
     }
+  );
+
+  // 4b. Consolas TUI: identidad, PID real, ACK y log (solo lectura)
+  server.registerTool(
+    "isymcp_get_consoles",
+    {
+      description:
+        "Lista las consolas TUI (Antigravity) lanzadas: console_id, PID real del agente, alive, estado, token_fp, task_id y ACK firmado. Úsala para no confundir consolas. Solo lectura.",
+      inputSchema: { limit: z.number().optional().default(20).describe("Máximo de consolas (por defecto 20)") },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const r = await dispatchIsyMcpAction("tui.consoles", { limit: input.limit });
+      return { content: [{ type: "text" as const, text: JSON.stringify(r.result ?? { error: r.error }, null, 2) }], isError: !r.ok };
+    },
+  );
+  server.registerTool(
+    "isymcp_get_console_log",
+    {
+      description: "Log cronológico de una consola TUI concreta (por console_id o task_id). Solo lectura.",
+      inputSchema: {
+        console_id: z.string().describe("console_id (con-xxxxxxxx) o task_id"),
+        tail: z.number().optional().default(50).describe("Últimos N eventos (por defecto 50)"),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const r = await dispatchIsyMcpAction("tui.log", { console_id: input.console_id, tail: input.tail });
+      return { content: [{ type: "text" as const, text: JSON.stringify(r.result ?? { error: r.error }, null, 2) }], isError: !r.ok };
+    },
   );
 
   // 5. isymcp_open_control_center (Herramienta lanzadora oficial OpenAI Apps SDK / Sidebar & Thread Entrypoint)

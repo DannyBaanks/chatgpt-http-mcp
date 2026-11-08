@@ -7,10 +7,13 @@
 // sin reintento ciego para operaciones no idempotentes).
 
 import { Database } from "bun:sqlite";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { bridgeHome, resolveWithinReal } from "./codex-sessions";
+import { bridgeHome } from "./codex-sessions";
+import { ensureConsoleSchema } from "./console-registry";
+import { hmacHex, safeEqualHex, sha256Hex } from "./crypto";
+import { resolveWithinReal } from "./path";
 
 export type AuthorityKind = "turn_token" | "queue_lease" | "worker_lease" | "owner_grant";
 
@@ -187,19 +190,7 @@ export interface TaskRecord {
   receipt_hmac: string | null;
 }
 
-function sha256Hex(input: string): string {
-  return createHash("sha256").update(input, "utf8").digest("hex");
-}
-
-function hmacHex(secret: string, payload: string): string {
-  return createHmac("sha256", secret).update(payload, "utf8").digest("hex");
-}
-
-function safeEqualHex(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
-  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
-}
+export { hmacHex, safeEqualHex, sha256Hex };
 
 const SAFE_IDENTIFIER_RE = /^[a-zA-Z0-9._:-]{1,128}$/;
 const SAFE_ACTION_RE = /^[a-z0-9_]+:[a-z0-9_]+$/;
@@ -286,6 +277,7 @@ export function openMonitorDatabase(dbPath: string): Database {
       receipt_hmac TEXT
     );
   `);
+  ensureConsoleSchema(db);
 
   return db;
 }
@@ -2069,7 +2061,7 @@ export function openBridgeMonitorStack(env: Record<string, string | undefined> =
   const worker = new WorkerAdapter({ workerSecret, db });
   const monitor = new MonitorCoordinator(db, worker);
   const transport = new MonitorRemoteTransport(queue, authority);
-  return { db, dbPath, authority, queue, worker, monitor, transport };
+  return { db, dbPath, authority, queue, worker, monitor, transport, workerSecret, env };
 }
 
 /**

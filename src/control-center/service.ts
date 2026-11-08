@@ -160,7 +160,7 @@ export async function getControlCenterOverview(bridgePort = "8791"): Promise<Con
     try {
       const now = Date.now();
       const leaseRow = db
-        .query("SELECT COUNT(*) as count FROM queue_leases WHERE revoked_at IS NULL AND expires_at > ?")
+        .query("SELECT COUNT(*) as count FROM leases WHERE revoked_at IS NULL AND expires_at > ?")
         .get(now) as { count: number } | null;
       activeLeasesCount = leaseRow?.count ?? 0;
 

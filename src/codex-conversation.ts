@@ -2,7 +2,8 @@
 // Los perfiles sintéticos de Desktop App quedan bloqueados por la política P0.
 // El recibo solo se confirma con un turno ya
 // comprometido; un replay reconstruye ese mismo recibo y no otra conversación.
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { sha256Hex } from "./crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
@@ -183,5 +184,5 @@ export function findConversation(dir: string, id: string): ConversationReceipt {
 }
 
 export function receiptDigest(receipt: ConversationReceipt): string {
-  return createHash("sha256").update(JSON.stringify(receipt)).digest("hex");
+  return sha256Hex(JSON.stringify(receipt));
 }

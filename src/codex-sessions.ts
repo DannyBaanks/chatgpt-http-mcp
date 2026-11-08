@@ -376,42 +376,8 @@ export function findSessionByToken(token: string): CodexSession | null {
   return null;
 }
 
-/** Ruta confinada: resuelve `candidate` dentro de `root`; null si se escapa. */
-export function resolveWithin(root: string, candidate: string): string | null {
-  const resolved = candidate ? resolve(root, candidate) : resolve(root);
-  const rel = relative(root, resolved);
-  if (rel === "") return resolved;
-  if (rel.startsWith("..") || isAbsolute(rel)) return null;
-  return resolved;
-}
-
-/**
- * Como resolveWithin, pero ademas sigue symlinks del path existente: un link
- * dentro del workspace que apunta afuera se niega (incluyendo ancestros no existentes aun).
- */
-export function resolveWithinReal(root: string, candidate: string): string | null {
-  const lexical = resolveWithin(root, candidate);
-  if (!lexical) return null;
-  let realRoot: string;
-  try {
-    realRoot = realpathSync(root);
-  } catch {
-    return null;
-  }
-  let cur = lexical;
-  while (!existsSync(cur)) {
-    const parent = dirname(cur);
-    if (parent === cur) break;
-    cur = parent;
-  }
-  let realAncestor: string;
-  try {
-    realAncestor = realpathSync(cur);
-  } catch {
-    return null;
-  }
-  return resolveWithin(realRoot, realAncestor) ? lexical : null;
-}
+import { resolveWithin, resolveWithinReal } from "./path";
+export { resolveWithin, resolveWithinReal } from "./path";
 
 export const BWRAP = "/usr/bin/bwrap";
 export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.2";

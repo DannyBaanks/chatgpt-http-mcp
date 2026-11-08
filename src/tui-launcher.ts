@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { openBridgeMonitorStack } from "./remote-monitor";
 import { buildAgentBootstrapProtocol } from "./agent-protocol";
+import { createConsole, setLaunchInfo, wrapperArgv, type NewConsole } from "./console-registry";
 
 export interface SpawnAgyOptions {
   prompt: string;
@@ -32,6 +33,9 @@ export interface SpawnAgyResult {
   operationId?: string;
   monitorUrl?: string;
   state?: string;
+  consoleId?: string;
+  tokenFp?: string;
+  logPath?: string;
 }
 
 export function detectTerminalEmulator(): string | null {
@@ -78,21 +82,24 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
   const monitorUrl = process.env.ISYMCP_MONITOR_URL || "http://127.0.0.1:8799";
   const isymcpCliPath = joinPath(import.meta.dir, "isymcp.ts");
 
-  let finalPrompt = options.prompt.trim();
-  if (options.includeMonitorHint ?? true) {
-    finalPrompt += `\n\n${buildAgentBootstrapProtocol({
-      taskId,
-      operationId,
-      monitorUrl,
-      isymcpCliPath,
-    })}`;
-  }
+  // Identidad determinista de la consola (solo si realmente se lanza).
+  let consoleInfo: NewConsole | null = null;
+  const finalPromptHolder: { value?: string } = {};
+  const basePrompt = options.prompt.trim();
+  const workspaceId = options.workspaceId || "isy-mcp-workspace";
 
-  // Si no es dryRun, auto-registramos la tarea en el monitor de ISyMCP
   if (!options.dryRun) {
     try {
       const { db } = openBridgeMonitorStack();
       const now = Date.now();
+      try {
+        consoleInfo = createConsole(db, { taskId, operationId, title, cwd, workspaceId, now });
+      } catch (regErr) {
+        console.error(`[tui-launcher:warn] No se pudo crear identidad de consola: ${String(regErr)}`);
+      }
+      const hintPrompt = options.includeMonitorHint ?? true
+        ? `${basePrompt}\n\n${buildAgentBootstrapProtocol({ taskId, operationId, monitorUrl, isymcpCliPath, consoleId: consoleInfo?.console_id })}`
+        : basePrompt;
       db.query(`
         INSERT INTO tasks (
           task_id, operation_id, idempotency_key, goal_id, conversation_ref,
@@ -105,34 +112,37 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
           reason = 'tui_session_spawned',
           updated_at = ?
       `).run(
-        taskId,
-        operationId,
-        `tui-${taskId}`,
-        "GOAL-002",
-        "chatgpt-tui-spawn",
-        "lease-local-tui",
-        options.workspaceId || "isy-mcp-workspace",
-        "interactive_agent",
-        finalPrompt.slice(0, 500),
-        JSON.stringify(["tui:spawn", "status:read", "report:write"]),
-        cwd,
-        1,
-        "RUNNING",
-        "tui_session_spawned",
-        null,
-        null,
-        1,
-        now,
-        now,
-        null,
-        null,
-        now,
+        taskId, operationId, `tui-${taskId}`, "GOAL-002",
+        consoleInfo ? `console:${consoleInfo.console_id}` : "chatgpt-tui-spawn",
+        "lease-local-tui", workspaceId, "interactive_agent",
+        hintPrompt.slice(0, 500), JSON.stringify(["tui:spawn", "status:read", "report:write"]),
+        cwd, 1, "RUNNING", "tui_session_spawned", null, null, 1, now, now, null, null, now,
       );
       db.close();
+      finalPromptHolder.value = hintPrompt;
     } catch (dbErr) {
       console.error(`[tui-launcher:warn] No se pudo registrar task en monitor: ${String(dbErr)}`);
     }
   }
+  const finalPrompt = finalPromptHolder.value ?? (
+    (options.includeMonitorHint ?? true)
+      ? `${basePrompt}\n\n${buildAgentBootstrapProtocol({ taskId, operationId, monitorUrl, isymcpCliPath })}`
+      : basePrompt
+  );
+
+  const recordLaunch = (info: { launcherPid?: number; terminal: string; tmuxSession?: string }) => {
+    if (!consoleInfo) return;
+    try {
+      const { db } = openBridgeMonitorStack();
+      try { setLaunchInfo(db, consoleInfo.console_id, info); } finally { db.close(); }
+    } catch (e) {
+      console.error(`[tui-launcher:warn] No se pudo registrar lanzamiento de consola: ${String(e)}`);
+    }
+  };
+  const wrap = (inner: string[]): string[] => (consoleInfo ? wrapperArgv(consoleInfo, { taskId, operationId, monitorUrl }, inner) : inner);
+  const consoleFields = () => (consoleInfo
+    ? { consoleId: consoleInfo.console_id, tokenFp: consoleInfo.token_fp, logPath: consoleInfo.log_path }
+    : {});
 
   const agyArgs: string[] = [
     "-i", finalPrompt,
@@ -173,8 +183,7 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         `--title=${title}`,
         `--working-directory=${cwd}`,
         "--",
-        agyBin,
-        ...agyArgs,
+        ...wrap([agyBin, ...agyArgs]),
       ];
     } else {
       // x-terminal-emulator o xterm
@@ -182,7 +191,7 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         guiTerm,
         "-T", title,
         "-e",
-        `${agyBin} ${agyArgs.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`,
+        wrap([agyBin, ...agyArgs]).map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(" "),
       ];
     }
 
@@ -214,9 +223,11 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         };
       }
       child.unref();
+      recordLaunch({ launcherPid: child.pid, terminal: guiTerm });
 
       return {
         ok: true,
+        ...consoleFields(),
         pid: child.pid,
         terminal: guiTerm,
         cwd,
@@ -225,7 +236,7 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         operationId,
         monitorUrl,
         state: "RUNNING",
-        message: `Consola TUI de Antigravity (agy) lanzada exitosamente en ventana visible (${guiTerm}) con PID ${child.pid} vinculada a la tarea ${taskId} en el monitor.`,
+        message: `Consola TUI de Antigravity (agy) lanzada exitosamente en ventana visible (${guiTerm}) con launcher_pid ${child.pid} (el PID real de agy se registra al arrancar: consulta tui.consoles) vinculada a la tarea ${taskId} y a la consola ${consoleInfo?.console_id ?? "n/a"}.`,
       };
     } catch (err) {
       return {
@@ -252,8 +263,7 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
       "-d",
       "-s", sessionName,
       "-c", cwd,
-      agyBin,
-      ...agyArgs,
+      ...wrap([agyBin, ...agyArgs]),
     ];
 
     try {
@@ -283,9 +293,11 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
         };
       }
       child.unref();
+      recordLaunch({ launcherPid: child.pid, terminal: "tmux", tmuxSession: sessionName });
 
       return {
         ok: true,
+        ...consoleFields(),
         pid: child.pid,
         terminal: "tmux",
         cwd,

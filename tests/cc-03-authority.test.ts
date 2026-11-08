@@ -68,12 +68,14 @@ describe("CC-03 — Suite Integral: Transporte, Aislamiento de Autoridad y E2E",
   });
 
   describe("Fase B: Aislamiento de Autoridad & Controles Negativos (Read-Only MCP Server)", () => {
-    it("CC03-AUTH-01: El catálogo de herramientas expone EXCLUSIVAMENTE las 4 de solo lectura", async () => {
+    it("CC03-AUTH-01: El catálogo de herramientas expone EXCLUSIVAMENTE las de solo lectura", async () => {
       const tools = await client.listTools();
       const names = tools.map((t) => t.name).sort();
 
       // Comprobar catálogo exacto de solo lectura
       expect(names).toEqual([
+        "isymcp_get_console_log",
+        "isymcp_get_consoles",
         "isymcp_get_glossary",
         "isymcp_get_overview",
         "isymcp_get_protocol",

@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
+import { sha256Hex } from '../crypto';
 
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024;
 const ASSET_ID = /^creative_[a-f0-9]{64}$/;
@@ -21,9 +22,7 @@ export type CreativeImageAsset = {
   file: string;
 };
 
-function digest(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
+const digest = sha256Hex;
 
 function extension(mimeType: string): string {
   if (mimeType === 'image/png') return '.png';

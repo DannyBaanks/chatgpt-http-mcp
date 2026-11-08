@@ -15,7 +15,7 @@
 //   4. limites: consolas vivas (maxLive) y lanzamientos por hora (maxPerHour);
 //   5. la consola corre con env -i (sin tokens del bridge) en un tmux propio
 //      (-L isymcp-tablero) y cada lanzamiento queda comentado en la tarea.
-import { createHash } from "node:crypto";
+import { sha256Hex } from "../crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "../codex-sessions";
@@ -45,9 +45,7 @@ const clip = (s: unknown, n: number) => {
 };
 
 export function taskHash(m: Msg): string {
-  return createHash("sha256")
-    .update(JSON.stringify([m.author, m.title, m.content, m.assignee, m.priority, m.topic]))
-    .digest("hex");
+  return sha256Hex(JSON.stringify([m.author, m.title, m.content, m.assignee, m.priority, m.topic]));
 }
 
 export function launchPrompt(cfg: TableroConfig, agent: string, taskId: string): string {

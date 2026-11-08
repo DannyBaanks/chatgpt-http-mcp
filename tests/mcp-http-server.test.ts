@@ -26,12 +26,14 @@ describe("CC-04 — MCP Streamable HTTP (SSE) Suite", () => {
     const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.transport).toBe("mcp-sse");
-    expect(body.tools_count).toBe(5);
+    expect(body.tools_count).toBe(7);
     expect(body.allowed_tools).toEqual([
       "isymcp_get_overview",
       "isymcp_get_glossary",
       "isymcp_get_tasks",
       "isymcp_get_protocol",
+      "isymcp_get_consoles",
+      "isymcp_get_console_log",
       "isymcp_open_control_center",
     ]);
     expect(body.resources_count).toBe(3);

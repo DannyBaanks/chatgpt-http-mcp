@@ -33,6 +33,7 @@ import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
 import { detectTuis, installIntoOpencode, installIntoTui, installIntoAllTuis } from "./tui";
 import { bridgeAuthHeaders, bridgeToken } from "./local-guard";
 import { processMatches, stopProcessTree } from "./platform/process";
+import { sha256Prefixed } from "./crypto";
 import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
 import { installTunnelClient, storeRuntimeKey, storeTunnelId, validateRuntimeKey, validateTunnelId } from "../scripts/install-tunnel";
 import { nativeBrowserCommand, parseBrowserOption, rejectUnavailableBrowser } from "./visible/native-browser";
@@ -698,7 +699,11 @@ function help(): void {
   isymcp tui install [--all | <tui>] --apply  escribe configs con backup (gemini, claude, cursor, opencode, etc.)
   isymcp tui install [--all | <tui>] --restore vuelve al backup anterior
   isymcp tui spawn "<prompt>" [--title t] [--mode auto]  abre consola Antigravity interactiva
-  isymcp monitor wait-next [segundos] espera síncronamente la próxima tarea de ChatGPT
+  isymcp monitor ack <task> --console <con-id> [--summary s]   ACK de consola (no cierra la tarea; token en $ISYMCP_ACK_TOKEN)
+  isymcp monitor respond <task> --console <con-id> --progress|--complete|--fail --summary s
+  isymcp monitor consoles [--json]  consolas TUI: console_id, PID real de agy, alive, token_fp, estado
+  isymcp monitor console-log <con-id|task-id> [--tail N]  log cronológico de una consola
+  isymcp monitor wait-next [segundos] [--console id] espera síncronamente la próxima tarea de ChatGPT
   isymcp monitor respond <id> --summary "..." [--wait] confirma recepción/resultado de tarea
   isymcp monitor alert [--title t] [--summary s] [--source src] encola una alerta o webhook reactivo
   isymcp github watch-ci [run_id|pr] [--detach] despierta un proceso hijo para alertar al monitor al concluir el CI
@@ -1753,6 +1758,7 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
     return;
   }
 
+  const consoleFlag = flag("--console", argsAll);
   const waitNextUnackedTask = async (timeoutSec: number) => {
     const deadline = Date.now() + timeoutSec * 1000;
     console.error(`[monitor:wait-next] Escuchando nuevas tareas de ChatGPT por hasta ${timeoutSec}s para despertar a Argon...`);
@@ -1761,6 +1767,10 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
       try {
         const tasks = monitor.listTasks(20);
         const unacked = tasks.find((t) => {
+          // Aislamiento por consola: --console X solo ve tareas dirigidas a X; sin --console se ignoran las dirigidas.
+          const targeted = t.conversation_ref.startsWith("console:");
+          if (consoleFlag) { if (t.conversation_ref !== `console:${consoleFlag}`) return false; }
+          else if (targeted) return false;
           if (t.state === "READY" || t.state === "AWAITING_APPROVAL") return true;
           if (t.state === "SUCCEEDED" && (!t.result?.output_summary || !t.result.output_summary.includes("[ARGON-ACK]"))) {
             return true;
@@ -1804,19 +1814,67 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
     return;
   }
 
+  if (sub === "ack" || (sub === "respond" && consoleFlag)) {
+    const taskId = rest.find((a, i) => !a.startsWith("--") && rest[i - 1] !== "--console" && rest[i - 1] !== "--summary" && rest[i - 1] !== "--pid");
+    const consoleId = consoleFlag;
+    const summaryText = flag("--summary", argsAll) ?? (sub === "ack" ? "Consola lista." : "Reporte de consola.");
+    if (!consoleId) throw new Error("uso: isymcp monitor ack <task-id> --console <console-id> [--summary ...] (token en $ISYMCP_ACK_TOKEN o --token)");
+    const token = flag("--token", argsAll) ?? process.env.ISYMCP_ACK_TOKEN ?? "";
+    const pidArg = flag("--pid", argsAll);
+    const kind = sub === "ack" ? "ack" : argsAll.includes("--complete") ? "complete" : argsAll.includes("--fail") ? "fail" : "progress";
+    const { consoleReport } = await import("./console-registry");
+    const { db, workerSecret, env } = openBridgeMonitorStack();
+    try {
+      const rec = consoleReport(db, { consoleId, token, kind, summary: summaryText, pid: pidArg ? Number(pidArg) : undefined, hmacSecret: workerSecret }, env);
+      if (taskId && taskId !== rec.task_id) throw new Error(`DENY: task_console_mismatch: la consola ${consoleId} pertenece a ${rec.task_id}, no a ${taskId}`);
+      console.log(JSON.stringify({ ok: true, kind, console: rec }, null, 2));
+    } finally {
+      db.close();
+    }
+    return;
+  }
+
+  if (sub === "consoles") {
+    const { listConsoles } = await import("./console-registry");
+    const { db, env } = openBridgeMonitorStack();
+    try {
+      const rows = listConsoles(db, Number(flag("--limit", argsAll) ?? "20"), env);
+      if (argsAll.includes("--json")) { console.log(JSON.stringify(rows, null, 2)); return; }
+      if (!rows.length) { console.log("sin consolas registradas"); return; }
+      for (const c of rows) {
+        console.log(`${c.console_id}\t${c.state}\tpid=${c.agent_pid ?? "-"}\talive=${c.alive ?? "?"}\ttask=${c.task_id}\ttoken_fp=${c.token_fp}\tevents=${c.events_count}\t${c.title}`);
+      }
+    } finally {
+      db.close();
+    }
+    return;
+  }
+
+  if (sub === "console-log") {
+    const target = rest.find((a, i) => !a.startsWith("--") && rest[i - 1] !== "--tail");
+    if (!target) throw new Error("uso: isymcp monitor console-log <console-id|task-id> [--tail N]");
+    const { readConsoleLog } = await import("./console-registry");
+    const { db } = openBridgeMonitorStack();
+    try {
+      console.log(JSON.stringify(readConsoleLog(db, target, Number(flag("--tail", argsAll) ?? "50")), null, 2));
+    } finally {
+      db.close();
+    }
+    return;
+  }
+
   if (sub === "respond") {
     const taskId = rest.find((a) => !a.startsWith("--"));
     const summaryText = flag("--summary", argsAll) ?? "Confirmado personalmente por Argon.";
     const autoWait = argsAll.includes("--wait") || argsAll.includes("--auto-wait");
     const timeoutSec = Number(flag("--timeout-seconds", argsAll) ?? "3600");
     if (!taskId) throw new Error('uso: isymcp monitor respond <task-id> --summary "respuesta de Argon" [--wait]');
-    const { createHash } = await import("node:crypto");
     const { db, monitor } = openBridgeMonitorStack();
     try {
       const task = monitor.inspectTask(taskId);
       if (!task) throw new Error(`no existe la tarea: ${taskId}`);
       const fullSummary = summaryText.includes("[ARGON-ACK]") ? summaryText : `[ARGON-ACK] ${summaryText}`;
-      const artifactHash = `sha256:${createHash("sha256").update(`${taskId}:${fullSummary}`).digest("hex")}`;
+      const artifactHash = sha256Prefixed(`${taskId}:${fullSummary}`);
       const now = Date.now();
       const resultObj = {
         exit_code: 0,
@@ -1979,5 +2037,5 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
     throw new Error("uso: isymcp monitor lease mint|renew|revoke ...");
   }
 
-  throw new Error("uso: isymcp monitor start|stop|status|run|tasks|approve|lease");
+  throw new Error("uso: isymcp monitor start|stop|status|run|tasks|approve|lease|ack|consoles|console-log");
 }
