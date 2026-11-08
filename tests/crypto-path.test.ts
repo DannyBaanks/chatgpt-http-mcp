@@ -53,9 +53,9 @@ describe("crypto utilities", () => {
 
 describe("path confinement utilities", () => {
   test("resolveWithin allows inner files and blocks parent escapes", () => {
-    const root = "/tmp/sandbox-test";
-    expect(resolveWithin(root, "file.txt")).toBe("/tmp/sandbox-test/file.txt");
-    expect(resolveWithin(root, "sub/dir/nested.txt")).toBe("/tmp/sandbox-test/sub/dir/nested.txt");
+    const root = join(tmpdir(), "sandbox-test");
+    expect(resolveWithin(root, "file.txt")).toBe(join(root, "file.txt"));
+    expect(resolveWithin(root, "sub/dir/nested.txt")).toBe(join(root, "sub", "dir", "nested.txt"));
     expect(resolveWithin(root, "../outside.txt")).toBeNull();
     expect(resolveWithin(root, "../../etc/passwd")).toBeNull();
   });

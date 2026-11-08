@@ -101,11 +101,12 @@ export function packagePlugin(repoRoot: string): PackageResult {
     rmSync(zipPath);
   }
 
-  // Empaquetar usando el comando zip del sistema
-  const zipCmd = spawnSync("zip", ["-r", zipPath, ".well-known", "openapi.json", "plugin-logo.png", "metadata.json", "README.md"], {
-    cwd: stageDir,
-    encoding: "utf8",
-  });
+  // GNU zip on POSIX; Windows ships BSD tar with ZIP writer support (-a).
+  // Both package exact staged entries and include the hidden .well-known folder.
+  const entries = [".well-known", "openapi.json", "plugin-logo.png", "metadata.json", "README.md"];
+  const zipCmd = process.platform === "win32"
+    ? spawnSync("tar.exe", ["-a", "-c", "-f", zipPath, ...entries], { cwd: stageDir, encoding: "utf8" })
+    : spawnSync("zip", ["-r", zipPath, ...entries], { cwd: stageDir, encoding: "utf8" });
 
   if (zipCmd.status !== 0) {
     return {

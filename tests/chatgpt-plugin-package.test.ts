@@ -78,7 +78,9 @@ describe("ChatGPT Private Plugin Packaging & Spec Compliance", () => {
     expect(shaSumsContent).toContain("isymcp-chatgpt-plugin.zip");
 
     // Verificar contenido del ZIP inspeccionando con zipinfo/unzip -l
-    const checkZip = spawnSync("unzip", ["-l", result.zipPath], { encoding: "utf8" });
+    const checkZip = process.platform === "win32"
+      ? spawnSync("tar.exe", ["-tf", result.zipPath], { encoding: "utf8" })
+      : spawnSync("unzip", ["-l", result.zipPath], { encoding: "utf8" });
     expect(checkZip.status).toBe(0);
     const output = checkZip.stdout;
 

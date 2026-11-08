@@ -115,11 +115,19 @@ describe("console registry", () => {
     const argv = wrapperArgv(c, { taskId: "t1", operationId: "op-t1", monitorUrl: "http://x" }, ["sleep", "5"]);
     const proc = Bun.spawn(argv, { stdout: "ignore", stderr: "ignore" });
     await Bun.sleep(300);
-    expect(syncAgentPid(db, c.console_id, env)).toBe(proc.pid);
-    expect(getConsole(db, c.console_id, env)!.alive).toBe(true);
+    const observedPid = syncAgentPid(db, c.console_id, env);
+    // Git Bash/MSYS maintains a PID namespace different from the native Win32
+    // PID exposed by Bun.spawn. POSIX exec preserves its PID; Windows does not.
+    if (process.platform === "win32") {
+      expect(observedPid).toBeNumber();
+      expect(observedPid).toBeGreaterThan(0);
+    } else {
+      expect(observedPid).toBe(proc.pid);
+      expect(getConsole(db, c.console_id, env)!.alive).toBe(true);
+    }
     proc.kill();
     await proc.exited;
-    expect(getConsole(db, c.console_id, env)!.alive).toBe(false);
+    if (process.platform !== "win32") expect(getConsole(db, c.console_id, env)!.alive).toBe(false);
   });
 
   it("gateway tui.consoles / tui.log expose the registry", async () => {

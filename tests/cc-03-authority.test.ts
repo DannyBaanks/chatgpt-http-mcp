@@ -5,33 +5,56 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpClient } from "./helpers/mcp-client";
 import { dispatchControlCenterAction } from "../src/control-center/service";
+import { openBridgeMonitorStack } from "../src/remote-monitor";
+import { startPanel } from "../src/panel";
 
 describe("CC-03 — Suite Integral: Transporte, Aislamiento de Autoridad y E2E", () => {
   let home: string;
   let client: McpClient;
+  let monitorServer: ReturnType<ReturnType<typeof openBridgeMonitorStack>["transport"]["startLoopbackServer"]>;
+  let panelServer: ReturnType<typeof startPanel>;
+  let monitorDb: ReturnType<typeof openBridgeMonitorStack>["db"];
+  let monitorUrl: string;
+  let panelUrl: string;
 
   beforeAll(async () => {
     home = mkdtempSync(join(tmpdir(), "isyco-cc03-"));
-    // Un solo cliente persistente conectado a src/mcp/readonly.ts sobre stdio
-    client = await McpClient.start(home, {}, "src/mcp/readonly.ts", []);
+    // Each test owns real loopback servers on ephemeral ports. The older test
+    // implicitly depended on Danny's running :8798/:8799 daemons and failed
+    // on clean GitHub runners despite passing on the developer workstation.
+    const stack = openBridgeMonitorStack({ ...process.env, CODEX_WEB_HTTP_HOME: home });
+    monitorDb = stack.db;
+    monitorServer = stack.transport.startLoopbackServer(0);
+    panelServer = startPanel(0, "59999");
+    monitorUrl = `http://127.0.0.1:${monitorServer.port}`;
+    panelUrl = `http://127.0.0.1:${panelServer.port}`;
+    // The separate MCP process observes this fixture, not a host-global daemon.
+    client = await McpClient.start(home, {
+      ISYMCP_MONITOR_PORT: String(monitorServer.port),
+      ISYMCP_MONITOR_URL: monitorUrl,
+      CODEX_WEB_HTTP_MONITOR_DB: join(home, "remote-monitor.sqlite"),
+    }, "src/mcp/readonly.ts", []);
   }, 30_000);
 
   afterAll(() => {
     client?.close();
+    panelServer?.stop(true);
+    monitorServer?.stop(true);
+    monitorDb?.close();
     rmSync(home, { recursive: true, force: true });
   });
 
   describe("Fase A: Identidad del Transporte", () => {
     it("CC03-TR-01: Resident Monitor (:8799) es un servidor REST y rechaza transporte MCP", async () => {
       // 1. Endpoint REST nativo /ready responde OK
-      const readyRes = await fetch("http://127.0.0.1:8799/ready", { signal: AbortSignal.timeout(3000) });
+      const readyRes = await fetch(`${monitorUrl}/ready`, { signal: AbortSignal.timeout(3000) });
       expect(readyRes.status).toBe(200);
       const readyJson = (await readyRes.json()) as any;
       expect(readyJson.ok).toBe(true);
       expect(readyJson.service).toBe("isymcp-remote-monitor");
 
       // 2. Solicitud MCP JSON-RPC a :8799 es rechazada con HTTP 404 (no implementa MCP sobre HTTP)
-      const mcpHttpRes = await fetch("http://127.0.0.1:8799/", {
+      const mcpHttpRes = await fetch(`${monitorUrl}/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -45,7 +68,7 @@ describe("CC-03 — Suite Integral: Transporte, Aislamiento de Autoridad y E2E",
       expect(mcpHttpRes.status).toBe(404);
 
       // 3. Intento de ejecución directa en el monitor /isymcp/monitor/exec es bloqueado con HTTP 403
-      const execRes = await fetch("http://127.0.0.1:8799/isymcp/monitor/exec", {
+      const execRes = await fetch(`${monitorUrl}/isymcp/monitor/exec`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command: "whoami" }),
@@ -57,10 +80,10 @@ describe("CC-03 — Suite Integral: Transporte, Aislamiento de Autoridad y E2E",
     });
 
     it("CC03-TR-02: Panel Server (:8798) es un servidor HTTP Web/REST protegido en loopback", async () => {
-      const readyRes = await fetch("http://127.0.0.1:8798/ready", { signal: AbortSignal.timeout(3000) });
+      const readyRes = await fetch(`${panelUrl}/ready`, { signal: AbortSignal.timeout(3000) });
       expect(readyRes.status).toBe(200);
 
-      const ccHtmlRes = await fetch("http://127.0.0.1:8798/control-center", { signal: AbortSignal.timeout(3000) });
+      const ccHtmlRes = await fetch(`${panelUrl}/control-center`, { signal: AbortSignal.timeout(3000) });
       expect(ccHtmlRes.status).toBe(200);
       const html = await ccHtmlRes.text();
       expect(html).toContain("ISyMCP Panel");

@@ -190,7 +190,7 @@ describe("CC-06 Authority Integrity — Falsación de Frontera y Protocolo de Gr
 
       const res = await dispatchControlCenterAction(
         "shell.exec",
-        { command: `cat << 'EOF'\n${sensitivePayload}\nEOF` },
+        { command: `echo ${sensitivePayload.replace(/\s+/g, " ").trim()}` },
         { operator_grant: challenge.operator_grant }
       );
       expect(res.ok).toBe(true);
