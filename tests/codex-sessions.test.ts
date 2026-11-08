@@ -44,6 +44,10 @@ describe("codex-sessions registry", () => {
       Bun.spawn([process.execPath, "-e", script, workspace, String(id)], { env, stdout: "ignore", stderr: "pipe" }));
     expect(revokeSession(victim.fp)).toBe(1);
     const codes = await Promise.all(writers.map((w) => w.exited));
+    const errors = await Promise.all(writers.map(async (w) => await new Response(w.stderr).text()));
+    if (codes.some((code) => code !== 0)) {
+      throw new Error(`concurrent session writer failed: ${JSON.stringify(codes)}; stderr=${JSON.stringify(errors)}`);
+    }
     expect(codes).toEqual([0, 0, 0, 0]);
     const labels = readSessions().map((s) => s.label);
     expect(labels.filter((l) => /^w\d-\d+$/.test(l))).toHaveLength(60);
