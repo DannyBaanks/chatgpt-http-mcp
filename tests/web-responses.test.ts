@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildResponseBody,
   buildWebStream,
   extractPrompt,
   isWebModel,
+  localAppTitle,
 } from "../src/web-responses";
 import { mergeWebRows } from "../scripts/install-web-models";
 import { parseCapabilities } from "../src/config";
@@ -131,5 +134,24 @@ describe("mergeWebRows", () => {
   test("saca las filas web viejas antes de agregar las nuevas", () => {
     const merged = mergeWebRows({ models: [{ slug: "chatgpt-web/viejo" }, { ...template }] }, caps);
     expect(merged.models.some((m) => (m as { slug: string }).slug === "chatgpt-web/viejo")).toBe(false);
+  });
+});
+
+describe("localAppTitle", () => {
+  test("legacy App title metadata gets a local label without starting a private profile", () => {
+    const dir = mkdtempSync(join(tmpdir(), "app-title-"));
+    const launchId = "22222222-2222-4222-8222-222222222222";
+    const model = "chatgpt-web/gpt-6";
+    writeFileSync(join(dir, `intent-${launchId}.json`), JSON.stringify({
+      version: "isymcp-launch-intent/1", launchId, client: "app", cwd: dir, model, effort: "high",
+    }));
+    const req = new Request("http://localhost/v1/responses", { headers: { "x-isymcp-launch-id": launchId } });
+    const body = { model, input: "generate title", reasoning: { effort: "low" }, client_metadata: {
+      thread_id: "auxiliary-thread", turn_id: "auxiliary-turn", "x-codex-turn-metadata": JSON.stringify({ thread_source: "thread_title", turn_trigger: "thread_title" }),
+    } };
+    expect(localAppTitle(req, body, dir)).toMatchObject({ output_text: "ISyMCP Web", metadata: { isymcp_source: "local_thread_title", isymcp_tools_executed: false } });
+    expect(localAppTitle(req, { ...body, client_metadata: {} }, dir)).toBeNull();
+    expect(localAppTitle(req, { ...body, model: "native" }, dir)).toBeNull();
+    expect(localAppTitle(new Request("http://localhost"), body, dir)).toBeNull();
   });
 });

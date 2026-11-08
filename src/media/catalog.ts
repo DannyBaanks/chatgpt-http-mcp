@@ -1,16 +1,17 @@
 import { remaining } from './deadline';
 import { mkdirSync, readFileSync, writeFileSync, renameSync, realpathSync, readdirSync, statSync } from 'node:fs';
 import { open, mkdtemp, writeFile, unlink, rmdir } from 'node:fs/promises';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, join, resolve, extname } from 'node:path';
+import { sha256Hex } from '../crypto';
 import { verifyDownloadedTikTok } from './tiktok-url';
 import { youtubeSource } from './youtube-url';
 export type MediaDownloadReceipt = { platform?:'youtube'|'tiktok'|'instagram'|'twitter'|'direct'|'generic'; video_id:string; source_url:string; canonical_url?:string };
 export type Asset = { id:string; path:string; realPath:string; sha256:string; bytes:number; name:string; revoked:boolean; addedAt:string; sourceUrl?:string;
   downloadReceipt?:MediaDownloadReceipt };
 const extensions = new Set(['.wav','.flac','.mp3','.m4a','.mp4','.mov','.webm','.mkv','.ogg','.aac','.opus']);
-export const digest = (b:Buffer) => createHash('sha256').update(b).digest('hex');
+export const digest = (b: Buffer) => sha256Hex(b);
 function validDownloadReceipt(sourceUrl:string|undefined,receipt:MediaDownloadReceipt):boolean {
  if(!sourceUrl||receipt.source_url!==sourceUrl)return false;
  if(receipt.platform==='tiktok') {

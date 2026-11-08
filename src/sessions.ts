@@ -1,5 +1,7 @@
-// sessions.ts — una sesion = unas cookies + una conversacion.
-// No abre un chat nuevo en cada turno: si ya hay URL /c/, se reutiliza.
+// sessions.ts — Gestión de sesiones de navegación Web (ChatGPT browser cookies + URL /c/...).
+// NOTA ARQUITECTÓNICA: Este archivo administra exclusivamente cookies persistentes del navegador
+// (~/.codex-web-http/sessions/<nombre>.json). Para tokens de autorización de CLI, workspaces,
+// sandboxes y capabilities de agentes locales, ver `src/codex-sessions.ts`.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";

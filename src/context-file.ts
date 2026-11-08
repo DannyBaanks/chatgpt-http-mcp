@@ -6,7 +6,7 @@
 // ~/.codex-web-http/context/ctx-<key>.txt, manda un contrato corto para leerlo
 // por partes (offset/limit), sigue las llamadas read hasta el ACK, y recien
 // entonces pide la respuesta final. El texto crece en disco; la caja no.
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -30,10 +30,7 @@ export function contextDir(): string {
 
 /** Clave estable por conversacion (modelo + system + primer mensaje del usuario). */
 export function makeContextKey(model: string, system: string, firstUser: string): string {
-  return createHash("sha256")
-    .update(`${model}\u0000${system}\u0000${firstUser}`)
-    .digest("hex")
-    .slice(0, 12);
+  return sha256Hex(`${model}\u0000${system}\u0000${firstUser}`).slice(0, 12);
 }
 
 /** Escribe el contexto completo del chat. Devuelve ruta, total de lineas y bytes. */

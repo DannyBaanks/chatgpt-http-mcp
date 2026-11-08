@@ -1,0 +1,395 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ISyMCP Control Center API",
+    "description": "API oficial de ISyMCP Control Center para ChatGPT Plugins, Custom GPT Actions y paneles de control locales.",
+    "version": "1.2.0",
+    "contact": {
+      "name": "ISyMCP Operator",
+      "email": "danny@isymcp.local"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8798",
+      "description": "Instancia local de ISyMCP Control Center"
+    }
+  ],
+  "paths": {
+    "/api/control-center/overview": {
+      "get": {
+        "summary": "Obtener estado general y salud de servicios",
+        "description": "Inspecciona la disponibilidad del bridge (:8791), monitor continuo (:8799), túnel seguro y telemetría de memoria.",
+        "operationId": "getControlCenterOverview",
+        "responses": {
+          "200": {
+            "description": "Estado general de salud y servicios",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlCenterOverview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control-center/glossary": {
+      "get": {
+        "summary": "Consultar catálogo de herramientas y contratos tipados",
+        "description": "Retorna el glosario oficial de capacidades de ISyMCP para descubrimiento de comandos y parámetros sin ejecutar acciones.",
+        "operationId": "getControlCenterGlossary",
+        "responses": {
+          "200": {
+            "description": "Glosario oficial tipado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "glossary": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GlossaryEntry"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control-center/tasks": {
+      "get": {
+        "summary": "Listar tareas registradas en el monitor continuo",
+        "description": "Retorna las tareas encoladas, estados de ejecución y recibos criptográficos HMAC persistidos en SQLite WAL.",
+        "operationId": "getControlCenterTasks",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Número máximo de tareas a retornar",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de tareas y recibos criptográficos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ControlCenterTaskItem"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control-center/tasks/approve": {
+      "post": {
+        "summary": "Aprobar tarea en espera de confirmación",
+        "description": "Autoriza la ejecución de una tarea en estado AWAITING_APPROVAL tras verificar la identidad y el workspace.",
+        "operationId": "approveControlCenterTask",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "task_id": {
+                    "type": "string",
+                    "description": "Identificador único de la tarea (ej: 'task-tui-1234')"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Workspace esperado para validar confinamiento"
+                  }
+                },
+                "required": ["task_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tarea aprobada exitosamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "task": { "$ref": "#/components/schemas/ControlCenterTaskItem" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error de validación o tarea no aprobable"
+          }
+        }
+      }
+    },
+    "/api/control-center/protocol": {
+      "get": {
+        "summary": "Leer protocolo de bootstrap de agentes interactivos",
+        "description": "Retorna las instrucciones oficiales de bootstrap y comandos /task para agentes de Antigravity y ChatGPT.",
+        "operationId": "getControlCenterProtocol",
+        "responses": {
+          "200": {
+            "description": "Protocolo Markdown de coordinación",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control-center/cli": {
+      "post": {
+        "summary": "Ejecutar comando CLI de isymcp",
+        "description": "Ejecuta de forma tipada y controlada un comando CLI de isymcp. Acciones mutantes o de alto riesgo exigen un OperatorGrant criptográfico de un solo uso o devuelven 403 con el desafío necesario.",
+        "operationId": "executeCliCommand",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CliExecutionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resultado de la ejecución del comando CLI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CliExecutionResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acción protegida que requiere confirmación y OperatorGrant criptográfico",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CliExecutionResult"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Fallo en la ejecución del comando"
+          }
+        }
+      }
+    },
+    "/api/control-center/dispatch": {
+      "post": {
+        "summary": "Ejecutar una acción del Universal Gateway",
+        "description": "Despacha una acción del catálogo del Gateway. Si la acción muta estado o requiere privilegios elevados, exige un OperatorGrant válido.",
+        "operationId": "dispatchControlCenterAction",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ControlCenterDispatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resultado de la acción",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlCenterDispatchResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Confirmación requerida con OperatorGrant"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-isymcp-token",
+        "description": "Token opcional de sesión o bridge local para entornos remotos o autenticación estricta"
+      }
+    },
+    "schemas": {
+      "ControlCenterOverview": {
+        "type": "object",
+        "properties": {
+          "ts": { "type": "string" },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceHealthItem"
+            }
+          },
+          "monitor": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string", "enum": ["up", "down"] },
+              "url": { "type": "string" },
+              "pid": { "type": ["integer", "null"] },
+              "activeLeasesCount": { "type": "integer" },
+              "totalTasksCount": { "type": "integer" },
+              "unackedTasksCount": { "type": "integer" }
+            }
+          },
+          "bridge": {
+            "type": "object",
+            "properties": {
+              "port": { "type": "string" },
+              "status": { "type": "string", "enum": ["up", "down"] },
+              "auth": { "type": "string" },
+              "tunnel": { "type": "string" },
+              "activeBroker": { "type": "boolean" }
+            }
+          },
+          "metrics": {
+            "type": ["object", "null"],
+            "properties": {
+              "memoryRssMb": { "type": "number" },
+              "uptimeSeconds": { "type": "number" }
+            }
+          }
+        },
+        "required": ["ts", "services", "monitor", "bridge"]
+      },
+      "ServiceHealthItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["up", "down", "ready", "stopped", "warn"] },
+          "detail": { "type": "string" },
+          "endpoint": { "type": "string" },
+          "pid": { "type": ["integer", "null"] }
+        },
+        "required": ["id", "name", "status", "detail"]
+      },
+      "GlossaryEntry": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "category": { "type": "string" },
+          "description": { "type": "string" },
+          "safety": { "type": "string", "enum": ["read_only", "safe_write", "gated_write"] },
+          "parameters": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["name", "category", "description", "safety"]
+      },
+      "ControlCenterTaskItem": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string" },
+          "operation_id": { "type": "string" },
+          "workspace_id": { "type": "string" },
+          "kind": { "type": "string" },
+          "description": { "type": "string" },
+          "state": { "type": "string" },
+          "requested_actions": { "type": "array", "items": { "type": "string" } },
+          "attempt_count": { "type": "integer" },
+          "created_at": { "type": "number" },
+          "updated_at": { "type": "number" },
+          "has_receipt": { "type": "boolean" },
+          "receipt_hmac": { "type": ["string", "null"] },
+          "result_summary": { "type": ["string", "null"] },
+          "exit_code": { "type": ["integer", "null"] }
+        },
+        "required": ["task_id", "operation_id", "workspace_id", "kind", "state"]
+      },
+      "CliExecutionRequest": {
+        "type": "object",
+        "properties": {
+          "command": { "type": "string", "description": "Comando principal de isymcp (ej: 'status', 'health', 'tui list')" },
+          "args": { "type": "array", "items": { "type": "string" }, "description": "Argumentos posicionales y flags" },
+          "confirmed": { "type": "boolean", "description": "Indicador de confirmación explícita (requiere operator_grant para mutaciones)" },
+          "operator_grant": { "type": "object", "description": "Desafío criptográfico HMAC-SHA256 resuelto por el operador" },
+          "cwd": { "type": "string", "description": "Directorio de trabajo relativo al workspace" },
+          "timeoutMs": { "type": "integer", "description": "Tiempo límite en milisegundos (máximo 60000)" }
+        },
+        "required": ["command"]
+      },
+      "CliExecutionResult": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "command": { "type": "string" },
+          "full_command": { "type": "string" },
+          "stdout": { "type": "string" },
+          "stderr": { "type": "string" },
+          "exit_code": { "type": "integer" },
+          "duration_ms": { "type": "number" },
+          "requires_confirmation": { "type": "boolean" },
+          "warning": { "type": "string" },
+          "operator_grant": { "type": "object" },
+          "error": { "type": "string" }
+        },
+        "required": ["ok", "command", "full_command", "stdout", "stderr", "exit_code", "duration_ms"]
+      },
+      "ControlCenterDispatchRequest": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "description": "Acción del gateway (ej: 'monitor.status', 'media.list')" },
+          "arguments": { "type": "object", "description": "Parámetros de la acción" },
+          "confirmed": { "type": "boolean" },
+          "operator_grant": { "type": "object" }
+        },
+        "required": ["action"]
+      },
+      "ControlCenterDispatchResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "action": { "type": "string" },
+          "result": {},
+          "error": { "type": "string" },
+          "requires_confirmation": { "type": "boolean" },
+          "warning": { "type": "string" },
+          "operator_grant": { "type": "object" }
+        },
+        "required": ["ok", "action"]
+      }
+    }
+  }
+}

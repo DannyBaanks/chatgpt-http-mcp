@@ -1,0 +1,110 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ISyMCP Control Center API",
+    "description": "API oficial para integración de ISyMCP como App Privada / Custom Action en ChatGPT.",
+    "version": "1.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://<tu-subdominio-tunel>.trycloudflare.com",
+      "description": "Túnel HTTPS seguro hacia ISyMCP Bridge local"
+    }
+  ],
+  "paths": {
+    "/api/control-center/overview": {
+      "get": {
+        "summary": "Obtener estado general y salud de servicios",
+        "operationId": "getOverview",
+        "responses": {
+          "200": {
+            "description": "Estado del bridge, monitor, leases y métricas del sistema"
+          }
+        }
+      }
+    },
+    "/api/control-center/glossary": {
+      "get": {
+        "summary": "Consultar catálogo de herramientas y contratos tipados",
+        "operationId": "getGlossary",
+        "responses": {
+          "200": {
+            "description": "Glosario oficial de capacidades de ISyMCP"
+          }
+        }
+      }
+    },
+    "/api/control-center/tasks": {
+      "get": {
+        "summary": "Listar tareas registradas en el monitor continuo",
+        "operationId": "getTasks",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de tareas y recibos criptográficos HMAC"
+          }
+        }
+      }
+    },
+    "/api/control-center/protocol": {
+      "get": {
+        "summary": "Leer protocolo de bootstrap de agentes interactivos",
+        "operationId": "getProtocol",
+        "responses": {
+          "200": {
+            "description": "Documento markdown con instrucciones /task"
+          }
+        }
+      }
+    },
+    "/api/control-center/dispatch": {
+      "post": {
+        "summary": "Ejecutar una acción del Universal Gateway",
+        "operationId": "dispatchAction",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "description": "Nombre de la acción (ej: 'monitor.status', 'github.prs', 'media.list')"
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "description": "Parámetros de la acción según el glosario"
+                  },
+                  "confirmed": {
+                    "type": "boolean",
+                    "description": "Confirmación explícita para acciones con efectos o modificaciones"
+                  }
+                },
+                "required": ["action"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resultado de la acción ejecutada"
+          },
+          "403": {
+            "description": "Acción peligrosa bloqueada por falta de confirmación"
+          }
+        }
+      }
+    }
+  }
+}

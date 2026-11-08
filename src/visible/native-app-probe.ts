@@ -1,8 +1,8 @@
 // Probe boundary for the actual desktop writer. No app-server impersonation,
 // auth copying, global configuration edits, or thread adoption.
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { sha256Hex } from "../crypto";
 
 const uuid = (s: unknown): s is string => typeof s === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(s);
 export class NativeAppTurnGate {
@@ -43,7 +43,7 @@ export function readOwnedAppProbeProfile(options: { root: string; configSha256: 
   const root = realpathSync(options.root), codexHome = join(root, "codex"), userData = join(root, "electron");
   if (!statSync(codexHome).isDirectory() || !statSync(userData).isDirectory()) throw Error("native_app_profile_missing");
   const text = readFileSync(join(codexHome, "config.toml"), "utf8");
-  if (createHash("sha256").update(text).digest("hex") !== options.configSha256) throw Error("native_app_profile_changed");
+  if (sha256Hex(text) !== options.configSha256) throw Error("native_app_profile_changed");
   const config = Bun.TOML.parse(text) as any, provider = config.model_providers?.[config.model_provider];
   if (config.model !== options.model || provider?.base_url !== `http://127.0.0.1:${options.port}/v1` || provider.requires_openai_auth !== false) throw Error(
     "native_app_profile_endpoint_mismatch");

@@ -1,6 +1,6 @@
 // The connector guide is local package content, never a caller-supplied path.
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { sha256Hex } from "../crypto";
 
 export interface McpBootstrap {
   name: "ISyMCP MCP bootstrap";
@@ -16,7 +16,7 @@ export function readMcpBootstrap(): McpBootstrap {
   return {
     name: "ISyMCP MCP bootstrap",
     version: "1",
-    sha256: createHash("sha256").update(content).digest("hex"),
+    sha256: sha256Hex(content),
     content,
   };
 }
