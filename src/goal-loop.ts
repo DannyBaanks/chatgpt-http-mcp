@@ -18,10 +18,11 @@
 //     flags y rutas. NOTA DE FRONTERA DE CONFIANZA: permitir `bun test` ejecuta código de test del
 //     repositorio; la allowlist de argumentos acota la invocación CLI pero NO sustituye un sandbox de OS.
 
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import { resolveWithinReal } from "./codex-sessions";
+import { resolveWithinReal } from "./path";
+import { hmacHex, safeEqualHex, sha256Prefixed } from "./crypto";
 
 export type CoordinatorDecision = "CONTINUE" | "PAUSE" | "DENY" | "DONE";
 
@@ -147,7 +148,7 @@ export function computeGoalHash(spec: GoalSpec): string {
     acceptance_criteria: [...spec.acceptance_criteria],
     verification_command: [...spec.verification_command],
   });
-  return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
+  return sha256Prefixed(canonical);
 }
 
 export function computePacketHash(packet: EvidencePacket): string {
@@ -163,7 +164,7 @@ export function computePacketHash(packet: EvidencePacket): string {
     independent_verification: packet.independent_verification,
     status: packet.status,
   });
-  return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
+  return sha256Prefixed(canonical);
 }
 
 export function createGoalContract(spec: GoalSpec): GoalContract {
@@ -303,7 +304,7 @@ function computeStateHmac(secret: string, state: Omit<PersistedCoordinatorState,
     seenOperations: state.seenOperations,
     history: state.history,
   });
-  return createHmac("sha256", secret).update(canonical, "utf8").digest("hex");
+  return hmacHex(secret, canonical);
 }
 
 export class GoalCoordinator {
@@ -425,9 +426,7 @@ export class GoalCoordinator {
         seenOperations: raw.seenOperations,
         history: raw.history,
       });
-      const a = Buffer.from(raw.hmac, "hex");
-      const b = Buffer.from(expectedHmac, "hex");
-      if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      if (!safeEqualHex(raw.hmac, expectedHmac)) {
         throw new Error("goal_state_corrupted: firma HMAC inválida (stateSecret incorrecto o estado adulterado)");
       }
     }

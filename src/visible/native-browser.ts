@@ -1,11 +1,11 @@
 // Capability gate only. Browser tools in a Codex chat do not constitute an
 // externally callable BrowserDriverPort or a registered native execution owner.
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { sha256Hex } from "../crypto";
 
 const execFileAsync = promisify(execFile);
 
@@ -119,7 +119,7 @@ export async function probeNativeBrowser(binary = "codex") {
       ...nativeBrowserStatus(),
       protocol: {
         inspectedAt: new Date().toISOString(), version,
-        clientRequestSha256: createHash("sha256").update(schema).digest("hex"),
+        clientRequestSha256: sha256Hex(schema),
         methodCount: methods.length, browserMethodCandidates: browserMethods,
         note: "La inspección del protocolo no prueba disponibilidad de herramientas inyectadas por la app, control externo del navegador ni ejecución E2E.",
       },

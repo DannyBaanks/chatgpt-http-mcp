@@ -132,6 +132,9 @@ describe("console registry", () => {
       const list = await dispatchIsyMcpAction("tui.consoles");
       expect(list.ok).toBe(true);
       expect((list.result as any[])[0].console_id).toBe(c.console_id);
+      const listAlias = await dispatchIsyMcpAction("consoles");
+      expect(listAlias.ok).toBe(true);
+      expect((listAlias.result as any[])[0].console_id).toBe(c.console_id);
       const log = await dispatchIsyMcpAction("tui.log", { console_id: "t1" });
       expect(log.ok).toBe(true);
       expect((log.result as any).events.length).toBe(1);

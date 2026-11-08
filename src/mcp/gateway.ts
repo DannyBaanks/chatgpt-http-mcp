@@ -341,11 +341,21 @@ export async function dispatchIsyMcpAction(
 
   try {
     // 2b. Registro determinista de consolas
-    if (normalized === "tui.consoles" || normalized === "monitor.consoles" || normalized === "tui.log" || normalized === "monitor.console_log") {
+    const isConsolesAction =
+      normalized === "tui.consoles" ||
+      normalized === "monitor.consoles" ||
+      normalized === "consoles" ||
+      normalized === "console";
+    const isLogAction =
+      normalized === "tui.log" ||
+      normalized === "monitor.console_log" ||
+      normalized === "console-log" ||
+      normalized === "console_log";
+    if (isConsolesAction || isLogAction) {
       const { listConsoles, readConsoleLog } = await import("../console-registry");
       const { db, env } = openBridgeMonitorStack();
       try {
-        if (normalized.endsWith("consoles")) return { ok: true, result: listConsoles(db, Number(args.limit ?? 20), env) };
+        if (isConsolesAction) return { ok: true, result: listConsoles(db, Number(args.limit ?? 20), env) };
         const target = String(args.console_id ?? args.task_id ?? "");
         if (!target) return { ok: false, result: null, error: "tui.log requiere console_id (o task_id)" };
         return { ok: true, result: readConsoleLog(db, target, Number(args.tail ?? 50)) };

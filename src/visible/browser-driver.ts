@@ -1,13 +1,13 @@
-import {createHash} from 'node:crypto';
 import {writeFileSync,readFileSync,existsSync,lstatSync,mkdirSync} from 'node:fs';
 import {join,isAbsolute} from 'node:path';
 import {ensurePrivatePath,securePrivatePath} from '../platform/private-path';
+import {sha256Hex} from '../crypto';
 export interface SubmissionRequest {requestId:string;prompt:string;connectorId:string;model:string;effort:string}
 export interface DriverObservation {url:string;connectorId:string;model:string;effort:string;messages:{messageId:string;text:string}[]}
 export interface BrowserDriverPort {prepare(text:string,connectorId:string):Promise<void>;inspect():Promise<DriverObservation>;send():Promise<void>}
 export interface SubmissionReceipt {url:string;userMessageId:string;requestId:string}
 const inflight=new Map<string,{signature:string;promise:Promise<SubmissionReceipt>}>();
-const hash=(text:string)=>createHash('sha256').update(text).digest('hex');
+const hash = sha256Hex;
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 function privateFile(path:string){if(process.platform==='win32')ensurePrivatePath(path,false);else{const stat=lstatSync(path);if(!stat.isFile()||
   stat.isSymbolicLink()||stat.uid!==process.getuid?.()||(stat.mode&0o077))throw Error('visible_submission_file_not_private');

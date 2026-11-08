@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 import { isAbsolute, join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
 import { ensureConsoleSchema } from "./console-registry";
-import { hmacHex, safeEqualHex, sha256Hex } from "./crypto";
+import { hmacHex, safeEqualHex, sha256Hex, sha256Prefixed } from "./crypto";
 import { resolveWithinReal } from "./path";
 
 export type AuthorityKind = "turn_token" | "queue_lease" | "worker_lease" | "owner_grant";
@@ -190,7 +190,7 @@ export interface TaskRecord {
   receipt_hmac: string | null;
 }
 
-export { hmacHex, safeEqualHex, sha256Hex };
+export { hmacHex, safeEqualHex, sha256Hex, sha256Prefixed };
 
 const SAFE_IDENTIFIER_RE = /^[a-zA-Z0-9._:-]{1,128}$/;
 const SAFE_ACTION_RE = /^[a-z0-9_]+:[a-z0-9_]+$/;
@@ -1413,7 +1413,7 @@ export class WorkerAdapter {
       : {
           exit_code: 0,
           output_summary: `Executed ${task.kind} (${task.requested_actions.join(",")}) in ${task.workspace_id}`,
-          artifact_hash: `sha256:${sha256Hex(`${task.task_id}:${task.operation_id}:ok`)}`,
+          artifact_hash: sha256Prefixed(`${task.task_id}:${task.operation_id}:ok`),
         };
 
     const completed_at = this.nowFn();

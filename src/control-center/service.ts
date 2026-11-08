@@ -40,6 +40,9 @@ const ACTION_ALIAS_MAP: Record<string, string> = {
   tasks: "monitor.tasks",
   respond: "monitor.respond",
   submit: "monitor.submit",
+  consoles: "tui.consoles",
+  "console-log": "tui.log",
+  console_log: "tui.log",
 };
 
 function sanitizeOutput(data: unknown): unknown {
@@ -49,6 +52,7 @@ function sanitizeOutput(data: unknown): unknown {
       .replace(/(ghp_[A-Za-z0-9_]{36,})/g, "[REDACTED_GH_TOKEN]")
       .replace(/(x-isymcp-token:\s*)[^\s\r\n]+/gi, "$1[REDACTED]")
       .replace(/(ql_[A-Za-z0-9_-]{20,})/g, "[REDACTED_LEASE_TOKEN]")
+      .replace(/(ctk_[A-Za-z0-9_-]{20,})/g, "[REDACTED_CONSOLE_TOKEN]")
       .replace(/(og-[A-Za-z0-9_-]{16,})/g, "[REDACTED_OWNER_GRANT]")
       .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, "$1[REDACTED]")
       .replace(/(\.codex-web-http\/storage-state\.json)/g, "[REDACTED_STORAGE_PATH]")

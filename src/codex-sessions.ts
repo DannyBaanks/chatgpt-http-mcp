@@ -1,5 +1,9 @@
 // codex-sessions.ts — session tokens del MCP nativo (Codex ISyMCP).
 //
+// NOTA ARQUITECTÓNICA: Este archivo gestiona tokens de autorización de capacidades locales
+// para Codex CLI, sandboxing (bwrap/docker/windows) y workspaces (~/.codex-web-http/codex-sessions.json).
+// Para sesiones de navegación Web y cookies del navegador ChatGPT, ver `src/sessions.ts`.
+//
 // Un session token es una capacidad opaca ligada a un workspace y a un modo
 // (read-only | writable). Sustituye al turn_token efimero que hoy exige el
 // contrato nativo: cuando el broker no tiene un turno pendiente, un token que
@@ -9,7 +13,7 @@
 //
 // Regla de secretos: el token completo solo se muestra al crearlo. En
 // receipts, listados y logs se usa siempre el fingerprint sha256[:12].
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync,
   writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -17,6 +21,7 @@ import { delimiter as pathDelimiter, dirname, isAbsolute, join, relative, resolv
 import { buildCodexWindowsSandboxPlan, cleanupCodexWindowsSandboxPath, findCodexWindowsCli } from "./platform/codex-windows-sandbox";
 import { buildWindowsDockerSandboxPlan } from "./platform/docker-sandbox";
 import { ensurePrivatePath, securePrivatePath } from "./platform/private-path";
+import { safeEqualBuffer, sha256Hex } from "./crypto";
 
 export interface CodexSession {
   /** Explicit native owner; never inferred from a model, port or token prefix. */
@@ -74,7 +79,7 @@ export function sessionRegistryExists(): boolean {
 }
 
 export function fingerprint(token: string): string {
-  return createHash("sha256").update(token).digest("hex").slice(0, 12);
+  return sha256Hex(token).slice(0, 12);
 }
 
 function readRegistry(): Registry {
@@ -246,7 +251,7 @@ function readLocalRequest(session: CodexSession, filename: string): { filename: 
     try { content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data); }
     catch { throw new Error("session_request_invalid: request must be UTF-8 text"); }
     if (!content.trim() || content.includes("\0")) throw new Error("session_request_invalid: request must contain usable text");
-    return { filename, content, sha256: createHash("sha256").update(data).digest("hex") };
+    return { filename, content, sha256: sha256Hex(data) };
   } finally { if (fd !== undefined) closeSync(fd); }
 }
 
@@ -361,7 +366,7 @@ export function findSessionByToken(token: string): CodexSession | null {
   for (const session of sessions) {
     const a = Buffer.from(session.token);
     const b = Buffer.from(token);
-    if (a.length === b.length && timingSafeEqual(a, b)) {
+    if (safeEqualBuffer(a, b)) {
       // Retain native tombstones so expiry/closure is an explicit native error,
       // never a compatibility stub or a switch to the standalone sandbox.
       if (isExpired(session) && !session.nativeOwner) return null;

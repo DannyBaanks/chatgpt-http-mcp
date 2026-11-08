@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
-import { hmacHex, randomHex, sha256Hex } from "./crypto";
+import { hmacHex, randomHex, sha256Hex, sha256Prefixed } from "./crypto";
 
 export type ConsoleState = "SPAWNED" | "ACKED" | "RUNNING" | "COMPLETED" | "FAILED";
 
@@ -197,7 +197,7 @@ export function consoleReport(
     const result = {
       exit_code: p.kind === "complete" ? 0 : 1,
       output_summary: text,
-      artifact_hash: `sha256:${sha256Hex(`${row.task_id}:${text}`)}`,
+      artifact_hash: sha256Prefixed(`${row.task_id}:${text}`),
       completed_at: now,
     };
     db.query(
