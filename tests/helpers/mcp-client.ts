@@ -22,8 +22,13 @@ export class McpClient {
   private nextId = 2;
   private pending = new Map<number, (payload: Record<string, unknown>) => void>();
 
-  private constructor(home: string, extraEnv: Record<string, string>) {
-    this.proc = Bun.spawn(["bun", "src/mcp/main.ts", "--contract", "native"], {
+  private constructor(
+    home: string,
+    extraEnv: Record<string, string>,
+    entrypoint: string = "src/mcp/main.ts",
+    extraArgs: string[] = ["--contract", "native"]
+  ) {
+    this.proc = Bun.spawn(["bun", entrypoint, ...extraArgs], {
       cwd: ROOT,
       env: { ...process.env, CODEX_WEB_HTTP_HOME: home, ...extraEnv },
       stdin: "pipe",
@@ -53,7 +58,8 @@ export class McpClient {
               const resolve = this.pending.get(Number(msg.id))!;
               this.pending.delete(Number(msg.id));
               if (msg.error) {
-                resolve({ error: String(msg.error) });
+                const errText = typeof msg.error === "object" ? JSON.stringify(msg.error) : String(msg.error);
+                resolve({ error: errText, isError: true, rawError: msg.error as any });
                 continue;
               }
               if ((msg.result as any)?.tools) {
@@ -61,15 +67,23 @@ export class McpClient {
                 continue;
               }
               const text = msg.result?.content?.find((c) => c.type === "text")?.text;
+              const isError = (msg.result as any)?.isError === true;
               if (text === undefined) {
-                resolve((msg.result as Record<string, unknown>) ?? { error: "sin contenido" });
+                const resObj = (msg.result as Record<string, unknown>) ?? { error: "sin contenido" };
+                if (isError) (resObj as any).isError = true;
+                resolve(resObj);
                 continue;
               }
+              let payload: Record<string, unknown>;
               try {
-                resolve(JSON.parse(text) as Record<string, unknown>);
+                payload = JSON.parse(text) as Record<string, unknown>;
               } catch {
-                resolve({ text });
+                payload = { text, error: text };
               }
+              if (isError) {
+                payload.isError = true;
+              }
+              resolve(payload);
             }
           }
         }
@@ -79,8 +93,13 @@ export class McpClient {
     })();
   }
 
-  static async start(home: string, extraEnv: Record<string, string> = {}): Promise<McpClient> {
-    const client = new McpClient(home, extraEnv);
+  static async start(
+    home: string,
+    extraEnv: Record<string, string> = {},
+    entrypoint: string = "src/mcp/main.ts",
+    extraArgs: string[] = ["--contract", "native"]
+  ): Promise<McpClient> {
+    const client = new McpClient(home, extraEnv, entrypoint, extraArgs);
     const initId = 1;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("initialize sin respuesta")), 15_000);

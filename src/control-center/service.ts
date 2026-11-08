@@ -76,7 +76,7 @@ export async function getControlCenterOverview(bridgePort = "8791"): Promise<Con
   try {
     const res = await fetch(`http://127.0.0.1:${bridgePort}/health`, {
       headers: bridgeAuthHeaders(),
-      signal: AbortSignal.timeout(1500),
+      signal: AbortSignal.timeout(500),
     });
     if (res.ok) {
       bridgeStatus = "up";
@@ -101,7 +101,7 @@ export async function getControlCenterOverview(bridgePort = "8791"): Promise<Con
   let monitorPid: number | null = null;
   try {
     const res = await fetch(`http://127.0.0.1:${monitorPort}/ready`, {
-      signal: AbortSignal.timeout(1500),
+      signal: AbortSignal.timeout(500),
     });
     if (res.ok) {
       const data = (await res.json().catch(() => ({}))) as { pid?: number };
