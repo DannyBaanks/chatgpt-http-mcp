@@ -1493,13 +1493,48 @@ ${CONTROL_CENTER_STYLE}
   <script>
     window.ISYMCP_BRIDGE_ORIGIN = ${JSON.stringify(origin)};
     ${CONTROL_CENTER_SCRIPT}
-    // Puente con OpenAI Apps SDK si se ejecuta en iframe de ChatGPT
+    // Puente oficial OpenAI Apps SDK (MCP Apps Protocol via postMessage)
     if (typeof window !== "undefined") {
       window.addEventListener("message", (event) => {
-        if (event.data && event.data.type === "openai:set-theme") {
-          document.documentElement.setAttribute("data-theme", event.data.theme);
+        const data = event.data;
+        if (!data) return;
+
+        // 1. JSON-RPC: ui/initialize handshake
+        if (data.method === "ui/initialize" && data.id !== undefined) {
+          const theme = data.params?.hostContext?.theme;
+          if (theme) document.documentElement.setAttribute("data-theme", theme);
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({
+              jsonrpc: "2.0",
+              id: data.id,
+              result: {
+                protocolVersion: "2024-11-05",
+                capabilities: { tools: { listChanged: false } },
+              },
+            }, "*");
+            window.parent.postMessage({
+              jsonrpc: "2.0",
+              method: "ui/notifications/initialized",
+              params: {},
+            }, "*");
+          }
+          return;
+        }
+
+        // 2. JSON-RPC: ui/notifications/host-context-changed
+        if (data.method === "ui/notifications/host-context-changed") {
+          const theme = data.params?.hostContext?.theme;
+          if (theme) document.documentElement.setAttribute("data-theme", theme);
+          return;
+        }
+
+        // 3. Fallback compatible para openai:set-theme
+        if (data.type === "openai:set-theme" && data.theme) {
+          document.documentElement.setAttribute("data-theme", data.theme);
         }
       });
+
+      // Anuncio compatible de disponibilidad hacia el host
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type: "openai:app-ready", view: "control-center" }, "*");
       }

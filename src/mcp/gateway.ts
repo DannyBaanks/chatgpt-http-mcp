@@ -672,13 +672,7 @@ export function registerIsyMcpGateway(server: McpServer): void {
  * para proyectar el Control Center como Página Conectada nativa dentro de ChatGPT.
  */
 export function registerControlCenterMcpTools(server: McpServer): void {
-  const APPS_SDK_META = {
-    "ui.resourceUri": "ui://isymcp/control-center",
-    "openai/outputTemplate": "ui://isymcp/control-center",
-    "ui.visibility": ["model", "app"],
-  };
-
-  // 1. isymcp_get_overview
+  // 1. isymcp_get_overview (Solo consulta de datos estructurados — sin metadata de renderizado)
   server.registerTool(
     "isymcp_get_overview",
     {
@@ -692,12 +686,11 @@ export function registerControlCenterMcpTools(server: McpServer): void {
       const overview = await getControlCenterOverview();
       return {
         content: [{ type: "text" as const, text: JSON.stringify(overview, null, 2) }],
-        _meta: APPS_SDK_META,
       };
     }
   );
 
-  // 2. isymcp_get_glossary
+  // 2. isymcp_get_glossary (Solo consulta de catálogo y contratos)
   server.registerTool(
     "isymcp_get_glossary",
     {
@@ -709,12 +702,11 @@ export function registerControlCenterMcpTools(server: McpServer): void {
     async () => {
       return {
         content: [{ type: "text" as const, text: JSON.stringify(ISYMCP_GLOSSARY, null, 2) }],
-        _meta: APPS_SDK_META,
       };
     }
   );
 
-  // 3. isymcp_get_tasks
+  // 3. isymcp_get_tasks (Solo consulta de tareas en SQLite WAL)
   server.registerTool(
     "isymcp_get_tasks",
     {
@@ -730,12 +722,11 @@ export function registerControlCenterMcpTools(server: McpServer): void {
       const tasks = getControlCenterTasks(input.limit);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(tasks, null, 2) }],
-        _meta: APPS_SDK_META,
       };
     }
   );
 
-  // 4. isymcp_get_protocol
+  // 4. isymcp_get_protocol (Solo consulta de documento de agentes)
   server.registerTool(
     "isymcp_get_protocol",
     {
@@ -748,12 +739,11 @@ export function registerControlCenterMcpTools(server: McpServer): void {
       const { ISYMCP_AGENT_PROTOCOL_MD } = await import("../agent-protocol");
       return {
         content: [{ type: "text" as const, text: ISYMCP_AGENT_PROTOCOL_MD }],
-        _meta: APPS_SDK_META,
       };
     }
   );
 
-  // 5. isymcp_open_control_center (OpenAI Apps SDK View Launcher)
+  // 5. isymcp_open_control_center (Herramienta lanzadora oficial OpenAI Apps SDK / Sidebar & Thread Entrypoint)
   server.registerTool(
     "isymcp_open_control_center",
     {
@@ -777,7 +767,18 @@ export function registerControlCenterMcpTools(server: McpServer): void {
           },
         ],
         _meta: {
-          ...APPS_SDK_META,
+          ui: {
+            resourceUri: "ui://isymcp/control-center",
+          },
+          "ui.resourceUri": "ui://isymcp/control-center",
+          "openai/outputTemplate": "ui://isymcp/control-center",
+          "openai/ui": {
+            entrypoints: [
+              { type: "global" },
+              { type: "thread" },
+            ],
+          },
+          "ui.visibility": ["model", "app"],
           "ui.initialTab": input.tab,
         },
       };

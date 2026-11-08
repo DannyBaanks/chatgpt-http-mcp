@@ -48,8 +48,11 @@ describe("OpenAI Apps SDK (ASDK) MCP App View & Resources Contract", () => {
 
     const uiContent = readUi.contents[0] as { uri: string; mimeType: string; text: string };
     expect(uiContent.uri).toBe("ui://isymcp/control-center");
-    expect(uiContent.mimeType).toBe("text/html");
+    expect(uiContent.mimeType).toBe("text/html;profile=mcp-app");
     expect(uiContent.text).toContain("<!doctype html>");
+    expect(uiContent.text).toContain("ui/initialize");
+    expect(uiContent.text).toContain("ui/notifications/initialized");
+    expect(uiContent.text).toContain("ui/notifications/host-context-changed");
     expect(uiContent.text).toContain("openai:app-ready");
 
     // 3. Leer alias de compatibilidad MCP-UI
@@ -66,7 +69,7 @@ describe("OpenAI Apps SDK (ASDK) MCP App View & Resources Contract", () => {
     expect(toolNames).toContain("isymcp_get_protocol");
     expect(toolNames).toContain("isymcp_open_control_center");
 
-    // 5. Invocar herramienta de apertura de UI y verificar metadatos de Apps SDK
+    // 5. Invocar herramienta de apertura de UI y verificar metadatos de Apps SDK y Sidebar entrypoint
     const openRes = await client.callTool({
       name: "isymcp_open_control_center",
       arguments: { tab: "cli" },
@@ -76,21 +79,26 @@ describe("OpenAI Apps SDK (ASDK) MCP App View & Resources Contract", () => {
     const openContent = openRes.content as Array<{ type: string; text: string }>;
     expect(openContent[0].text).toContain("ISyMCP Control Center desplegado");
 
-    // Verificación de metadatos Apps SDK
+    // Verificación de metadatos Apps SDK & Sidebar/Thread Entrypoints
     const meta = (openRes as any)._meta;
     expect(meta).toBeDefined();
     expect(meta["ui.resourceUri"]).toBe("ui://isymcp/control-center");
+    expect(meta.ui.resourceUri).toBe("ui://isymcp/control-center");
     expect(meta["openai/outputTemplate"]).toBe("ui://isymcp/control-center");
+    expect(meta["openai/ui"].entrypoints).toEqual([
+      { type: "global" },
+      { type: "thread" },
+    ]);
     expect(meta["ui.initialTab"]).toBe("cli");
 
-    // 6. Invocar isymcp_get_overview y verificar enlace a vista UI
+    // 6. Invocar isymcp_get_overview y verificar separación de herramientas de datos (sin recreación de iframe)
     const overviewRes = await client.callTool({
       name: "isymcp_get_overview",
       arguments: {},
     });
     const overviewMeta = (overviewRes as any)._meta;
-    expect(overviewMeta).toBeDefined();
-    expect(overviewMeta["ui.resourceUri"]).toBe("ui://isymcp/control-center");
+    // Las herramientas de datos no deben forzar ui.resourceUri
+    expect(overviewMeta).toBeUndefined();
 
     await client.close();
     await server.close();

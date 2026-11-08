@@ -51,7 +51,7 @@ export function createReadOnlyMcpServer(): McpServer {
     "isymcp_control_center_ui",
     "ui://isymcp/control-center",
     {
-      mimeType: "text/html",
+      mimeType: "text/html;profile=mcp-app",
       description: "ISyMCP Control Center Interactive Dashboard and Command Deck (OpenAI Apps SDK View)",
     },
     async () => {
@@ -60,7 +60,7 @@ export function createReadOnlyMcpServer(): McpServer {
         contents: [
           {
             uri: "ui://isymcp/control-center",
-            mimeType: "text/html",
+            mimeType: "text/html;profile=mcp-app",
             text: renderControlCenterEmbeddedHtml(),
           },
         ],

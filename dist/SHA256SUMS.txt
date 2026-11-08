@@ -1,6 +1,6 @@
 # ISyMCP ChatGPT Private Plugin Checksums
-# Generated: 2026-11-08T03:34:34.953Z
-bfd1e04dee693801ea110d45c522230a2a3a87157619bcc48995384fbc54cbdc  isymcp-chatgpt-plugin.zip
+# Generated: 2026-11-08T03:37:33.468Z
+e20e81bafb7ca57b60303c2e1a0d5ab11a58a954f83266877b10a66e5e9116c3  isymcp-chatgpt-plugin.zip
 602d23a409b6fb190a1557e64bd10fb2afc9042437e29b6b2c32d431b7330511  plugin/.well-known/ai-plugin.json
 f5a2efdd019bc9074bb59c43da6aea5b850a8c60ae7cfc8d97416cb230269a1e  plugin/openapi.json
 27c621b4c7aa673e4039caeb7ecd302b834495988faca319baf38938bb775109  plugin/plugin-logo.png
