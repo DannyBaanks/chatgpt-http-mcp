@@ -79,6 +79,7 @@ if (contract !== "native" && contract !== "safe") {
   throw new Error(`--contract debe ser native o safe, recibido: ${contract}`);
 }
 const brokerSocketPath = option("--broker-socket", "") || defaultBrokerSocketPath();
+const isReadOnly = args.includes("--readonly") || process.env.ISYMCP_READONLY === "true";
 
 const turnKey = contract === "safe" ? "request_id" : "turn_token";
 
@@ -604,6 +605,7 @@ function runQueueLeaseTool(tool: string, token: string, input: Record<string, un
   return jsonText(res.payload);
 }
 
+if (!isReadOnly) {
 server.registerTool(
   "codex_turn_start",
   {
@@ -841,6 +843,7 @@ server.registerTool(
 
 // Universal Gateway estilo REA: expone la herramienta unificada `isymcp` con glosario interactivo
 registerIsyMcpGateway(server);
+}
 
 // Herramientas discretas de solo lectura para el ISyMCP Control Center / ChatGPT Apps
 registerControlCenterMcpTools(server);
