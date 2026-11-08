@@ -250,8 +250,13 @@ export async function runTaskTurn(req: Request, body: Record<string, any>, confi
         let selectSettings = deps.selectSettings;
         let isVisible = false;
         if (!sender) {
+          // Compliance FINAL_VERDICT: la conduccion automatizada de la UI web
+          // esta clasificada DENY. Solo se usa si el operador la habilita
+          // explicitamente; el humano conversando en Chrome visible sigue
+          // siendo el camino por defecto.
+          const visibleAllowed = process.env.ISYMCP_ALLOW_VISIBLE_TURNS === "1";
           const { findActiveVisibleSession, sendVisibleWebTurn } = await import("../visible/browser-turn");
-          const visible = await findActiveVisibleSession();
+          const visible = visibleAllowed ? await findActiveVisibleSession() : null;
           if (visible) {
             sender = sendVisibleWebTurn as any;
             isVisible = true;

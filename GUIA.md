@@ -438,6 +438,14 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 
 ## 9. Seguridad y Sandbox (Bubblewrap)
 
+**Cerrado por defecto (fail-closed):**
+
+- `shell_exec` (tool MCP) y `shell.exec` (gateway) corren en el host **sin** sandbox: están **denegados**
+  salvo `ISYMCP_ALLOW_HOST_SHELL=1` en el entorno del proceso, o un OperatorGrant de un solo uso emitido
+  desde el Control Center. `codex_exec` siempre pasa por el sandbox.
+- Los turnos automáticos sobre el Chrome visible necesitan `ISYMCP_ALLOW_VISIBLE_TURNS=1`.
+- El monitor HTTP (:8799) solo acepta loopback, rechaza `Host`/`Origin` ajenos y POST que no sean JSON.
+
 1. **Tokens de Sesión para Herramientas:**
    ```bash
    # Crear token de solo lectura (por defecto, 24 horas de validez)

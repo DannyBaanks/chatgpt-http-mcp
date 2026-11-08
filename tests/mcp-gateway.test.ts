@@ -1,8 +1,19 @@
 // tests/mcp-gateway.test.ts — Pruebas unitarias para el Universal Gateway de ISyMCP (estilo REA).
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { dispatchIsyMcpAction, ISYMCP_GLOSSARY } from "../src/mcp/gateway";
 
 describe("ISyMCP Universal Gateway Suite", () => {
+  let prevAllow: string | undefined;
+
+  beforeEach(() => {
+    prevAllow = process.env.ISYMCP_ALLOW_HOST_SHELL;
+    process.env.ISYMCP_ALLOW_HOST_SHELL = "1";
+  });
+  afterEach(() => {
+    if (prevAllow === undefined) delete process.env.ISYMCP_ALLOW_HOST_SHELL;
+    else process.env.ISYMCP_ALLOW_HOST_SHELL = prevAllow;
+  });
+
   it("GW-01: returns the glossary when action is empty or 'glossary'", async () => {
     const resEmpty = await dispatchIsyMcpAction("");
     expect(resEmpty.ok).toBe(true);

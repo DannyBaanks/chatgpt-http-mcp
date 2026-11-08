@@ -357,7 +357,10 @@ export async function dispatchControlCenterAction(
   }
 
   try {
-    const rawResult = await dispatchIsyMcpAction(canonicalAction, args);
+    // El OperatorGrant ya fue consumido arriba (un solo uso): este contexto
+    // async queda autorizado para que el gate de shell/executor lo honre.
+    const { runWithHostShellAuthorization } = await import("../shell/executor");
+    const rawResult = await runWithHostShellAuthorization(() => dispatchIsyMcpAction(canonicalAction, args));
     const sanitized = sanitizeOutput(rawResult.result);
     return {
       ok: rawResult.ok,
