@@ -10,6 +10,8 @@ import {
   getControlCenterProtocol,
   approveControlCenterTask,
   dispatchControlCenterAction,
+  executeIsyMcpCli,
+  isCliCommandDestructive,
 } from "../src/control-center/service";
 import { handleControlCenterApi } from "../src/control-center/router";
 import { renderControlCenterView } from "../src/control-center/ui";
@@ -177,6 +179,7 @@ describe("ISyMCP Control Center — API Router y Renderizado UI", () => {
     const viewHtml = renderControlCenterView();
     const requiredSections = [
       "cc-dashboard",
+      "cc-cli-deck",
       "cc-catalog",
       "cc-monitor",
       "cc-tui",
@@ -201,5 +204,105 @@ describe("ISyMCP Control Center — API Router y Renderizado UI", () => {
     expect(fullPanel).not.toContain("https://cdn.");
     expect(fullPanel).not.toContain("https://unpkg.");
     expect(fullPanel).not.toContain("https://fonts.");
+  });
+});
+
+describe("ISyMCP Control Center — Ejecución Interactiva de Comandos CLI", () => {
+  test("CC-11: executeIsyMcpCli ejecuta comando seguro ('version') y devuelve salida real", async () => {
+    const res = await executeIsyMcpCli("version");
+    expect(res.ok).toBe(true);
+    expect(res.exit_code).toBe(0);
+    expect(res.stdout).toContain("isymcp v");
+    expect(res.full_command).toBe("isymcp version");
+    expect(res.duration_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  test("CC-12: isCliCommandDestructive detecta correctamente comandos peligrosos", () => {
+    expect(isCliCommandDestructive("down").isDestructive).toBe(true);
+    expect(isCliCommandDestructive("server", ["stop"]).isDestructive).toBe(true);
+    expect(isCliCommandDestructive("tunnel", ["stop"]).isDestructive).toBe(true);
+    expect(isCliCommandDestructive("exec", ["ls"]).isDestructive).toBe(true);
+    expect(isCliCommandDestructive("sh", ["pwd"]).isDestructive).toBe(true);
+    expect(isCliCommandDestructive("tui", ["spawn", "accept-edits"]).isDestructive).toBe(true);
+
+    // Comandos seguros
+    expect(isCliCommandDestructive("status").isDestructive).toBe(false);
+    expect(isCliCommandDestructive("doctor").isDestructive).toBe(false);
+    expect(isCliCommandDestructive("tree").isDestructive).toBe(false);
+    expect(isCliCommandDestructive("version").isDestructive).toBe(false);
+    expect(isCliCommandDestructive("tunnel", ["status"]).isDestructive).toBe(false);
+    expect(isCliCommandDestructive("monitor", ["tasks"]).isDestructive).toBe(false);
+    expect(isCliCommandDestructive("tui", ["list"]).isDestructive).toBe(false);
+  });
+
+  test("CC-13: executeIsyMcpCli bloquea comando destructivo ('down') sin confirmación explícita (fail-closed)", async () => {
+    const res = await executeIsyMcpCli("down", [], { confirmed: false });
+    expect(res.ok).toBe(false);
+    expect(res.requires_confirmation).toBe(true);
+    expect(res.warning).toContain("Detener todos los servicios");
+    expect(res.exit_code).toBe(1);
+    expect(res.stderr).toContain("Bloqueado por seguridad");
+  });
+
+  test("CC-14: Endpoint POST /api/control-center/cli responde 200 para comandos seguros y 403 para destructivos sin confirmación", async () => {
+    // 1. Comando seguro
+    const reqVersion = new Request("http://127.0.0.1:8798/api/control-center/cli", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ command: "version" }),
+    });
+    const resVersion = await handleControlCenterApi(reqVersion, new URL(reqVersion.url), "59999");
+    expect(resVersion.status).toBe(200);
+    const dataVersion = await resVersion.json();
+    expect(dataVersion.ok).toBe(true);
+    expect(dataVersion.stdout).toContain("isymcp v");
+
+    // 2. Comando destructivo sin confirmación
+    const reqDown = new Request("http://127.0.0.1:8798/api/control-center/cli", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ command: "down", confirmed: false }),
+    });
+    const resDown = await handleControlCenterApi(reqDown, new URL(reqDown.url), "59999");
+    expect(resDown.status).toBe(403);
+    const dataDown = await resDown.json();
+    expect(dataDown.requires_confirmation).toBe(true);
+  });
+
+  test("CC-15: Vista renderizada contiene la sección 'cc-cli-deck', los botones de comandos y la consola terminal", () => {
+    const viewHtml = renderControlCenterView();
+
+    // Sección de comandos CLI y navegación
+    expect(viewHtml).toContain('id="cc-cli-deck"');
+    expect(viewHtml).toContain('data-target="cc-cli-deck"');
+
+    // Consola terminal embebida y runner libre
+    expect(viewHtml).toContain('id="cc-cli-console"');
+    expect(viewHtml).toContain('id="cc-cli-custom-input"');
+    expect(viewHtml).toContain('id="cc-cli-run-btn"');
+    expect(viewHtml).toContain('id="cc-cli-status-badge"');
+    expect(viewHtml).toContain('id="cc-cli-confirm-box"');
+
+    // Botones de ejecución de comandos clave
+    expect(viewHtml).toContain("ccExecuteCliCommand('doctor')");
+    expect(viewHtml).toContain("ccExecuteCliCommand('status')");
+    expect(viewHtml).toContain("ccExecuteCliCommand('tree')");
+    expect(viewHtml).toContain("ccExecuteCliCommand('version')");
+    expect(viewHtml).toContain("ccExecuteCliCommand('up')");
+    expect(viewHtml).toContain("ccExecuteCliCommand('down')");
+    expect(viewHtml).toContain("ccExecuteCliCommand('server', ['start'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('server', ['stop'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('tunnel', ['status'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('tunnel', ['connect'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('tunnel', ['stop'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('monitor', ['status'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('monitor', ['tasks'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('tui', ['list'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('github', ['status'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('github', ['whoami'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('media', ['list'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('comfy', ['status'])");
+    expect(viewHtml).toContain("ccExecuteCliCommand('models')");
+    expect(viewHtml).toContain("ccExecuteCliCommand('fuzz'");
   });
 });

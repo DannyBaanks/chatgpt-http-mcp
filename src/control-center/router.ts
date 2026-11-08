@@ -6,8 +6,9 @@ import {
   approveControlCenterTask,
   dispatchControlCenterAction,
   getControlCenterProtocol,
+  executeIsyMcpCli,
 } from "./service";
-import type { ControlCenterDispatchRequest } from "./contracts";
+import type { ControlCenterDispatchRequest, CliExecutionRequest } from "./contracts";
 
 export async function handleControlCenterApi(
   req: Request,
@@ -67,7 +68,29 @@ export async function handleControlCenterApi(
     return Response.json(result, { status });
   }
 
-  // 6. Protocolo de agentes
+  // 6. Ejecución directa e interactiva de comandos CLI de isymcp
+  if (path === "/api/control-center/cli" && req.method === "POST") {
+    const body = (await req.json().catch(() => null)) as CliExecutionRequest | null;
+    if (!body || !body.command) {
+      return Response.json({ ok: false, error: "command es requerido" }, { status: 400 });
+    }
+    const result = await executeIsyMcpCli(
+      body.command,
+      body.args || [],
+      {
+        confirmed: body.confirmed === true,
+        cwd: body.cwd,
+        timeoutMs: body.timeoutMs,
+      }
+    );
+    const status = result.requires_confirmation ? 403 : result.ok ? 200 : 500;
+    return Response.json(result, {
+      status,
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
+
+  // 7. Protocolo de agentes
   if (path === "/api/control-center/protocol" && req.method === "GET") {
     const md = getControlCenterProtocol();
     return new Response(md, {

@@ -266,6 +266,124 @@ export const CONTROL_CENTER_STYLE = `
   width: 16px;
   height: 16px;
 }
+
+.cc-cmd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.cc-category-title {
+  font: 700 13px var(--mono);
+  color: var(--ok);
+  margin: 18px 0 10px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid rgba(124, 255, 155, 0.2);
+  padding-bottom: 5px;
+}
+
+.cc-cmd-btn {
+  background: #141c17;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 14px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 0.15s ease;
+  font-family: var(--sans);
+  text-decoration: none;
+}
+
+.cc-cmd-btn:hover {
+  background: #1a261f;
+  border-color: var(--ok);
+  transform: translateY(-1px);
+}
+
+.cc-cmd-btn:active {
+  transform: translateY(0);
+}
+
+.cc-cmd-btn .cmd-title {
+  font: 600 13px var(--sans);
+  color: #eaf8ef;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cc-cmd-btn .cmd-code {
+  font: 500 11px var(--mono);
+  color: var(--mute);
+}
+
+.cc-cmd-btn.danger {
+  border-color: rgba(255, 107, 107, 0.35);
+  background: #1a1414;
+}
+
+.cc-cmd-btn.danger:hover {
+  border-color: var(--bad);
+  background: #261717;
+}
+
+.cc-cmd-btn.danger .cmd-title {
+  color: #ff9b9b;
+}
+
+.cc-cmd-btn.warn {
+  border-color: rgba(255, 209, 102, 0.35);
+  background: #1a1813;
+}
+
+.cc-cmd-btn.warn:hover {
+  border-color: var(--warn);
+  background: #242015;
+}
+
+.cc-cmd-btn.warn .cmd-title {
+  color: #ffe082;
+}
+
+.cc-chip-btn {
+  background: #18221c;
+  border: 1px solid rgba(124, 255, 155, 0.25);
+  border-radius: 4px;
+  color: #a7dfb8;
+  font: 500 11px var(--mono);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.cc-chip-btn:hover {
+  background: #233329;
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.cc-terminal-output {
+  background: #050806;
+  border: 1px solid #1a2920;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font: 12px var(--mono);
+  color: #98f6ba;
+  min-height: 200px;
+  max-height: 500px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+}
 `;
 
 export function renderControlCenterView(): string {
@@ -273,7 +391,8 @@ export function renderControlCenterView(): string {
 <div class="cc-root">
   <nav class="cc-subnav">
     <button data-target="cc-dashboard" class="active">📊 Dashboard</button>
-    <button data-target="cc-catalog">📖 Catálogo CLI</button>
+    <button data-target="cc-cli-deck">🎮 Comandos CLI</button>
+    <button data-target="cc-catalog">📖 Catálogo MCP</button>
     <button data-target="cc-monitor">🛰️ Monitor & Tareas</button>
     <button data-target="cc-tui">🖥️ AGY TUI Spawn</button>
     <button data-target="cc-github">🐙 GitHub Suite</button>
@@ -290,6 +409,27 @@ export function renderControlCenterView(): string {
         <div class="cc-card"><h3>Monitor Bus</h3><div class="cc-stat" id="cc-dash-monitor">…</div><p id="cc-dash-monitor-detail">Cargando...</p></div>
         <div class="cc-card"><h3>Túnel Reverso</h3><div class="cc-stat" id="cc-dash-tunnel">…</div><p id="cc-dash-tunnel-detail">Cargando...</p></div>
         <div class="cc-card"><h3>MCP Broker</h3><div class="cc-stat" id="cc-dash-mcp">…</div><p id="cc-dash-mcp-detail">Cargando...</p></div>
+      </div>
+
+      <!-- Barra de Ejecución Rápida 1-Click -->
+      <div class="cc-card" style="margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+          <h3 style="margin:0;">⚡ Ejecución Rápida de Comandos CLI (1-Click)</h3>
+          <button class="btn btn-sm btn-go" onclick="ccNavToTab('cc-cli-deck')">🎮 Ver Consola Terminal Completa ›</button>
+        </div>
+        <p>Lanza comandos de diagnóstico y operación directamente en el host sin abrir una terminal externa:</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn-go" onclick="ccExecuteCliCommand('doctor')">🩺 isymcp doctor</button>
+          <button class="btn" onclick="ccExecuteCliCommand('status')">📊 isymcp status</button>
+          <button class="btn" onclick="ccExecuteCliCommand('tree')">🌳 isymcp tree</button>
+          <button class="btn" onclick="ccExecuteCliCommand('version')">🏷️ isymcp version</button>
+          <button class="btn" onclick="ccExecuteCliCommand('up')">🚀 isymcp up</button>
+          <button class="btn" onclick="ccExecuteCliCommand('tunnel', ['status'])">🌐 isymcp tunnel status</button>
+          <button class="btn" onclick="ccExecuteCliCommand('monitor', ['tasks'])">📋 isymcp monitor tasks</button>
+          <button class="btn" onclick="ccExecuteCliCommand('tui', ['list'])">🖥️ isymcp tui list</button>
+          <button class="btn" onclick="ccExecuteCliCommand('github', ['whoami'])">🐙 isymcp github whoami</button>
+          <button class="btn" onclick="ccExecuteCliCommand('comfy', ['status'])">🎨 isymcp comfy status</button>
+        </div>
       </div>
 
       <div class="cc-grid">
@@ -310,6 +450,235 @@ export function renderControlCenterView(): string {
           <p>Guía de registro: <a href="/docs/CHATGPT_APP_INTEGRATION.md" target="_blank" style="color:var(--ok)">Documentación App Privada ↗</a></p>
           <p class="small muted">Nota: ChatGPT no permite inyección directa al sidebar sin alta oficial en cuenta.</p>
         </div>
+      </div>
+    </section>
+
+    <!-- 2. COMANDOS CLI INTERACTIVOS (COMMAND DECK) -->
+    <section id="cc-cli-deck" class="cc-view">
+      <!-- Runner de Entrada Libre -->
+      <div class="cc-card" style="margin-bottom:20px;">
+        <h3>⚡ Terminal Runner de ISyMCP CLI</h3>
+        <p>Ejecuta cualquier comando o subcomando de <code>isymcp</code> con un clic o escribiendo argumentos personalizados:</p>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <span style="font:700 14px var(--mono); color:var(--ok)">$ isymcp</span>
+          <input type="text" id="cc-cli-custom-input" class="cc-input" placeholder="ej. doctor --json, status, tree, tunnel status..." style="flex:1; min-width:260px;">
+          <button class="btn btn-go" id="cc-cli-run-btn" onclick="ccRunCustomCli()">▶ Ejecutar</button>
+          <button class="btn" onclick="ccClearCliConsole()">🧹 Limpiar</button>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:12px; flex-wrap:wrap; align-items:center;">
+          <span style="font:600 11px var(--mono); color:var(--mute)">Atajos rápidos:</span>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('doctor')">doctor</button>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('doctor --json')">doctor --json</button>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('status')">status</button>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('tree')">tree</button>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('version')">version</button>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('up')">up</button>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('tunnel status')">tunnel status</button>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('monitor tasks')">monitor tasks</button>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('tui list')">tui list</button>
+          <button class="cc-chip-btn" onclick="ccSetCliInput('github status')">github status</button>
+        </div>
+      </div>
+
+      <!-- Consola de Salida del CLI -->
+      <div class="cc-card" style="margin-bottom:24px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+          <h3 style="margin:0;">📟 Consola de Salida del Terminal</h3>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span id="cc-cli-status-badge" class="cc-badge ready">LISTA</span>
+            <span id="cc-cli-duration" style="font:600 11px var(--mono); color:var(--mute);">0ms</span>
+            <button class="btn btn-sm" onclick="ccCopyCliConsole()">📋 Copiar</button>
+            <button class="btn btn-sm" onclick="ccClearCliConsole()">🧹 Limpiar</button>
+          </div>
+        </div>
+
+        <div id="cc-cli-command-echo" style="font:700 12px var(--mono); color:var(--ok); margin-bottom:8px; display:none;">
+          $ <span id="cc-cli-command-echo-text">isymcp</span>
+        </div>
+
+        <!-- Alerta de confirmación para comandos destructivos -->
+        <div id="cc-cli-confirm-box" class="cc-warn-box" style="display:none;">
+          <div id="cc-cli-confirm-msg">⚠️ Este comando es destructivo.</div>
+          <label class="cc-check-label" style="margin-top:8px;">
+            <input type="checkbox" id="cc-cli-confirm-check">
+            <span>Confirmar ejecución explícita de este comando en el host</span>
+          </label>
+          <div style="margin-top:10px; display:flex; gap:8px;">
+            <button class="btn btn-bad" id="cc-cli-confirm-run-btn" onclick="ccRunPendingDestructive()">⚠️ Ejecutar con confirmación</button>
+            <button class="btn" onclick="ccCancelPendingDestructive()">Cancelar</button>
+          </div>
+        </div>
+
+        <pre id="cc-cli-console" class="cc-terminal-output">$ isymcp listo para recibir comandos.</pre>
+      </div>
+
+      <!-- BOTONES DE TODOS LOS COMANDOS DEL CLI POR CATEGORÍA -->
+      <div class="cc-category-title">🩺 1. DIAGNÓSTICO, SALUD & ESTADO</div>
+      <div class="cc-cmd-grid">
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('doctor')">
+          <span class="cmd-title">🩺 Doctor Completo</span>
+          <span class="cmd-code">isymcp doctor</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('doctor', ['--json'])">
+          <span class="cmd-title">📋 Doctor (JSON)</span>
+          <span class="cmd-code">isymcp doctor --json</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('status')">
+          <span class="cmd-title">📊 Estado General</span>
+          <span class="cmd-code">isymcp status</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('tree')">
+          <span class="cmd-title">🌳 Árbol de Comandos</span>
+          <span class="cmd-code">isymcp tree</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('version')">
+          <span class="cmd-title">🏷️ Versión Instalada</span>
+          <span class="cmd-code">isymcp version</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('health')">
+          <span class="cmd-title">❤️ Chequeo Health</span>
+          <span class="cmd-code">isymcp health</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('metrics')">
+          <span class="cmd-title">📈 Métricas Bridge</span>
+          <span class="cmd-code">isymcp metrics</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('canary', ['run'])">
+          <span class="cmd-title">🐤 Canario de Validación</span>
+          <span class="cmd-code">isymcp canary run</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('smoke')">
+          <span class="cmd-title">💨 Smoke Test E2E</span>
+          <span class="cmd-code">isymcp smoke</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('protocol')">
+          <span class="cmd-title">📜 Protocolo de Agentes</span>
+          <span class="cmd-code">isymcp protocol</span>
+        </button>
+      </div>
+
+      <div class="cc-category-title">🚀 2. SERVIDORES & TÚNEL REVERSO</div>
+      <div class="cc-cmd-grid">
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('up')">
+          <span class="cmd-title">🚀 Levantar Todo (up)</span>
+          <span class="cmd-code">isymcp up</span>
+        </button>
+        <button class="cc-cmd-btn danger" onclick="ccExecuteCliCommand('down')">
+          <span class="cmd-title">🛑 Detener Todo (down)</span>
+          <span class="cmd-code">isymcp down [confirmar]</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('server', ['start'])">
+          <span class="cmd-title">🔌 Iniciar Bridge Server</span>
+          <span class="cmd-code">isymcp server start</span>
+        </button>
+        <button class="cc-cmd-btn danger" onclick="ccExecuteCliCommand('server', ['stop'])">
+          <span class="cmd-title">⏹️ Detener Bridge Server</span>
+          <span class="cmd-code">isymcp server stop [confirmar]</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('tunnel', ['status'])">
+          <span class="cmd-title">🌐 Estado del Túnel</span>
+          <span class="cmd-code">isymcp tunnel status</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('tunnel', ['connect'])">
+          <span class="cmd-title">🔗 Conectar Túnel</span>
+          <span class="cmd-code">isymcp tunnel connect</span>
+        </button>
+        <button class="cc-cmd-btn danger" onclick="ccExecuteCliCommand('tunnel', ['stop'])">
+          <span class="cmd-title">🔌 Desconectar Túnel</span>
+          <span class="cmd-code">isymcp tunnel stop [confirmar]</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('panel', ['status'])">
+          <span class="cmd-title">🎛️ Estado del Panel</span>
+          <span class="cmd-code">isymcp panel status</span>
+        </button>
+      </div>
+
+      <div class="cc-category-title">🛰️ 3. MONITOR BUS & TAREAS (SQLITE WAL)</div>
+      <div class="cc-cmd-grid">
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('monitor', ['status'])">
+          <span class="cmd-title">🛰️ Estado del Monitor</span>
+          <span class="cmd-code">isymcp monitor status</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('monitor', ['tasks'])">
+          <span class="cmd-title">📋 Tareas en Buzón</span>
+          <span class="cmd-code">isymcp monitor tasks</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('monitor', ['alert', '--title', 'Alerta Control Center', '--summary', 'Notificación enviada desde UI'])">
+          <span class="cmd-title">🔔 Enviar Alerta de Prueba</span>
+          <span class="cmd-code">isymcp monitor alert</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('monitor', ['wait-next', '10'])">
+          <span class="cmd-title">⏳ Esperar Tarea (10s)</span>
+          <span class="cmd-code">isymcp monitor wait-next 10</span>
+        </button>
+      </div>
+
+      <div class="cc-category-title">🖥️ 4. AGENTES & INTEGRACIÓN TUI</div>
+      <div class="cc-cmd-grid">
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('tui', ['list'])">
+          <span class="cmd-title">🖥️ Listar TUIs del Sistema</span>
+          <span class="cmd-code">isymcp tui list</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccPromptAndExecute('tui', 'Hola agy desde Control Center', 'spawn')">
+          <span class="cmd-title">🚀 Lanzar AGY TUI Interactiva</span>
+          <span class="cmd-code">isymcp tui spawn "..."</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('tui', ['install', 'all'])">
+          <span class="cmd-title">🛠️ Plan Instalar TUIs</span>
+          <span class="cmd-code">isymcp tui install all (dry-run)</span>
+        </button>
+        <button class="cc-cmd-btn warn" onclick="ccExecuteCliCommand('tui', ['install', 'all', '--apply'])">
+          <span class="cmd-title">💾 Aplicar MCP en TUIs</span>
+          <span class="cmd-code">isymcp tui install all --apply</span>
+        </button>
+      </div>
+
+      <div class="cc-category-title">🐙 5. EXTENSIONES, MULTIMEDIA & MODELOS</div>
+      <div class="cc-cmd-grid">
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('github', ['status'])">
+          <span class="cmd-title">🐙 Estado de GitHub</span>
+          <span class="cmd-code">isymcp github status</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('github', ['whoami'])">
+          <span class="cmd-title">👤 GitHub Whoami</span>
+          <span class="cmd-code">isymcp github whoami</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('github', ['prs'])">
+          <span class="cmd-title">📑 Listar PRs GitHub</span>
+          <span class="cmd-code">isymcp github prs</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('media', ['list'])">
+          <span class="cmd-title">🎬 Listar Medios Locales</span>
+          <span class="cmd-code">isymcp media list</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('comfy', ['status'])">
+          <span class="cmd-title">🎨 Estado ComfyUI</span>
+          <span class="cmd-code">isymcp comfy status</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('comfy', ['workflows'])">
+          <span class="cmd-title">🖼️ Workflows ComfyUI</span>
+          <span class="cmd-code">isymcp comfy workflows</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('models')">
+          <span class="cmd-title">🧠 Catálogo Modelos Codex</span>
+          <span class="cmd-code">isymcp models (dry-run)</span>
+        </button>
+        <button class="cc-cmd-btn" onclick="ccExecuteCliCommand('fuzz', ['15'])">
+          <span class="cmd-title">⚡ Suite Fuzzing (15 it)</span>
+          <span class="cmd-code">isymcp fuzz 15</span>
+        </button>
+      </div>
+
+      <div class="cc-category-title">💬 6. INTERACTIVO & SHELL RUNNER</div>
+      <div class="cc-cmd-grid">
+        <button class="cc-cmd-btn" onclick="ccPromptAndExecute('ask', '¿Qué herramientas MCP tienes disponibles?')">
+          <span class="cmd-title">💬 Preguntar a ChatGPT</span>
+          <span class="cmd-code">isymcp ask "..."</span>
+        </button>
+        <button class="cc-cmd-btn danger" onclick="ccPromptExecShell()">
+          <span class="cmd-title">💻 Ejecutar Shell Arbitrario</span>
+          <span class="cmd-code">isymcp exec "..." [confirmar]</span>
+        </button>
       </div>
     </section>
 
@@ -861,6 +1230,174 @@ function ccCopyProtocol() {
   alert('✓ Protocolo copiado al portapapeles');
 }
 
+// ── Comandos CLI interactivos & Terminal Runner ─────────────────────────────
+let ccPendingDestructive = null;
+
+function ccNavToTab(tabId) {
+  const btn = document.querySelector('.cc-subnav button[data-target="' + tabId + '"]');
+  if (btn) btn.click();
+}
+
+function ccSetCliInput(cmd) {
+  const input = document.getElementById('cc-cli-custom-input');
+  if (input) {
+    input.value = cmd;
+    input.focus();
+  }
+}
+
+function ccRunCustomCli() {
+  const input = document.getElementById('cc-cli-custom-input');
+  if (!input) return;
+  const val = input.value.trim();
+  if (!val) return;
+  ccExecuteCliCommand(val);
+}
+
+function ccClearCliConsole() {
+  const con = document.getElementById('cc-cli-console');
+  if (con) con.textContent = '$ isymcp listo para recibir comandos.';
+  const echo = document.getElementById('cc-cli-command-echo');
+  if (echo) echo.style.display = 'none';
+  const badge = document.getElementById('cc-cli-status-badge');
+  if (badge) {
+    badge.className = 'cc-badge ready';
+    badge.textContent = 'LISTA';
+  }
+  const dur = document.getElementById('cc-cli-duration');
+  if (dur) dur.textContent = '0ms';
+  ccCancelPendingDestructive();
+}
+
+function ccCopyCliConsole() {
+  const con = document.getElementById('cc-cli-console');
+  if (!con) return;
+  navigator.clipboard.writeText(con.textContent);
+  alert('✓ Salida del CLI copiada al portapapeles');
+}
+
+function ccCancelPendingDestructive() {
+  ccPendingDestructive = null;
+  const box = document.getElementById('cc-cli-confirm-box');
+  if (box) box.style.display = 'none';
+  const chk = document.getElementById('cc-cli-confirm-check');
+  if (chk) chk.checked = false;
+}
+
+async function ccRunPendingDestructive() {
+  const chk = document.getElementById('cc-cli-confirm-check');
+  if (!chk || !chk.checked) {
+    alert('Debes marcar la casilla para autorizar la ejecución en el host.');
+    return;
+  }
+  if (!ccPendingDestructive) return;
+  const { cmd, args } = ccPendingDestructive;
+  ccCancelPendingDestructive();
+  await ccExecuteCliCommand(cmd, args, { confirmed: true });
+}
+
+async function ccExecuteCliCommand(cmd, args = [], options = {}) {
+  ccNavToTab('cc-cli-deck');
+
+  const con = document.getElementById('cc-cli-console');
+  const badge = document.getElementById('cc-cli-status-badge');
+  const dur = document.getElementById('cc-cli-duration');
+  const echo = document.getElementById('cc-cli-command-echo');
+  const echoText = document.getElementById('cc-cli-command-echo-text');
+
+  if (echo && echoText) {
+    echo.style.display = 'block';
+    echoText.textContent = 'isymcp ' + cmd + (args && args.length ? ' ' + args.join(' ') : '');
+  }
+
+  if (badge) {
+    badge.className = 'cc-badge running';
+    badge.textContent = 'EJECUTANDO...';
+  }
+  if (con) con.textContent = '$ Ejecutando isymcp ' + cmd + (args && args.length ? ' ' + args.join(' ') : '') + '...';
+
+  try {
+    const res = await fetch('/api/control-center/cli', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        command: cmd,
+        args,
+        confirmed: options.confirmed === true
+      })
+    });
+
+    const data = await res.json();
+
+    if (res.status === 403 && data.requires_confirmation) {
+      if (badge) {
+        badge.className = 'cc-badge warn';
+        badge.textContent = 'CONFIRMACIÓN REQUERIDA';
+      }
+      ccPendingDestructive = { cmd, args };
+      const box = document.getElementById('cc-cli-confirm-box');
+      const msg = document.getElementById('cc-cli-confirm-msg');
+      if (box && msg) {
+        box.style.display = 'block';
+        msg.textContent = '⚠️ Bloqueado: ' + data.warning;
+      }
+      if (con) con.textContent = '$ isymcp ' + cmd + '\\n✗ Bloqueado por seguridad: ' + data.warning + '\\n\\nConfirma abajo para proceder con la ejecución.';
+      return;
+    }
+
+    if (badge) {
+      badge.className = 'cc-badge ' + (data.ok ? 'succeeded' : 'failed');
+      badge.textContent = data.ok ? 'EXIT 0' : ('EXIT ' + (data.exit_code ?? 1));
+    }
+
+    if (dur && typeof data.duration_ms === 'number') {
+      dur.textContent = data.duration_ms + 'ms';
+    }
+
+    let outText = '';
+    if (data.stdout) outText += data.stdout;
+    if (data.stderr) outText += (outText ? '\\n--- STDERR ---\\n' : '') + data.stderr;
+    if (!outText.trim()) outText = '(sin salida producida en stdout/stderr)';
+
+    if (con) con.textContent = outText;
+
+    if (cmd.includes('up') || cmd.includes('down') || cmd.includes('server') || cmd.includes('tunnel')) {
+      setTimeout(ccRefreshOverview, 1200);
+    }
+  } catch (err) {
+    if (badge) {
+      badge.className = 'cc-badge failed';
+      badge.textContent = 'ERROR DE RED';
+    }
+    if (con) con.textContent = 'Error al comunicar con /api/control-center/cli:\\n' + err.message;
+  }
+}
+
+function ccPromptAndExecute(cmd, placeholder, paramPrefix = '') {
+  const input = prompt('Introduce el parámetro para "isymcp ' + cmd + '":', placeholder);
+  if (input === null) return;
+  const clean = input.trim();
+  if (!clean) return;
+  const full = paramPrefix ? (paramPrefix + ' ' + clean) : clean;
+  ccExecuteCliCommand(cmd, [full]);
+}
+
+function ccPromptExecShell() {
+  const cmd = prompt('Introduce el comando shell a ejecutar con isymcp exec:', 'git status');
+  if (cmd === null) return;
+  const clean = cmd.trim();
+  if (!clean) return;
+  ccExecuteCliCommand('exec', [clean]);
+}
+
+document.getElementById('cc-cli-custom-input')?.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') {
+    ev.preventDefault();
+    ccRunCustomCli();
+  }
+});
+
 // Auto-inicio de dashboard en vista inicial
 setTimeout(ccRefreshOverview, 100);
+
 `;

@@ -67,3 +67,25 @@ export interface ControlCenterDispatchResponse {
   requires_confirmation?: boolean;
   warning?: string;
 }
+
+export interface CliExecutionRequest {
+  command: string;
+  args?: string[];
+  confirmed?: boolean;
+  cwd?: string;
+  timeoutMs?: number;
+}
+
+export interface CliExecutionResult {
+  ok: boolean;
+  command: string;
+  full_command: string;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  duration_ms: number;
+  requires_confirmation?: boolean;
+  warning?: string;
+  error?: string;
+}
+

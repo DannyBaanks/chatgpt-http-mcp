@@ -13,6 +13,8 @@ import type {
   ControlCenterTaskItem,
   ControlCenterDispatchResponse,
   ServiceHealthItem,
+  CliExecutionRequest,
+  CliExecutionResult,
 } from "./contracts";
 
 const DANGEROUS_ACTIONS = new Set([
@@ -319,6 +321,162 @@ export async function dispatchControlCenterAction(
     return {
       ok: false,
       action: canonicalAction,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export function isCliCommandDestructive(
+  base: string,
+  args: string[] = []
+): { isDestructive: boolean; warning?: string } {
+  const normBase = (base || "").trim().toLowerCase();
+  const lowerArgs = args.map((a) => (a || "").trim().toLowerCase());
+
+  if (normBase === "down") {
+    return {
+      isDestructive: true,
+      warning: "Detener todos los servicios (server + túnel) interrumpirá la conectividad con ChatGPT.",
+    };
+  }
+  if (normBase === "server" && lowerArgs.includes("stop")) {
+    return {
+      isDestructive: true,
+      warning: "Detener el Codex Bridge Server (:8791) interrumpirá las peticiones de ChatGPT.",
+    };
+  }
+  if (normBase === "tunnel" && lowerArgs.includes("stop")) {
+    return {
+      isDestructive: true,
+      warning: "Detener el túnel Cloudflare desconectará la URL pública de OpenAI.",
+    };
+  }
+  if (normBase === "exec" || normBase === "sh") {
+    return {
+      isDestructive: true,
+      warning: `Ejecución de shell arbitraria: "${args.join(" ").slice(0, 80)}" se ejecutará directamente en el host.`,
+    };
+  }
+  if (normBase === "tui" && lowerArgs.includes("spawn") && lowerArgs.includes("accept-edits")) {
+    return {
+      isDestructive: true,
+      warning: "El modo accept-edits permite a la TUI editar archivos sin confirmación interactiva.",
+    };
+  }
+  if (normBase === "tui" && lowerArgs.includes("install") && lowerArgs.includes("--apply")) {
+    return {
+      isDestructive: true,
+      warning: "Instalar MCP en configs de TUIs modificará archivos de configuración locales.",
+    };
+  }
+  if (normBase === "models" && lowerArgs.includes("restore")) {
+    return {
+      isDestructive: true,
+      warning: "Restaurar modelos revertirá configuraciones de perfiles de Codex.",
+    };
+  }
+  if (normBase === "session" && lowerArgs.includes("revoke")) {
+    return {
+      isDestructive: true,
+      warning: "Revocar sesiones invalidará tokens y credenciales activas.",
+    };
+  }
+
+  return { isDestructive: false };
+}
+
+export async function executeIsyMcpCli(
+  command: string,
+  args: string[] = [],
+  options: { confirmed?: boolean; cwd?: string; timeoutMs?: number } = {}
+): Promise<CliExecutionResult> {
+  const trimmed = (command || "").trim();
+  if (!trimmed) {
+    return {
+      ok: false,
+      command: "",
+      full_command: "isymcp",
+      stdout: "",
+      stderr: "Comando CLI vacío o requerido",
+      exit_code: 1,
+      duration_ms: 0,
+      error: "Comando CLI requerido",
+    };
+  }
+
+  let base = trimmed;
+  let cmdArgs = [...args];
+  if (cmdArgs.length === 0 && /\s/.test(trimmed)) {
+    const matches = trimmed.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+    if (matches.length > 0) {
+      base = matches[0].replace(/^["']|["']$/g, "");
+      cmdArgs = matches.slice(1).map((m) => m.replace(/^["']|["']$/g, ""));
+    }
+  }
+
+  if (base.toLowerCase() === "isymcp" && cmdArgs.length > 0) {
+    base = cmdArgs[0];
+    cmdArgs = cmdArgs.slice(1);
+  }
+
+  const fullCommand = `isymcp ${[base, ...cmdArgs].join(" ")}`.trim();
+  const check = isCliCommandDestructive(base, cmdArgs);
+
+  if (check.isDestructive && options.confirmed !== true) {
+    return {
+      ok: false,
+      command: base,
+      full_command: fullCommand,
+      stdout: "",
+      stderr: `Bloqueado por seguridad: ${check.warning}`,
+      exit_code: 1,
+      duration_ms: 0,
+      requires_confirmation: true,
+      warning: check.warning,
+    };
+  }
+
+  const isyCliPath = join(import.meta.dir, "..", "isymcp.ts");
+  const repoRoot = join(import.meta.dir, "..", "..");
+  const timeout = options.timeoutMs ?? 35_000;
+  const start = performance.now();
+
+  try {
+    const proc = Bun.spawnSync(["bun", "run", isyCliPath, base, ...cmdArgs], {
+      cwd: options.cwd || repoRoot,
+      timeout,
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const duration_ms = Math.round(performance.now() - start);
+    const rawOut = proc.stdout ? proc.stdout.toString() : "";
+    const rawErr = proc.stderr ? proc.stderr.toString() : "";
+    const cleanOut = String(sanitizeOutput(rawOut));
+    const cleanErr = String(sanitizeOutput(rawErr));
+    const exit_code = typeof proc.exitCode === "number" ? proc.exitCode : 0;
+
+    return {
+      ok: exit_code === 0,
+      command: base,
+      full_command: fullCommand,
+      stdout: cleanOut,
+      stderr: cleanErr,
+      exit_code,
+      duration_ms,
+      error: exit_code !== 0 && !cleanErr ? `Proceso terminó con exit code ${exit_code}` : undefined,
+    };
+  } catch (err) {
+    const duration_ms = Math.round(performance.now() - start);
+    return {
+      ok: false,
+      command: base,
+      full_command: fullCommand,
+      stdout: "",
+      stderr: err instanceof Error ? err.message : String(err),
+      exit_code: 1,
+      duration_ms,
       error: err instanceof Error ? err.message : String(err),
     };
   }
