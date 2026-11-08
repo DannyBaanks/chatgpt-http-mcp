@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-11-08
+
+Release of the local ISyMCP Control Center and agent coordination surface.
+
+### Added
+
+- Local Control Center with CLI command deck, service monitoring and task views.
+- Dedicated read-only MCP tools for overview, glossary, tasks and protocol.
+- Private ChatGPT integration resources and initial Apps SDK UI entrypoints (experimental; connected-host E2E not implied).
+- Task-monitor, agent/console registry and workflow observability improvements.
+
+### Security & Reliability
+
+- Operator-grant checks for privileged Control Center operations, with scoped one-use HMAC authorization and workspace binding.
+- Expanded negative/adversarial tests for command authority, secrets handling and MCP routing.
+- Improved Windows session-registry contention handling and concurrent-write stress test (intermittent failures still require monitoring).
+
+### Documentation
+
+- Product-oriented README and linked in-depth technical documentation.
+- Browser automation remains experimental and is not an official OpenAI API or platform endorsement.
+
 ## [1.0.2] - 2026-11-07
 
 Security boundary hardening release following an architectural review

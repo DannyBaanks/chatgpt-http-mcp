@@ -389,7 +389,7 @@ import { resolveWithin, resolveWithinReal } from "./path";
 export { resolveWithin, resolveWithinReal } from "./path";
 
 export const BWRAP = "/usr/bin/bwrap";
-export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.0.2";
+export const DEFAULT_WINDOWS_SANDBOX_IMAGE = "isymcp-sandbox:1.1.0";
 
 export interface SandboxPlan {
   argv: string[];
