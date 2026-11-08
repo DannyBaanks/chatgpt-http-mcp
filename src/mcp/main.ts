@@ -57,7 +57,7 @@ import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
 import { registerComfyTools } from "../comfyui/register";
 import { registerGitHubTools } from "../github/register";
-import { registerIsyMcpGateway } from "./gateway";
+import { registerIsyMcpGateway, registerControlCenterMcpTools } from "./gateway";
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
 import { executeShellCommand } from "../shell/executor";
 import { spawnAgyTui } from "../tui-launcher";
@@ -841,6 +841,9 @@ server.registerTool(
 
 // Universal Gateway estilo REA: expone la herramienta unificada `isymcp` con glosario interactivo
 registerIsyMcpGateway(server);
+
+// Herramientas discretas de solo lectura para el ISyMCP Control Center / ChatGPT Apps
+registerControlCenterMcpTools(server);
 
 // Recurso oficial: Protocolo de coordinación de agentes
 server.resource(

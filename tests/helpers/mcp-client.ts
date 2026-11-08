@@ -52,8 +52,24 @@ export class McpClient {
             if (msg.id !== undefined && this.pending.has(Number(msg.id))) {
               const resolve = this.pending.get(Number(msg.id))!;
               this.pending.delete(Number(msg.id));
+              if (msg.error) {
+                resolve({ error: String(msg.error) });
+                continue;
+              }
+              if ((msg.result as any)?.tools) {
+                resolve({ tools: (msg.result as any).tools } as any);
+                continue;
+              }
               const text = msg.result?.content?.find((c) => c.type === "text")?.text;
-              resolve(text ? (JSON.parse(text) as Record<string, unknown>) : { error: String(msg.error ?? "sin contenido") });
+              if (text === undefined) {
+                resolve((msg.result as Record<string, unknown>) ?? { error: "sin contenido" });
+                continue;
+              }
+              try {
+                resolve(JSON.parse(text) as Record<string, unknown>);
+              } catch {
+                resolve({ text });
+              }
             }
           }
         }
@@ -92,6 +108,18 @@ export class McpClient {
         resolve(payload);
       });
       this.send({ jsonrpc: "2.0", id, method: "tools/call", params: { name: tool, arguments: args } });
+    });
+  }
+
+  async listTools(): Promise<any[]> {
+    const id = this.nextId++;
+    return new Promise<any[]>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("sin respuesta de tools/list")), 30_000);
+      this.pending.set(id, (payload) => {
+        clearTimeout(timer);
+        resolve((payload as any).tools ?? []);
+      });
+      this.send({ jsonrpc: "2.0", id, method: "tools/list", params: {} });
     });
   }
 

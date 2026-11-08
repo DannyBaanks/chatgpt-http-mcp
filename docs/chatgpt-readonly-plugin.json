@@ -1,0 +1,75 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ISyMCP Read-Only Inspection Bridge",
+    "description": "Manifiesto MCP / Custom Action de Solo Lectura para ChatGPT (Auditoría CC-01). Expone exclusivamente inspección de salud, glosario y tareas del monitor.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://<tu-subdominio-tunel>.trycloudflare.com",
+      "description": "Túnel HTTPS seguro hacia ISyMCP Bridge local"
+    }
+  ],
+  "paths": {
+    "/api/control-center/overview": {
+      "get": {
+        "summary": "Consultar salud del sistema y estado de servicios",
+        "description": "Retorna disponibilidad del bridge, monitor continuo, túnel y métricas sin exponer secretos.",
+        "operationId": "getOverview",
+        "responses": {
+          "200": {
+            "description": "Estado general de salud"
+          }
+        }
+      }
+    },
+    "/api/control-center/glossary": {
+      "get": {
+        "summary": "Consultar catálogo de herramientas y contratos",
+        "description": "Retorna el glosario oficial de capacidades de ISyMCP para descubrimiento de herramientas.",
+        "operationId": "getGlossary",
+        "responses": {
+          "200": {
+            "description": "Glosario oficial de herramientas"
+          }
+        }
+      }
+    },
+    "/api/control-center/tasks": {
+      "get": {
+        "summary": "Consultar cola de tareas y recibos en el monitor",
+        "description": "Retorna las tareas encoladas y recibos criptográficos HMAC en SQLite WAL.",
+        "operationId": "getTasks",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de tareas"
+          }
+        }
+      }
+    },
+    "/api/control-center/protocol": {
+      "get": {
+        "summary": "Obtener protocolo de coordinación de agentes",
+        "description": "Retorna las instrucciones oficiales de bootstrap y comandos /task para agentes.",
+        "operationId": "getProtocol",
+        "responses": {
+          "200": {
+            "description": "Protocolo Markdown de coordinación"
+          }
+        }
+      }
+    }
+  }
+}

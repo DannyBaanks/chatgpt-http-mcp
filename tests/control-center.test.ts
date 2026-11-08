@@ -77,29 +77,19 @@ describe("ISyMCP Control Center — Servicios y Estado", () => {
   });
 
   test("CC-04: Lista de tareas refleja el estado en SQLite WAL sin filtrar secretos", () => {
-    const { db, authority } = openBridgeMonitorStack(testEnv);
+    const { db, queue } = openBridgeMonitorStack(testEnv);
     try {
-      const og1 = authority.mintOwnerGrant({ owner_id: "test_owner", scopes: ["workspace:register"] });
-      authority.registerWorkspace(og1, { workspace_id: "ws-cc-test", root_path: "/tmp" });
-      const og2 = authority.mintOwnerGrant({ owner_id: "test_owner", scopes: ["lease:mint"] });
-      const ql = authority.mintQueueLease(og2, {
-        workspace_id: "ws-cc-test",
-        scopes: ["queue:submit", "queue:status"],
+      const alert = queue.submitAlertTask({
+        title: "Test Control Center Alert",
+        summary: "Diagnóstico Control Center",
+        source: "test",
       });
-
-      // Crear tarea de prueba
-      const { queue } = openBridgeMonitorStack(testEnv);
-      queue.submitTask(ql.token, {
-        operation_id: "op-cc-001",
-        kind: "diagnostics",
-        description: "Diagnóstico Control Center",
-        requested_actions: ["status:read"],
-      });
+      expect(alert.accepted).toBe(true);
     } finally {
       db.close();
     }
 
-    const tasks = getControlCenterTasks(10);
+    const tasks = getControlCenterTasks(10, testEnv);
     expect(tasks).toBeArray();
     expect(tasks.length).toBeGreaterThanOrEqual(1);
 

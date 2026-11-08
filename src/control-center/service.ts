@@ -18,8 +18,27 @@ import type {
 const DANGEROUS_ACTIONS = new Set([
   "shell.exec",
   "github.dispatch",
-  "github.api", // puede ser POST/PUT/DELETE
+  "github.exec",
+  "github.api",
 ]);
+
+const ACTION_ALIAS_MAP: Record<string, string> = {
+  shell: "shell.exec",
+  exec: "shell.exec",
+  bash: "shell.exec",
+  cmd: "shell.exec",
+  sh: "shell.exec",
+  tui: "tui.spawn",
+  spawn: "tui.spawn",
+  dispatch: "github.dispatch",
+  protocol: "protocol.read",
+  agents: "protocol.read",
+  fuzz: "fuzz.run",
+  status: "monitor.status",
+  tasks: "monitor.tasks",
+  respond: "monitor.respond",
+  submit: "monitor.submit",
+};
 
 function sanitizeOutput(data: unknown): unknown {
   if (typeof data === "string") {
@@ -193,8 +212,11 @@ export function getControlCenterProtocol(): string {
   return ISYMCP_AGENT_PROTOCOL_MD;
 }
 
-export function getControlCenterTasks(limit = 50): ControlCenterTaskItem[] {
-  const { db, monitor } = openBridgeMonitorStack();
+export function getControlCenterTasks(
+  limit = 50,
+  env: Record<string, string | undefined> = process.env
+): ControlCenterTaskItem[] {
+  const { db, monitor } = openBridgeMonitorStack(env);
   try {
     const records = monitor.listTasks(limit);
     return records.map((t: TaskRecord) => ({
@@ -252,46 +274,51 @@ export async function dispatchControlCenterAction(
   options: { confirmed?: boolean } = {}
 ): Promise<ControlCenterDispatchResponse> {
   const normAction = (action || "").trim().toLowerCase();
+  const canonicalAction = ACTION_ALIAS_MAP[normAction] ?? normAction;
 
   // Comprobar si es un comando peligroso
   const isDangerous =
-    DANGEROUS_ACTIONS.has(normAction) ||
-    (normAction === "tui.spawn" &&
+    DANGEROUS_ACTIONS.has(canonicalAction) ||
+    (canonicalAction === "tui.spawn" &&
       (args.mode === "accept-edits" || args.dangerously_skip_permissions === true));
 
   if (isDangerous && options.confirmed !== true) {
     let warningMsg = "Esta acción puede modificar el sistema, ejecutar código en el host o alterar repositorios.";
-    if (normAction === "shell.exec") {
+    if (canonicalAction === "shell.exec") {
       warningMsg = `Ejecución de shell arbitraria: se requiere confirmación explícita para ejecutar "${String(
-        args.command || ""
+        args.command || args.cmd || ""
       ).slice(0, 100)}".`;
-    } else if (normAction === "github.dispatch") {
+    } else if (canonicalAction === "github.dispatch") {
       warningMsg = `Disparo de CI en GitHub (${String(args.workflow_id || "")}): requiere confirmación del operador.`;
-    } else if (normAction === "tui.spawn") {
+    } else if (canonicalAction === "github.exec") {
+      warningMsg = `Ejecución de comandos nativos de GitHub CLI (gh): requiere confirmación del operador.`;
+    } else if (canonicalAction === "github.api") {
+      warningMsg = `Invocación REST a GitHub API con potencial mutación (${String(args.method || "GET")}): requiere confirmación del operador.`;
+    } else if (canonicalAction === "tui.spawn") {
       warningMsg = `Lanzamiento de TUI en modo '${String(args.mode)}': requiere confirmación del operador.`;
     }
 
     return {
       ok: false,
-      action: normAction,
+      action: canonicalAction,
       requires_confirmation: true,
       warning: warningMsg,
     };
   }
 
   try {
-    const rawResult = await dispatchIsyMcpAction(normAction, args);
+    const rawResult = await dispatchIsyMcpAction(canonicalAction, args);
     const sanitized = sanitizeOutput(rawResult.result);
     return {
       ok: rawResult.ok,
-      action: normAction,
+      action: canonicalAction,
       result: sanitized,
       error: rawResult.error,
     };
   } catch (err) {
     return {
       ok: false,
-      action: normAction,
+      action: canonicalAction,
       error: err instanceof Error ? err.message : String(err),
     };
   }

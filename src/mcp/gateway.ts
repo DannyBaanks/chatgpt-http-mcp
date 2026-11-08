@@ -664,3 +664,80 @@ export function registerIsyMcpGateway(server: McpServer): void {
     },
   );
 }
+
+/**
+ * Registra las herramientas de solo lectura del Control Center para integración oficial con ChatGPT (CC-02).
+ * Exclusivamente inspección: overview, glossary, tasks, protocol. Cero mutaciones ni shell.
+ */
+export function registerControlCenterMcpTools(server: McpServer): void {
+  // 1. isymcp_get_overview
+  server.registerTool(
+    "isymcp_get_overview",
+    {
+      description:
+        "Consulta la salud general del sistema ISyMCP, disponibilidad del bridge (:8791), monitor continuo (:8799), túnel seguro y métricas de memoria. Solo lectura.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const { getControlCenterOverview } = await import("../control-center/service");
+      const overview = await getControlCenterOverview();
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(overview, null, 2) }],
+      };
+    }
+  );
+
+  // 2. isymcp_get_glossary
+  server.registerTool(
+    "isymcp_get_glossary",
+    {
+      description:
+        "Obtiene el glosario oficial de capacidades de ISyMCP con la descripción de contratos tipados, familias y parámetros. Solo lectura.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(ISYMCP_GLOSSARY, null, 2) }],
+      };
+    }
+  );
+
+  // 3. isymcp_get_tasks
+  server.registerTool(
+    "isymcp_get_tasks",
+    {
+      description:
+        "Lista las tareas recientes persistidas en el buzón SQLite WAL del monitor continuo y sus recibos criptográficos HMAC. Solo lectura.",
+      inputSchema: {
+        limit: z.number().optional().default(10).describe("Límite máximo de tareas a retornar (por defecto 10)"),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const { getControlCenterTasks } = await import("../control-center/service");
+      const tasks = getControlCenterTasks(input.limit);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(tasks, null, 2) }],
+      };
+    }
+  );
+
+  // 4. isymcp_get_protocol
+  server.registerTool(
+    "isymcp_get_protocol",
+    {
+      description:
+        "Retorna el documento Markdown oficial de bootstrap y protocolo de coordinación de agentes interactivos (isymcp://protocol/agents.md). Solo lectura.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const { ISYMCP_AGENT_PROTOCOL_MD } = await import("../agent-protocol");
+      return {
+        content: [{ type: "text" as const, text: ISYMCP_AGENT_PROTOCOL_MD }],
+      };
+    }
+  );
+}
