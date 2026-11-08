@@ -1,0 +1,18 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "ISyMCP Control Center",
+  "name_for_model": "isymcp_control_center",
+  "description_for_human": "Visual control center, real-time monitor, and command deck for ISyMCP.",
+  "description_for_model": "Control center and inspection gateway for ISyMCP. Allows inspecting local daemons and system health, querying the typed command glossary, listing and approving background tasks in SQLite WAL, reading agent coordination protocols, and executing verified CLI commands with fail-closed OperatorGrant security.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "http://127.0.0.1:8798/openapi.json",
+    "is_user_authenticated": false
+  },
+  "logo_url": "http://127.0.0.1:8798/plugin-logo.png",
+  "contact_email": "danny@isymcp.local",
+  "legal_info_url": "http://127.0.0.1:8798/legal"
+}

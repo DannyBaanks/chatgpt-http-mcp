@@ -8,3 +8,4 @@ probe/evidence/
 node_modules/
 run/
 .test-tmp/
+dist/plugin/

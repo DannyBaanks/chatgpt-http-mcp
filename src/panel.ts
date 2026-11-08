@@ -745,6 +745,112 @@ export function startPanel(port = 8798, bridgePort = process.env.CODEX_WEB_HTTP_
     port,
     async fetch(req) {
       const url = new URL(req.url);
+
+      // Endpoints públicos de integración ChatGPT Private Plugin y preflight CORS
+      const isPluginMetadata =
+        url.pathname === "/.well-known/ai-plugin.json" ||
+        url.pathname === "/openapi.json" ||
+        url.pathname === "/plugin-logo.png" ||
+        url.pathname === "/legal";
+
+      if (isPluginMetadata || (url.pathname.startsWith("/api/control-center") && req.method === "OPTIONS")) {
+        const corsHeaders: Record<string, string> = {
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "GET, POST, OPTIONS",
+          "access-control-allow-headers": "Content-Type, Authorization, x-isymcp-token",
+        };
+
+        if (req.method === "OPTIONS") {
+          return new Response(null, { status: 204, headers: corsHeaders });
+        }
+
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
+        }
+
+        const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || `127.0.0.1:${port}`;
+        const proto = req.headers.get("x-forwarded-proto") || (host.includes("trycloudflare.com") ? "https" : "http");
+        const originUrl = `${proto}://${host}`;
+
+        if (url.pathname === "/.well-known/ai-plugin.json") {
+          const manifestPath = join(ROOT, "plugin", ".well-known", "ai-plugin.json");
+          let manifest: any;
+          try {
+            manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+          } catch {
+            manifest = {
+              schema_version: "v1",
+              name_for_human: "ISyMCP Control Center",
+              name_for_model: "isymcp_control_center",
+              description_for_human: "Visual control center, real-time monitor, and command deck for ISyMCP.",
+              description_for_model: "Control center and inspection gateway for ISyMCP.",
+              auth: { type: "none" },
+              api: { type: "openapi", url: `${originUrl}/openapi.json`, is_user_authenticated: false },
+              logo_url: `${originUrl}/plugin-logo.png`,
+              contact_email: "danny@isymcp.local",
+              legal_info_url: `${originUrl}/legal`,
+            };
+          }
+          if (manifest.api) manifest.api.url = `${originUrl}/openapi.json`;
+          manifest.logo_url = `${originUrl}/plugin-logo.png`;
+          manifest.legal_info_url = `${originUrl}/legal`;
+
+          return new Response(JSON.stringify(manifest, null, 2), {
+            headers: {
+              "content-type": "application/json; charset=utf-8",
+              "cache-control": "no-cache",
+              ...corsHeaders,
+            },
+          });
+        }
+
+        if (url.pathname === "/openapi.json") {
+          const schemaPath = join(ROOT, "plugin", "openapi.json");
+          let schema: any;
+          try {
+            schema = JSON.parse(readFileSync(schemaPath, "utf8"));
+            if (Array.isArray(schema.servers) && schema.servers.length > 0) {
+              schema.servers[0].url = originUrl;
+            }
+          } catch {
+            schema = { openapi: "3.1.0", info: { title: "ISyMCP Control Center", version: "1.2.0" }, paths: {} };
+          }
+          return new Response(JSON.stringify(schema, null, 2), {
+            headers: {
+              "content-type": "application/json; charset=utf-8",
+              "cache-control": "no-cache",
+              ...corsHeaders,
+            },
+          });
+        }
+
+        if (url.pathname === "/plugin-logo.png") {
+          const logoPath = join(ROOT, "plugin", "plugin-logo.png");
+          try {
+            return new Response(readFileSync(logoPath), {
+              headers: {
+                "content-type": "image/png",
+                "cache-control": "public, max-age=86400",
+                "x-content-type-options": "nosniff",
+                ...corsHeaders,
+              },
+            });
+          } catch {
+            return new Response("Not Found", { status: 404, headers: corsHeaders });
+          }
+        }
+
+        if (url.pathname === "/legal") {
+          const legalText = `ISyMCP Control Center — Private Local Operator Tool.\nAuthorized local and tunnel usage only. All operations require local session token or OperatorGrant.`;
+          return new Response(legalText, {
+            headers: {
+              "content-type": "text/plain; charset=utf-8",
+              ...corsHeaders,
+            },
+          });
+        }
+      }
+
       // Bloqueo inmediato de host no-loopback para cualquier ruta (DNS rebinding / Host injection)
       const hostDenied = guardLocalRequest(req, { loopbackOnly: true });
       if (hostDenied) return hostDenied;
