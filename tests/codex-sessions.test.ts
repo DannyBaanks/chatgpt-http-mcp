@@ -35,24 +35,28 @@ afterEach(() => {
 
 describe("codex-sessions registry", () => {
   test("procesos concurrentes no pierden escrituras del registro (revoke incluido)", async () => {
-    const victim = mintSession(workspace, { label: "victim" });
     const module = fileURLToPath(new URL("../src/codex-sessions.ts", import.meta.url));
     const script = `const m = await import(${JSON.stringify(module)}); const [cwd, id] = process.argv.slice(-2);
       for (let i = 0; i < 15; i++) m.mintSession(cwd, { label: "w" + id + "-" + i });`;
     const env = { ...process.env, CODEX_WEB_HTTP_HOME: home };
-    const writers = Array.from({ length: 4 }, (_, id) =>
-      Bun.spawn([process.execPath, "-e", script, workspace, String(id)], { env, stdout: "ignore", stderr: "pipe" }));
-    expect(revokeSession(victim.fp)).toBe(1);
-    const codes = await Promise.all(writers.map((w) => w.exited));
-    const errors = await Promise.all(writers.map(async (w) => await new Response(w.stderr).text()));
-    if (codes.some((code) => code !== 0)) {
-      throw new Error(`concurrent session writer failed: ${JSON.stringify(codes)}; stderr=${JSON.stringify(errors)}`);
+    // Multiple rounds expose intermittent Windows lock/ACL failures without weakening
+    // the original no-lost-writes and revoked-token guarantees.
+    for (let round = 0; round < 3; round++) {
+      const victim = mintSession(workspace, { label: `victim-${round}` });
+      const writers = Array.from({ length: 4 }, (_, id) =>
+        Bun.spawn([process.execPath, "-e", script, workspace, String(round * 4 + id)], { env, stdout: "ignore", stderr: "pipe" }));
+      expect(revokeSession(victim.fp)).toBe(1);
+      const codes = await Promise.all(writers.map((w) => w.exited));
+      const errors = await Promise.all(writers.map(async (w) => await new Response(w.stderr).text()));
+      if (codes.some((code) => code !== 0)) {
+        throw new Error(`concurrent session writer failed in round ${round}: ${JSON.stringify(codes)}; stderr=${JSON.stringify(errors)}`);
+      }
+      expect(codes).toEqual([0, 0, 0, 0]);
     }
-    expect(codes).toEqual([0, 0, 0, 0]);
     const labels = readSessions().map((s) => s.label);
-    expect(labels.filter((l) => /^w\d-\d+$/.test(l))).toHaveLength(60);
-    expect(labels).not.toContain("victim");
-  }, 30_000);
+    expect(labels.filter((l) => /^w\d+-\d+$/.test(l))).toHaveLength(180);
+    expect(labels.some((l) => l.startsWith("victim-"))).toBe(false);
+  }, 60_000);
 
   test("un lector concurrente no deshace la publicacion del registro", async () => {
     mintSession(workspace, { label: "semilla" });
