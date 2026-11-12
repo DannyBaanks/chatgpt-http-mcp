@@ -31,6 +31,9 @@ describe("catálogo de agentes", () => {
     expect(argv("opencode")).toEqual(["/bin/opencode", "--prompt", "HAZ X"]);
     expect(argv("openisy")).toEqual(["/bin/openisy", "--prompt", "HAZ X"]);
     expect(argv("claude")).toEqual(["/bin/claude", "HAZ X"]);
+    // Con la ruta del CLI: prompt primero y solo los comandos `monitor` de ISyMCP pre-aprobados.
+    expect(agentArgv(resolveAgentTui("claude")!, "/bin/claude", "HAZ X", { cliPath: "/r/src/isymcp.ts" }))
+      .toEqual(["/bin/claude", "HAZ X", "--allowedTools", 'Bash(bun run "/r/src/isymcp.ts" monitor:*)']);
     expect(argv("codex")).toEqual(["/bin/codex", "HAZ X"]);
     expect(argv("gemini")).toEqual(["/bin/gemini", "-i", "HAZ X"]);
     expect(argv("copilot")).toEqual(["/bin/copilot", "-i", "HAZ X"]);
@@ -39,10 +42,9 @@ describe("catálogo de agentes", () => {
     expect(argv("hermes")).toEqual(["/bin/hermes", "chat"]);
   });
 
-  it("AT-03: listener por agente: agy su /task, claude background, el resto por inyección", () => {
+  it("AT-03: listener por agente: agy su /task, el resto (claude incluido) por inyección", () => {
     expect(resolveAgentTui("agy")!.listener).toBe("agy-task");
-    expect(resolveAgentTui("claude")!.listener).toBe("background-bash");
-    for (const id of ["opencode", "openisy", "codex", "gemini", "copilot", "droid", "kimi", "crush", "hermes", "openclaw"]) {
+    for (const id of ["claude", "opencode", "openisy", "codex", "gemini", "copilot", "droid", "kimi", "crush", "hermes", "openclaw"]) {
       expect(resolveAgentTui(id)!.listener).toBe("inject");
     }
   });
@@ -98,7 +100,7 @@ describe("entrega por tmux", () => {
     const base = { tmux_session: "s", tmux_socket: "k", state: "ACKED" as const };
     expect(consoleWantsInjection({ ...base, agent: "openisy" })).toBe(true);
     expect(consoleWantsInjection({ ...base, agent: "agy" })).toBe(false);
-    expect(consoleWantsInjection({ ...base, agent: "claude" })).toBe(false);
+    expect(consoleWantsInjection({ ...base, agent: "claude" })).toBe(true);
     expect(consoleWantsInjection({ ...base, agent: "opencode", tmux_socket: null })).toBe(false);
     // Terminar la primera tarea no cierra la consola: puede recibir más (como agy).
     expect(consoleWantsInjection({ ...base, agent: "opencode", state: "COMPLETED" } as any)).toBe(true);

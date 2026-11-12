@@ -353,8 +353,7 @@ Cómo le llegan las **tareas siguientes** (`monitor.submit` con `console_id`):
 | Listener | Agentes | Mecanismo |
 |---|---|---|
 | `agy-task` | agy | `monitor wait-next` como /task de Antigravity (igual que antes) |
-| `background-bash` | claude | `monitor wait-next --console <id>` en background; Claude se re-invoca al terminar |
-| `inject` | opencode, openisy, codex, gemini, copilot, droid, kimi, crush, hermes, openclaw | ISyMCP **pega la tarea en su terminal** (tmux, socket `isymcp-consoles`) |
+| `inject` | claude, opencode, openisy, codex, gemini, copilot, droid, kimi, crush, hermes, openclaw | ISyMCP **pega la tarea en su terminal** (tmux, socket `isymcp-consoles`); si el agente está ocupado, la TUI la encola |
 
 Kimi, Crush, Hermes y OpenClaw no aceptan un prompt inicial por argumento: arrancan vacíos y ISyMCP
 pega la instrucción unos segundos después.
@@ -364,7 +363,12 @@ pega la instrucción unos segundos después.
 permisos como siempre), `monitor_unavailable` (sin registro no se lanza a ciegas). En `monitor.submit`,
 `delivery.delivered=false` con `tmux_session_missing` significa que esa consola ya se cerró.
 
+Claude Code se lanza con `--allowedTools 'Bash(bun run "<cli>" monitor:*)'`: solo sus comandos de
+coordinación (ACK, avance, cierre) quedan pre-aprobados; todo lo demás pide permiso según tu modo.
+
 **Trampas:**
+0. **Claude en una carpeta nueva** pregunta primero *"¿confías en esta carpeta?"* y la consola se queda ahí.
+   Lánzalo en carpetas que ya abriste con Claude (tus repos) o entra a aceptar una vez.
 1. Una consola que **pide permiso** para un comando se queda esperando en su terminal: si no hay nadie
    mirando, entra a verla con `tmux -L isymcp-consoles attach -t <sesión>`.
 2. El estado `COMPLETED` de una consola es el de su **primera** tarea; la consola sigue abierta y recibe más.

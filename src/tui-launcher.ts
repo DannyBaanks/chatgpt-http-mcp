@@ -422,7 +422,7 @@ export async function spawnAgentTui(options: SpawnAgentOptions): Promise<SpawnAg
   }
 
   const session = `${def.id}-${consoleInfo ? consoleInfo.console_id.slice(4) : "dryrun"}`;
-  const inner = agentArgv(def, bin, finalPrompt, { mode: options.mode });
+  const inner = agentArgv(def, bin, finalPrompt, { mode: options.mode, cliPath: isymcpCliPath });
   const wrapped = consoleInfo ? wrapperArgv(consoleInfo, { taskId, operationId, monitorUrl }, inner) : inner;
   const tmuxCmd = ["tmux", "-L", socket, "new-session", "-d", "-s", session, "-x", "220", "-y", "50", "-c", cwd, ...wrapped];
   const pref = options.terminalPreference || "auto";

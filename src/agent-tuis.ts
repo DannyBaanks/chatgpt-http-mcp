@@ -35,7 +35,7 @@ export interface AgentTuiDef {
   baseArgs?: string[];
   promptVia: "argv" | "inject";
   /** argv del prompt inicial (solo promptVia "argv"). */
-  promptArgs?: (prompt: string, opts: { mode?: string }) => string[];
+  promptArgs?: (prompt: string, opts: { mode?: string; cliPath?: string }) => string[];
   listener: ListenerStyle;
   /** Espera antes de pegar el prompt inicial (promptVia "inject"). */
   injectDelayMs?: number;
@@ -49,7 +49,13 @@ export const AGENT_TUIS: AgentTuiDef[] = [
   },
   {
     id: "claude", label: "Claude Code", aliases: ["claude-code", "claudecode"],
-    executables: ["claude"], promptVia: "argv", promptArgs: (p) => [p], listener: "background-bash",
+    // inject y no background-bash: re-armar wait-next depende de que el modelo se acuerde en cada turno;
+    // Claude Code acepta el texto pegado como mensaje nuevo (o lo encola si está ocupado). Verificado en vivo.
+    executables: ["claude"], promptVia: "argv", listener: "inject",
+    // Sin esto la consola se queda esperando permiso en su primer `monitor ack` y nadie lo ve.
+    // Solo se pre-aprueban los comandos de coordinación de ISyMCP; todo lo demás pide permiso.
+    // El prompt va ANTES: --allowedTools es variádico y se tragaría lo que venga después.
+    promptArgs: (p, o) => (o.cliPath ? [p, "--allowedTools", claudeMonitorRule(o.cliPath)] : [p]),
   },
   {
     id: "opencode", label: "opencode", aliases: [],
@@ -96,6 +102,11 @@ export const AGENT_TUIS: AgentTuiDef[] = [
   },
 ];
 
+/** Regla de permisos de Claude Code: solo `bun run "<cli>" monitor ...` (prefijo exacto, con comillas). */
+export function claudeMonitorRule(cliPath: string): string {
+  return `Bash(bun run "${cliPath}" monitor:*)`;
+}
+
 export function resolveAgentTui(id: string | undefined): AgentTuiDef | null {
   const key = String(id ?? "agy").trim().toLowerCase();
   return AGENT_TUIS.find((a) => a.id === key || a.aliases.includes(key)) ?? null;
@@ -112,7 +123,7 @@ export function findAgentBinary(def: AgentTuiDef, pathEnv = process.env.PATH ?? 
 }
 
 /** argv completo del agente (sin terminal ni wrapper). */
-export function agentArgv(def: AgentTuiDef, bin: string, prompt: string, opts: { mode?: string } = {}): string[] {
+export function agentArgv(def: AgentTuiDef, bin: string, prompt: string, opts: { mode?: string; cliPath?: string } = {}): string[] {
   const base = [bin, ...(def.baseArgs ?? [])];
   return def.promptVia === "argv" && def.promptArgs ? [...base, ...def.promptArgs(prompt, opts)] : base;
 }
