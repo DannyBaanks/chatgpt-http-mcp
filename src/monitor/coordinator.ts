@@ -27,6 +27,8 @@ export class MonitorCoordinator {
    * Reconcilia tareas huérfanas al iniciar o recuperar el monitor tras un reinicio.
    * - Tareas en CLAIMED o RUNNING que no son idempotentes pasan a UNKNOWN (sin reintento ciego, A08).
    * - Tareas en CLAIMED que aún no ejecutaron efectos o marcadas idempotentes pueden volver a READY si su grant sigue vigente.
+   * Solo las que reclamó el WORKER (worker_lease_id): una consola de agente también está RUNNING, pero no es
+   * del worker; antes cada reinicio del monitor la pasaba a READY y el worker la cancelaba sin grant.
    */
   public reconcileOnStartup(): { markedUnknown: string[]; recoveredReady: string[] } {
     const markedUnknown: string[] = [];
@@ -35,7 +37,7 @@ export class MonitorCoordinator {
 
     const tx = this.db.transaction(() => {
       const interrupted = this.db
-        .query("SELECT * FROM tasks WHERE state IN ('CLAIMED', 'RUNNING')")
+        .query("SELECT * FROM tasks WHERE state IN ('CLAIMED', 'RUNNING') AND worker_lease_id IS NOT NULL")
         .all() as any[];
       for (const row of interrupted) {
         const isIdempotent = Number(row.idempotent) === 1;
@@ -71,12 +73,14 @@ export class MonitorCoordinator {
   /**
    * Reclama transaccionalmente la siguiente tarea READY y emite un WorkerLease de corta duración.
    * Si el lease o el task_grant fueron revocados antes del claim, cancela la tarea y no la reclama.
+   * Solo tareas CON grant: el worker ejecuta lo que un owner autorizó. Una tarea READY sin grant es el
+   * buzón de un agente (monitor.submit del gateway, consolas): no es del worker y no se cancela.
    */
   public claimNextReadyTask(): { task: TaskRecord; workerLease: WorkerLease } | null {
     const now = this.nowFn();
     const tx = this.db.transaction((): { task: TaskRecord; workerLease: WorkerLease } | null => {
       const candidates = this.db
-        .query("SELECT * FROM tasks WHERE state = 'READY' ORDER BY created_at ASC")
+        .query("SELECT * FROM tasks WHERE state = 'READY' AND grant_id IS NOT NULL ORDER BY created_at ASC")
         .all() as any[];
 
       for (const row of candidates) {
