@@ -503,6 +503,28 @@ que no la contaminan. Tampoco contaminan la salida de `shell_exec` y de las cons
 la puerta), el monitor ni `github_status`/`whoami`. Estado en `~/.codex-web-http/taint.json` y
 `~/.codex-web-http/grants/` (0600; un `taint.json` ilegible cuenta como contaminado).
 
+**Desde el celular (API para la app de ISyMCP).** La app del iPhone da esos permisos por Tailscale,
+sin SSH:
+
+```bash
+isymcp phone start                 # escucha SOLO en la IP de Tailscale de esta compu, puerto 8797
+isymcp phone pair                  # código de un solo uso (5 min, 5 intentos) para emparejar la app
+isymcp phone devices               # celulares emparejados · isymcp phone revoke <id> les quita el acceso
+isymcp phone status | stop
+```
+
+Tres capas, todas obligatorias:
+
+1. **Red:** solo IPs de Tailscale; no escucha en tu WiFi ni en loopback.
+2. **Dueño:** `tailscale whois` de quien llega tiene que ser tu mismo usuario de Tailscale, y el mismo
+   nodo (el iPhone) que emparejó la llave.
+3. **Firma:** cada petición va firmada con una llave P-256 del Secure Enclave del iPhone (±60 s, nonce
+   que no se repite). Lo que da permisos (`allow once`, `allow on/off`, limpiar taint, responder tareas,
+   up/down) usa una segunda llave que pide **Face ID**.
+
+Lo que hace el celular queda en la bitácora con `source=phone` y el id del aparato. Lo que tú ves en la
+app (estado de un medio, etc.) no contamina la sesión: eres el operador, no el modelo.
+
 - `shell_exec` / `shell.exec`: denegados sin `allow shell`. `codex_exec` siempre pasa por el sandbox.
 - `spawn_agy_tui`, `spawn_agent_tui`, `tui.spawn` y la entrega pegada de `monitor.submit`: denegados sin
   `allow agents` (`dry_run` sí funciona: solo muestra el comando). La tarea se encola igual; en la respuesta
