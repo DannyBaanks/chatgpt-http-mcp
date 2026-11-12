@@ -443,11 +443,31 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 escondidas; lo que ejecuta código en tu máquina queda detrás de una decisión tuya:
 
 ```bash
-isymcp allow                  # estado
-isymcp allow agents on        # ChatGPT puede abrir consolas de agentes y pegarles tareas
-isymcp allow shell on         # ChatGPT puede usar shell_exec en el host (sin sandbox)
-isymcp allow agents off       # apagar; vale desde la siguiente llamada, sin reiniciar nada
+isymcp allow                       # estado (y cuánto le queda a cada permiso)
+isymcp allow agents on             # ChatGPT puede abrir consolas y pegarles tareas · caduca en 12 h
+isymcp allow agents on --for 2h    # caduca en 2 h (30m, 2h, 1d; máximo 24h)
+isymcp allow shell on --forever    # sin caducidad: hay que pedirlo a propósito
+isymcp allow agents off            # apagar; vale desde la siguiente llamada, sin reiniciar nada
+isymcp allow log                   # bitácora: qué se permitió o denegó, cuándo, por qué permiso
 ```
+
+Salida real (home aislado):
+
+```
+$ isymcp allow agents on --for 2h
+  ○ apagado   shell   shell_exec en el host (sin sandbox)
+  ● ENCENDIDO agents  abrir consolas de agentes y pegarles tareas · caduca en 2 h 0 min (12:20:33 AM)
+$ isymcp allow shell on --for 30h
+✗ --for máximo 24h; para dejarlo sin caducidad usa --forever a propósito
+```
+
+Los permisos **caducan solos**: un `on` sin opciones dura 12 h, para que no se quede encendido una
+semana porque se te olvidó. Un permiso caducado responde `DENIED ... (el permiso caducó)`.
+
+**Bitácora:** cada decisión de las puertas (shell, abrir consola, pegar tarea) y cada `allow on/off`
+quedan en `~/.codex-web-http/audit/gates.jsonl` (0600): hora, acción, permitido/denegado, por qué vía,
+y el agente, la consola o el comando (recortado a 300 caracteres, nunca credenciales). Cuando se abre una
+consola o se le pega una tarea, sale un **aviso de escritorio** (`notify-send`); `ISYMCP_NOTIFY=0` lo apaga.
 
 Se guarda en `~/.codex-web-http/permissions.json` (0600) y se lee en cada llamada. También habilitan
 `ISYMCP_ALLOW_HOST_SHELL=1` / `ISYMCP_ALLOW_AGENT_SPAWN=1` en el entorno del proceso, o un OperatorGrant

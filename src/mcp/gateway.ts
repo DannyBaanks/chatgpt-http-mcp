@@ -2,7 +2,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { spawnAgentTui } from "../tui-launcher";
-import { deniedMessage, permissionEnabled } from "../permissions";
+import { checkGate } from "../permissions";
 import { join as joinPath } from "node:path";
 
 /** Entrada del CLI isymcp que las consolas usan para responder. */
@@ -393,7 +393,10 @@ export async function dispatchIsyMcpAction(
 
     if (normalized === "tui.spawn" || normalized === "spawn" || normalized === "tui") {
       const dryRunOnly = args.dryRun === true || args.dry_run === true; // no ejecuta nada: solo muestra el comando
-      if (!dryRunOnly && !permissionEnabled("agent_spawn")) return { ok: false, result: null, error: deniedMessage("agent_spawn") };
+      if (!dryRunOnly) {
+        const gate = checkGate("agent_spawn", "tui.spawn", { agent: String(args.agent ?? "agy"), cwd: args.cwd, prompt: String(args.prompt ?? "") });
+        if (!gate.ok) return { ok: false, result: null, error: gate.message };
+      }
       // Saltarse los permisos del agente solo desde la CLI local del operador, nunca por el gateway.
       if (args.dangerously_skip_permissions === true) {
         return { ok: false, result: null, error: "DENIED: dangerously_skip_permissions solo desde la CLI local (isymcp tui spawn), no por MCP" };
@@ -565,7 +568,8 @@ export async function dispatchIsyMcpAction(
             const { getConsole } = await import("../console-registry");
             const { deliverTaskToConsole } = await import("../console-delivery");
             const rec = getConsole(db, String(args.console_id));
-            delivery = !permissionEnabled("agent_spawn")
+            const gate = rec ? checkGate("agent_spawn", "monitor.submit.delivery", { console_id: String(args.console_id), agent: rec.agent, task_id: taskId }) : null;
+            delivery = gate && !gate.ok
               ? { delivered: false, reason: "agent_spawn_disabled" }
               : rec
                 ? deliverTaskToConsole(rec, { task_id: taskId, kind, description }, isymcpCliEntry())

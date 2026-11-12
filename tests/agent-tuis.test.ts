@@ -202,7 +202,10 @@ exec cat >> '${dir}/input.txt'
     expect(argv).toContain(`CONSOLE_ID: ${res.consoleId}`);
     expect(argv).toContain("NO ejecutes wait-next");
     // Identidad exportada por el wrapper, igual que con agy (el token no viaja en argv).
-    const envTxt = readFileSync(join(dir, "env.txt"), "utf8");
+    // El falso escribe argv.txt y DESPUÉS env.txt: se espera a que env.txt esté completo (carrera en CI lento).
+    const envPath = join(dir, "env.txt");
+    expect(await waitFor(() => existsSync(envPath) && readFileSync(envPath, "utf8").includes("ISYMCP_CONSOLE_ID="))).toBe(true);
+    const envTxt = readFileSync(envPath, "utf8");
     expect(envTxt).toContain(`ISYMCP_CONSOLE_ID=${res.consoleId}`);
     expect(envTxt).toMatch(/ISYMCP_ACK_TOKEN=ctk_/);
     // Entorno limpio: ni el token del bridge ni API keys; sí las ubicaciones de ISyMCP.
