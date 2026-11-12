@@ -1,6 +1,6 @@
-// src/agent-tuis.ts — Catálogo multiharness de consolas de agentes que ISyMCP puede lanzar.
+// src/agent-tuis.ts — Consolas de agentes que ISyMCP puede lanzar (vista de src/agents/catalog.ts).
 //
-// Antes solo existía agy (Antigravity). Este catálogo describe, para cada TUI,
+// Antes solo existía agy (Antigravity). El catálogo único describe, para cada TUI,
 // cómo arrancarla con una instrucción inicial y cómo le llegan las tareas
 // siguientes de ChatGPT, para que todas hagan lo que hacía agy:
 //
@@ -19,10 +19,10 @@
 // (verificado con `--help` el 2026-11-11). "inject": no tiene flag interactivo
 // con prompt; ISyMCP la pega en la terminal cuando la TUI ya arrancó.
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { AGENTS, claudeMonitorRule, type ListenerStyle } from "./agents/catalog";
 
-export type ListenerStyle = "agy-task" | "background-bash" | "inject";
+export { claudeMonitorRule };
+export type { ListenerStyle };
 
 export interface AgentTuiDef {
   id: string;
@@ -41,71 +41,15 @@ export interface AgentTuiDef {
   injectDelayMs?: number;
 }
 
-export const AGENT_TUIS: AgentTuiDef[] = [
-  {
-    id: "agy", label: "Antigravity (agy)", aliases: ["antigravity"],
-    executables: ["agy"], extraPaths: [join(homedir(), ".local", "bin", "agy"), "/usr/local/bin/agy", "/usr/bin/agy"],
-    promptVia: "argv", promptArgs: (p, o) => ["-i", p, "--mode", o.mode || "auto"], listener: "agy-task",
-  },
-  {
-    id: "claude", label: "Claude Code", aliases: ["claude-code", "claudecode"],
-    // inject y no background-bash: re-armar wait-next depende de que el modelo se acuerde en cada turno;
-    // Claude Code acepta el texto pegado como mensaje nuevo (o lo encola si está ocupado). Verificado en vivo.
-    executables: ["claude"], promptVia: "argv", listener: "inject",
-    // Sin esto la consola se queda esperando permiso en su primer `monitor ack` y nadie lo ve.
-    // Solo se pre-aprueban los comandos de coordinación de ISyMCP; todo lo demás pide permiso.
-    // El prompt va ANTES: --allowedTools es variádico y se tragaría lo que venga después.
-    promptArgs: (p, o) => (o.cliPath ? [p, "--allowedTools", claudeMonitorRule(o.cliPath)] : [p]),
-  },
-  {
-    id: "opencode", label: "opencode", aliases: [],
-    executables: ["opencode"], extraPaths: [join(homedir(), ".opencode", "bin", "opencode")],
-    promptVia: "argv", promptArgs: (p) => ["--prompt", p], listener: "inject",
-  },
-  {
-    id: "openisy", label: "OpenISy", aliases: ["open-isy"],
-    executables: ["openisy"], extraPaths: [join(homedir(), ".opencode", "bin", "openisy")],
-    promptVia: "argv", promptArgs: (p) => ["--prompt", p], listener: "inject",
-  },
-  {
-    id: "codex", label: "Codex CLI", aliases: [],
-    executables: ["codex"], promptVia: "argv", promptArgs: (p) => [p], listener: "inject",
-  },
-  {
-    id: "gemini", label: "Gemini CLI", aliases: [],
-    executables: ["gemini"], promptVia: "argv", promptArgs: (p) => ["-i", p], listener: "inject",
-  },
-  {
-    id: "copilot", label: "Copilot CLI", aliases: [],
-    executables: ["copilot"], promptVia: "argv", promptArgs: (p) => ["-i", p], listener: "inject",
-  },
-  {
-    id: "droid", label: "Factory Droid", aliases: ["factory"],
-    executables: ["droid"], promptVia: "argv", promptArgs: (p) => [p], listener: "inject",
-  },
-  {
-    id: "kimi", label: "Kimi Code", aliases: [],
-    executables: ["kimi"], extraPaths: [join(homedir(), ".kimi-code", "bin", "kimi")],
-    promptVia: "inject", listener: "inject", injectDelayMs: 6000,
-  },
-  {
-    id: "crush", label: "Crush", aliases: [],
-    executables: ["crush"], promptVia: "inject", listener: "inject", injectDelayMs: 6000,
-  },
-  {
-    id: "hermes", label: "Hermes", aliases: [],
-    executables: ["hermes"], baseArgs: ["chat"], promptVia: "inject", listener: "inject", injectDelayMs: 6000,
-  },
-  {
-    id: "openclaw", label: "OpenClaw", aliases: [],
-    executables: ["openclaw"], baseArgs: ["chat"], promptVia: "inject", listener: "inject", injectDelayMs: 6000,
-  },
-];
-
-/** Regla de permisos de Claude Code: solo `bun run "<cli>" monitor ...` (prefijo exacto, con comillas). */
-export function claudeMonitorRule(cliPath: string): string {
-  return `Bash(bun run "${cliPath}" monitor:*)`;
-}
+/** Vista del catálogo único (src/agents/catalog.ts): los agentes que tienen consola. */
+export const AGENT_TUIS: AgentTuiDef[] = AGENTS.filter((a) => a.console).map((a) => ({
+  id: a.id,
+  label: a.label,
+  aliases: a.aliases,
+  executables: a.executables,
+  ...(a.extraPaths ? { extraPaths: a.extraPaths } : {}),
+  ...a.console!,
+}));
 
 export function resolveAgentTui(id: string | undefined): AgentTuiDef | null {
   const key = String(id ?? "agy").trim().toLowerCase();

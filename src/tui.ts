@@ -10,12 +10,14 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { availableRoutes, resolveLimits } from "./web-models";
 import { parseCapabilities as parseCaps } from "./config";
+import { AGENTS, type TuiFormat } from "./agents/catalog";
 
 /**
- * "harness": la TUI trae su propio `mcp add` (o tiene config verificada en src/harness.ts):
+ * Formato de cada TUI en `tui install` (declarado en src/agents/catalog.ts):
+ * "harness" = la TUI trae su propio `mcp add` (o tiene config verificada en src/harness.ts):
  * se instala con `isymcp harness install <id> --server gateway`, no adivinando un JSON.
  */
-export type TuiFormat = "mcpServers" | "opencode" | "codex" | "harness";
+export type { TuiFormat };
 
 export interface TuiInfo {
   id: string;
@@ -35,86 +37,24 @@ function which(bin: string): string | undefined {
 }
 
 /** Inventario: config dir, config file y/o binario en PATH. */
+/** Inventario para `tui install`: vista de src/agents/catalog.ts (agentes con tuiFormat). */
 export function detectTuis(home: string = HOME): TuiInfo[] {
-  const table: Array<Omit<TuiInfo, "present" | "installable">> = [
-    {
-      id: "opencode",
-      label: "opencode",
-      configDir: join(home, ".config", "opencode"),
-      configPath: join(home, ".config", "opencode", "opencode.json"),
-      bin: which("opencode"),
-      format: "opencode",
-    },
-    {
-      // bin/openisy de OpenISy-v2 exporta OPENCODE_CONFIG_DIR=~/.openisy/config: NO lee ~/.config/opencode.
-      id: "openisy",
-      label: "OpenISy",
-      configDir: join(home, ".openisy", "config"),
-      configPath: join(home, ".openisy", "config", "opencode.json"),
-      bin: which("openisy"),
-      format: "opencode",
-    },
-    {
-      id: "agy",
-      label: "Antigravity CLI (agy)",
-      configDir: join(home, ".gemini", "config"),
-      configPath: join(home, ".gemini", "config", "mcp_config.json"),
-      bin: which("agy"),
-      format: "mcpServers",
-    },
-    {
-      // El Gemini CLI (no agy) lee mcpServers de ~/.gemini/settings.json.
-      id: "gemini",
-      label: "Gemini CLI",
-      configDir: join(home, ".gemini"),
-      configPath: join(home, ".gemini", "settings.json"),
-      bin: which("gemini"),
-      format: "mcpServers",
-    },
-    {
-      id: "claude",
-      label: "Claude Code",
-      configDir: join(home, ".claude"),
-      configPath: "(claude mcp add --scope user)",
-      bin: which("claude"),
-      format: "harness",
-    },
-    {
-      id: "claude-desktop",
-      label: "Claude Desktop",
-      configDir: join(home, ".config", "Claude"),
-      configPath: join(home, ".config", "Claude", "claude_desktop_config.json"),
-      format: "mcpServers",
-    },
-    {
-      id: "cursor",
-      label: "Cursor",
-      configDir: join(home, ".cursor"),
-      configPath: join(home, ".cursor", "mcp.json"),
-      bin: which("cursor"),
-      format: "mcpServers",
-    },
-    {
-      id: "codex",
-      label: "Codex CLI",
-      configDir: join(home, ".codex"),
-      configPath: join(home, ".codex", "config.toml"),
-      bin: which("codex"),
-      format: "harness",
-    },
-    { id: "copilot", label: "Copilot CLI", configDir: join(home, ".copilot"), configPath: "(copilot mcp add)", bin: which("copilot"), format: "harness" },
-    { id: "hermes", label: "Hermes", configDir: join(home, ".hermes"), configPath: "(hermes mcp add)", bin: which("hermes"), format: "harness" },
-    { id: "openclaw", label: "OpenClaw", configDir: join(home, ".openclaw"), configPath: "(openclaw mcp add)", bin: which("openclaw"), format: "harness" },
-    { id: "droid", label: "Factory Droid", configDir: join(home, ".factory"), configPath: "(droid mcp add)", bin: which("droid"), format: "harness" },
-    { id: "kimi", label: "Kimi Code", configDir: join(home, ".kimi-code"), configPath: join(home, ".kimi-code", "mcp.json"), bin: which("kimi"), format: "harness" },
-    { id: "crush", label: "Crush", configDir: join(home, ".config", "crush"), configPath: join(home, ".config", "crush", "crush.json"), bin: which("crush"), format: "harness" },
-  ];
-
-  return table.map((row) => ({
-    ...row,
-    present: existsSync(row.configDir) || existsSync(row.configPath) || Boolean(row.bin && existsSync(row.bin)),
-    installable: true,
-  }));
+  return AGENTS.filter((a) => a.tuiFormat).map((a) => {
+    // env vacío: el inventario con un home sintético no debe leer variables del host (OPENISY_CONFIG_DIR...).
+    const configDir = a.config ? a.config.dir(home, {}) : join(home, `.${a.id}`);
+    const file = a.config?.file?.(home, {});
+    const bin = a.executables.map((e) => which(e)).find(Boolean);
+    return {
+      id: a.id,
+      label: a.label,
+      configDir,
+      configPath: file ?? `(${a.executables[0]} mcp add)`,
+      ...(bin ? { bin } : {}),
+      format: a.tuiFormat!,
+      present: existsSync(configDir) || Boolean(file && existsSync(file)) || Boolean(bin && existsSync(bin)),
+      installable: true,
+    };
+  });
 }
 
 export const OPENCODE_PROVIDER_ID = "isyco-web";
@@ -317,14 +257,10 @@ export interface UniversalTuiInstallOptions {
   restore?: boolean;
 }
 
-export const TUI_ALIASES: Record<string, string> = {
-  "open-isy": "openisy",
-  antigravity: "agy",
-  claudecode: "claude",
-  "claude-code": "claude",
-  desktop: "claude-desktop",
-  factory: "droid",
-};
+/** alias -> id, derivado del catálogo único. */
+export const TUI_ALIASES: Record<string, string> = Object.fromEntries(
+  AGENTS.filter((a) => a.tuiFormat).flatMap((a) => a.aliases.map((alias) => [alias, a.id])),
+);
 
 /** Despachador universal para instalar ISyMCP en cualquier TUI detectada. */
 export function installIntoTui(options: UniversalTuiInstallOptions): TuiInstallResult {

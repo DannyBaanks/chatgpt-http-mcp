@@ -326,6 +326,10 @@ puede leer no se toca.
 | Kimi Code | `~/.kimi-code/mcp.json` |
 | Crush | `~/.config/crush/crush.json` (`mcp.<nombre>`, `type: stdio`) |
 
+**Agregar o corregir un agente:** todo vive en un solo lugar, `src/agents/catalog.ts`: ejecutable,
+alias, cómo arranca su consola y cómo recibe tareas, cómo se le instala el MCP y dónde está su config.
+`harness`, `tui` y las consolas leen de ahí; `tests/agent-catalog.test.ts` falla si se desincronizan.
+
 `isymcp tui install <id>` sigue existiendo para el provider de opencode/openisy (modelos Web); para las
 TUIs con `mcp add` delega en `harness --server gateway`.
 
