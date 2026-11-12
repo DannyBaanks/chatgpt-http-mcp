@@ -5,6 +5,16 @@
 import { allowModule } from "./commands/allow";
 import { harnessModule } from "./commands/harness";
 import { tuiModule } from "./commands/tui";
+import { askModule } from "./commands/chat";
+import { canaryModule } from "./commands/canary";
+import { codexModule, commandModule, conversationModule, modelsModule, sessionModule } from "./commands/codex";
+import { doctorModule, healthModule, metricsModule, smokeModule, treeModule } from "./commands/diagnostics";
+import { downModule, serverModule, tunnelModule, upModule } from "./commands/lifecycle";
+import { logsModule } from "./commands/logs";
+import {
+  comfyModule, execModule, fuzzModule, githubModule, helpModule, mediaModule, nativeBrowserModule, panelModule, tableroModule, uiModule, versionModule,
+} from "./commands/misc";
+import { monitorModule, protocolModule } from "./commands/monitor";
 
 export interface CliContext {
   /** Raíz del repo (para rutas como backups/). */
@@ -19,7 +29,15 @@ export interface CliModule {
   run(sub: string | undefined, rest: string[], ctx: CliContext): Promise<void>;
 }
 
-export const CLI_MODULES: CliModule[] = [allowModule, harnessModule, tuiModule];
+export const CLI_MODULES: CliModule[] = [
+  allowModule, harnessModule, tuiModule,
+  upModule, downModule, serverModule, tunnelModule,
+  askModule, codexModule, conversationModule, modelsModule, commandModule, sessionModule,
+  monitorModule, protocolModule,
+  healthModule, metricsModule, smokeModule, doctorModule, treeModule, canaryModule, logsModule,
+  panelModule, uiModule, execModule, fuzzModule, versionModule, helpModule,
+  nativeBrowserModule, tableroModule, mediaModule, comfyModule, githubModule,
+];
 
 export function findCliModule(cmd: string | undefined): CliModule | null {
   if (!cmd) return null;
