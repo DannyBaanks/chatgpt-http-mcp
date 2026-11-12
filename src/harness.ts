@@ -54,10 +54,11 @@ export interface HarnessDef {
 }
 
 /**
- * Vista del catálogo único para instalar MCP: un agente sin ejecutable (Claude Desktop) no es harness.
+ * Vista del catálogo único para instalar MCP: todo agente con ejecutable o con estrategia MCP
+ * (Claude Desktop no tiene ejecutable: se detecta por su carpeta de config).
  * La ruta de config se resuelve en cada llamada (las variables *_HOME pueden cambiar).
  */
-export const CATALOG: HarnessDef[] = AGENTS.filter((a) => a.executables.length > 0).map((a) => ({
+export const CATALOG: HarnessDef[] = AGENTS.filter((a) => a.executables.length > 0 || a.mcp !== null).map((a) => ({
   id: a.id,
   label: a.label,
   executables: a.executables,

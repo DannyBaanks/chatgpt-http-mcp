@@ -9,6 +9,7 @@ import { buildAgentBootstrapProtocol } from "./agent-protocol";
 import { consolesDir, createConsole, setLaunchInfo, wrapperArgv, type NewConsole } from "./console-registry";
 import { agentArgv, agentIds, findAgentBinary, resolveAgentTui } from "./agent-tuis";
 import { consoleTmuxSocket } from "./console-delivery";
+import { insertTask } from "./monitor/tasks";
 
 export interface SpawnAgyOptions {
   prompt: string;
@@ -103,24 +104,13 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
       const hintPrompt = options.includeMonitorHint ?? true
         ? `${basePrompt}\n\n${buildAgentBootstrapProtocol({ taskId, operationId, monitorUrl, isymcpCliPath, consoleId: consoleInfo?.console_id })}`
         : basePrompt;
-      db.query(`
-        INSERT INTO tasks (
-          task_id, operation_id, idempotency_key, goal_id, conversation_ref,
-          lease_id, workspace_id, kind, description, requested_actions_json,
-          target_relpath, idempotent, state, reason, grant_id, worker_lease_id,
-          attempt_count, created_at, updated_at, result_json, receipt_hmac
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(task_id) DO UPDATE SET
-          state = 'RUNNING',
-          reason = 'tui_session_spawned',
-          updated_at = ?
-      `).run(
-        taskId, operationId, `tui-${taskId}`, "GOAL-002",
-        consoleInfo ? `console:${consoleInfo.console_id}` : "chatgpt-tui-spawn",
-        "lease-local-tui", workspaceId, "interactive_agent",
-        hintPrompt.slice(0, 500), JSON.stringify(["tui:spawn", "status:read", "report:write"]),
-        cwd, 1, "RUNNING", "tui_session_spawned", null, null, 1, now, now, null, null, now,
-      );
+      insertTask(db, {
+        task_id: taskId, operation_id: operationId, idempotency_key: `tui-${taskId}`, goal_id: "GOAL-002",
+        conversation_ref: consoleInfo ? `console:${consoleInfo.console_id}` : "chatgpt-tui-spawn",
+        lease_id: "lease-local-tui", workspace_id: workspaceId, kind: "interactive_agent",
+        description: hintPrompt.slice(0, 500), requested_actions: ["tui:spawn", "status:read", "report:write"],
+        target_relpath: cwd, state: "RUNNING", reason: "tui_session_spawned", attempt_count: 1, created_at: now,
+      }, { onConflictRunning: { reason: "tui_session_spawned" } });
       db.close();
       finalPromptHolder.value = hintPrompt;
     } catch (dbErr) {
@@ -398,20 +388,13 @@ export async function spawnAgentTui(options: SpawnAgentOptions): Promise<SpawnAg
             taskId, operationId, monitorUrl, isymcpCliPath, consoleId: consoleInfo.console_id, agentLabel: def.label, listener: def.listener,
           })}`;
         }
-        db.query(`
-          INSERT INTO tasks (
-            task_id, operation_id, idempotency_key, goal_id, conversation_ref,
-            lease_id, workspace_id, kind, description, requested_actions_json,
-            target_relpath, idempotent, state, reason, grant_id, worker_lease_id,
-            attempt_count, created_at, updated_at, result_json, receipt_hmac
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(task_id) DO UPDATE SET state = 'RUNNING', reason = 'tui_session_spawned', updated_at = ?
-        `).run(
-          taskId, operationId, `tui-${taskId}`, "GOAL-002", `console:${consoleInfo.console_id}`,
-          "lease-local-tui", workspaceId, "interactive_agent",
-          finalPrompt.slice(0, 500), JSON.stringify(["tui:spawn", "status:read", "report:write"]),
-          cwd, 1, "RUNNING", "tui_session_spawned", null, null, 1, now, now, null, null, now,
-        );
+        insertTask(db, {
+          task_id: taskId, operation_id: operationId, idempotency_key: `tui-${taskId}`, goal_id: "GOAL-002",
+          conversation_ref: `console:${consoleInfo.console_id}`,
+          lease_id: "lease-local-tui", workspace_id: workspaceId, kind: "interactive_agent",
+          description: finalPrompt.slice(0, 500), requested_actions: ["tui:spawn", "status:read", "report:write"],
+          target_relpath: cwd, state: "RUNNING", reason: "tui_session_spawned", attempt_count: 1, created_at: now,
+        }, { onConflictRunning: { reason: "tui_session_spawned" } });
       } finally {
         db.close();
       }

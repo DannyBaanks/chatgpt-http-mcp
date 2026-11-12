@@ -33,7 +33,6 @@ import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
 import { detectTuis, installIntoOpencode, installIntoTui, installIntoAllTuis } from "./tui";
 import { bridgeAuthHeaders, bridgeToken } from "./local-guard";
 import { processMatches, stopProcessTree } from "./platform/process";
-import { sha256Prefixed } from "./crypto";
 import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
 import { installTunnelClient, storeRuntimeKey, storeTunnelId, validateRuntimeKey, validateTunnelId } from "../scripts/install-tunnel";
 import { nativeBrowserCommand, parseBrowserOption, rejectUnavailableBrowser } from "./visible/native-browser";
@@ -1157,7 +1156,6 @@ EJEMPLOS:
     process.exit(0);
   }
   const baseUrl = process.env.ISYMCP_TUI_BASE_URL?.trim() || "http://127.0.0.1:8791";
-  const mcpMain = join(ROOT, "src", "mcp", "main.ts");
   const configPath = flag("--config", rest) ?? join(homedir(), ".config", "opencode", "opencode.json");
   if (!sub || sub === "list") {
     for (const tui of detectTuis(homedir())) {
@@ -1188,7 +1186,6 @@ EJEMPLOS:
       const results = installIntoAllTuis({
         backupsDir,
         baseUrl,
-        mcpMain,
         dryRun,
         restore,
         onlyPresent: !rest.includes("--force-all"),
@@ -1199,15 +1196,16 @@ EJEMPLOS:
         if (error) {
           hasErrors = true;
           console.error(`✗ ${tui.id} (${tui.label}): ${error}`);
-        } else if (result?.harness) {
-          viaHarness.push(tui.id);
         } else if (result) {
-          const detail = result.models > 0 ? `modelos=${result.models}` : "servidor_mcp=isymcp";
-          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${tui.id} (${tui.label}): ${result.configPath} ${detail} ${result.backupPath ? `(backup: ${result.backupPath})` : ""}`);
+          // Provider de modelos Web (solo opencode/openisy); el MCP de todas va por harness.
+          if (result.models > 0 || result.action === "restore") {
+            console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${tui.id} (${tui.label}): provider ${result.configPath} modelos=${result.models} ${result.backupPath ? `(backup: ${result.backupPath})` : ""}`);
+          }
+          if (result.harness) viaHarness.push(tui.id);
         }
       }
       if (viaHarness.length > 0 && !restore) {
-        console.log(`\nCon su propio \`mcp add\` (gateway isymcp): ${viaHarness.join(", ")}`);
+        console.log(`\nMCP (gateway isymcp) por harness: ${viaHarness.join(", ")}`);
         await harnessCommand("install", [...viaHarness, "--server", "gateway", ...(dryRun ? [] : ["--apply"])]);
       }
       if (hasErrors) process.exitCode = 1;
@@ -1219,18 +1217,23 @@ EJEMPLOS:
           configPath: targetConfigPath,
           backupsDir,
           baseUrl,
-          mcpMain,
           dryRun,
           restore,
         });
-        if (result.harness) {
-          if (restore) throw new Error(`${which} se instala con su propio \`mcp add\`: usa isymcp harness uninstall ${which} --server gateway --apply`);
-          await harnessCommand("install", [which, "--server", "gateway", ...(dryRun ? [] : ["--apply"])]);
-        } else {
-          const detail = result.models > 0 ? `modelos=${result.models}` : "servidor_mcp=isymcp";
-          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${which}: ${result.configPath} ${detail}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
-          if (result.action === "dry-run") console.log("nada escrito (usa --apply para escribir con backup)");
+        const { findAgent } = await import("./agents/catalog");
+        const id = findAgent(which)?.id ?? which;
+        const providerTouched = result.models > 0 || result.action === "restore";
+        if (providerTouched) {
+          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${id}: provider ${result.configPath} modelos=${result.models}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
         }
+        if (result.harness && restore && !providerTouched) {
+          throw new Error(`el MCP de ${id} lo instala harness: usa isymcp harness uninstall ${id} --server gateway --apply`);
+        }
+        if (result.harness && !restore) {
+          console.log(`MCP (gateway isymcp) por harness:`);
+          await harnessCommand("install", [id, "--server", "gateway", ...(dryRun ? [] : ["--apply"])]);
+        }
+        if (dryRun) console.log("nada escrito (usa --apply para escribir)");
       } catch (err: any) {
         console.error(`Error instalando en ${which}: ${err.message}`);
         process.exitCode = 1;
@@ -1869,6 +1872,7 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
   }
 
   const consoleFlag = flag("--console", argsAll);
+  const { hasAckTag } = await import("./monitor/tasks");
   const waitNextUnackedTask = async (timeoutSec: number) => {
     const deadline = Date.now() + timeoutSec * 1000;
     console.error(`[monitor:wait-next] Escuchando nuevas tareas de ChatGPT por hasta ${timeoutSec}s para despertar a Argon...`);
@@ -1882,7 +1886,7 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
           if (consoleFlag) { if (t.conversation_ref !== `console:${consoleFlag}`) return false; }
           else if (targeted) return false;
           if (t.state === "READY" || t.state === "AWAITING_APPROVAL") return true;
-          if (t.state === "SUCCEEDED" && (!t.result?.output_summary || !t.result.output_summary.includes("[ARGON-ACK]"))) {
+          if (t.state === "SUCCEEDED" && !hasAckTag(t.result?.output_summary)) {
             return true;
           }
           return false;
@@ -1983,20 +1987,8 @@ async function monitorCommand(sub: string | undefined, rest: string[]): Promise<
     try {
       const task = monitor.inspectTask(taskId);
       if (!task) throw new Error(`no existe la tarea: ${taskId}`);
-      const fullSummary = summaryText.includes("[ARGON-ACK]") ? summaryText : `[ARGON-ACK] ${summaryText}`;
-      const artifactHash = sha256Prefixed(`${taskId}:${fullSummary}`);
-      const now = Date.now();
-      const resultObj = {
-        exit_code: 0,
-        output_summary: fullSummary,
-        artifact_hash: artifactHash,
-        completed_at: now,
-      };
-      db.query("UPDATE tasks SET state = 'SUCCEEDED', reason = 'argon_personal_response', result_json = ?, updated_at = ? WHERE task_id = ?").run(
-        JSON.stringify(resultObj),
-        now,
-        taskId,
-      );
+      const { respondTask } = await import("./monitor/tasks");
+      respondTask(db, taskId, summaryText);
       console.log(JSON.stringify({ ok: true, mode: "updated_with_argon_ack", auto_wait_next: autoWait, task: monitor.inspectTask(taskId) }, null, 2));
     } finally {
       db.close();

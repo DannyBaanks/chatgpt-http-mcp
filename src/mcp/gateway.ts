@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { spawnAgentTui } from "../tui-launcher";
 import { checkGate } from "../permissions";
+import { insertTask, respondTask } from "../monitor/tasks";
 import { join as joinPath } from "node:path";
 
 /** Entrada del CLI isymcp que las consolas usan para responder. */
@@ -14,7 +15,6 @@ import { callGitHubApi } from "../github/client";
 import { openBridgeMonitorStack } from "../remote-monitor";
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
 import { executeShellCommand } from "../shell/executor";
-import { sha256Prefixed } from "../crypto";
 
 export interface GlossaryEntry {
   description: string;
@@ -530,36 +530,22 @@ export async function dispatchIsyMcpAction(
       const { db, monitor } = openBridgeMonitorStack();
       try {
         const now = Date.now();
-        db.query(`
-          INSERT INTO tasks (
-            task_id, operation_id, idempotency_key, goal_id, conversation_ref,
-            lease_id, workspace_id, kind, description, requested_actions_json,
-            target_relpath, idempotent, state, reason, grant_id, worker_lease_id,
-            attempt_count, created_at, updated_at, result_json, receipt_hmac
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          taskId,
-          operationId,
-          String(args.idempotency_key ?? `idemp-${taskId}`),
-          String(args.goal_id ?? "GOAL-002"),
-          args.console_id ? `console:${String(args.console_id)}` : String(args.conversation_ref ?? "chatgpt-mcp"),
-          "lease-mcp-submit",
-          String(args.workspace_id ?? "default"),
+        insertTask(db, {
+          task_id: taskId,
+          operation_id: operationId,
+          idempotency_key: String(args.idempotency_key ?? `idemp-${taskId}`),
+          goal_id: String(args.goal_id ?? "GOAL-002"),
+          conversation_ref: args.console_id ? `console:${String(args.console_id)}` : String(args.conversation_ref ?? "chatgpt-mcp"),
+          lease_id: "lease-mcp-submit",
+          workspace_id: String(args.workspace_id ?? "default"),
           kind,
-          description.slice(0, 500),
-          JSON.stringify(requestedActions),
-          args.target_relpath ? String(args.target_relpath) : null,
-          1,
-          "READY",
-          "submitted_via_gateway",
-          null,
-          null,
-          0,
-          now,
-          now,
-          null,
-          null,
-        );
+          description: description.slice(0, 500),
+          requested_actions: requestedActions,
+          target_relpath: args.target_relpath ? String(args.target_relpath) : null,
+          state: "READY",
+          reason: "submitted_via_gateway",
+          created_at: now,
+        });
         const task = monitor.inspectTask(taskId);
         // Consolas sin listener propio (opencode, openisy, codex...): la tarea se pega en su terminal.
         let delivery: { delivered: boolean; reason: string } | undefined;
@@ -592,20 +578,7 @@ export async function dispatchIsyMcpAction(
       try {
         const task = monitor.inspectTask(taskId);
         if (!task) throw new Error(`Tarea no encontrada: ${taskId}`);
-        const fullSummary = summaryText.includes("[ARGON-ACK]") ? summaryText : `[ARGON-ACK] ${summaryText}`;
-        const artifactHash = sha256Prefixed(`${taskId}:${fullSummary}`);
-        const now = Date.now();
-        const resultObj = {
-          exit_code: 0,
-          output_summary: fullSummary,
-          artifact_hash: artifactHash,
-          completed_at: now,
-        };
-        db.query("UPDATE tasks SET state = 'SUCCEEDED', reason = 'argon_personal_response', result_json = ?, updated_at = ? WHERE task_id = ?").run(
-          JSON.stringify(resultObj),
-          now,
-          taskId,
-        );
+        const resultObj = respondTask(db, taskId, summaryText);
         return {
           ok: true,
           result: {
