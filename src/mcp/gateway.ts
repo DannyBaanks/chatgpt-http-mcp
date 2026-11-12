@@ -94,6 +94,13 @@ export async function dispatchIsyMcpAction(
   }
 }
 
+/** Lo que ve el modelo: el resultado si salió bien; si no, el error (y el resultado parcial si lo hay). */
+export function gatewayToolPayload(res: { ok: boolean; result: unknown; error?: string }): unknown {
+  if (res.ok) return res.result !== undefined ? res.result : { ok: true };
+  if (res.result === undefined || res.result === null) return { ok: false, error: res.error ?? "error sin detalle" };
+  return res.error ? { ok: false, error: res.error, result: res.result } : res.result;
+}
+
 /**
  * Registra la herramienta universal `isymcp` en el servidor MCP.
  */
@@ -123,7 +130,8 @@ export function registerIsyMcpGateway(server: McpServer): void {
         content: [
           {
             type: "text" as const,
-            text: JSON.stringify(res.result !== undefined ? res.result : { error: res.error }, null, 2),
+            // Si falla, el motivo SIEMPRE llega al modelo (antes un result:null tapaba el error: "null").
+            text: JSON.stringify(gatewayToolPayload(res), null, 2),
           },
         ],
         isError: !res.ok,
