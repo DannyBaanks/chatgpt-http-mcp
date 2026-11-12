@@ -60,7 +60,7 @@ import { registerGitHubTools } from "../github/register";
 import { registerIsyMcpGateway, registerControlCenterMcpTools } from "./gateway";
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
 import { executeShellCommand } from "../shell/executor";
-import { spawnAgyTui } from "../tui-launcher";
+import { spawnAgentTui, spawnAgyTui } from "../tui-launcher";
 import { registerTableroTools } from "../tablero/register";
 import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
 import { handleQueueLeaseMcpCall, isQueueLeaseToken } from "../remote-monitor";
@@ -814,6 +814,42 @@ server.registerTool(
       includeMonitorHint: input.include_monitor_hint !== false,
       taskId: input.task_id ? String(input.task_id) : undefined,
       operationId: input.operation_id ? String(input.operation_id) : undefined,
+    });
+    return jsonText(res);
+  }
+);
+
+server.registerTool(
+  "spawn_agent_tui",
+  {
+    description:
+      "Abre una consola de agente en el escritorio de Danny (ventana visible + tmux) coordinada con ISyMCP: agy, claude, opencode, openisy, codex, gemini, copilot, droid, kimi, crush, hermes u openclaw. Registra la consola (console_id, PID real, ACK firmado) igual que agy. Las tareas siguientes se envían con isymcp(action='monitor.submit', arguments={console_id, description}).",
+    inputSchema: {
+      agent: z.string().describe("Agente: agy | claude | opencode | openisy | codex | gemini | copilot | droid | kimi | crush | hermes | openclaw"),
+      prompt: z.string().describe("Instrucción o tarea que ejecutará el nuevo agente"),
+      cwd: z.string().optional().describe("Directorio de trabajo (por defecto workspace actual)"),
+      title: z.string().optional().describe("Título de la ventana de la terminal"),
+      mode: z.enum(["auto", "plan", "accept-edits"]).optional().describe("Solo agy: modo de ejecución"),
+      terminal: z.enum(["auto", "gui", "tmux"]).optional().describe("Preferencia de terminal ('tmux' = sin ventana)"),
+      include_monitor_hint: z.boolean().optional().describe("Si incluye el protocolo de coordinación con el monitor"),
+      task_id: z.string().optional().describe("ID de tarea para el monitor (auto-generado si se omite)"),
+      operation_id: z.string().optional().describe("ID de operación asociada en el monitor"),
+      dry_run: z.boolean().optional().describe("true: devuelve el comando exacto sin lanzar nada"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  async (input) => {
+    const res = await spawnAgentTui({
+      agent: String(input.agent ?? "agy"),
+      prompt: String(input.prompt ?? ""),
+      cwd: input.cwd ? String(input.cwd) : undefined,
+      title: input.title ? String(input.title) : undefined,
+      mode: input.mode as any,
+      terminalPreference: input.terminal as any,
+      includeMonitorHint: input.include_monitor_hint !== false,
+      taskId: input.task_id ? String(input.task_id) : undefined,
+      operationId: input.operation_id ? String(input.operation_id) : undefined,
+      dryRun: input.dry_run === true,
     });
     return jsonText(res);
   }

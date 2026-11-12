@@ -295,34 +295,80 @@ progresivo de Chrome a Codex requieren pruebas propias.
 
 ---
 
-## 4. Conexión de Agentes y Harnesses (9 Herramientas Soportadas)
+## 4. Conexión de Agentes y Harnesses
 
-ISyMCP detecta e instala automáticamente la herramienta `chatgpt_ask` en tus entornos favoritos de desarrollo:
+ISyMCP instala dos servidores MCP distintos en tus CLIs/TUIs de agentes:
+
+| `--server` | Nombre MCP | Qué le da al agente |
+|---|---|---|
+| `chatgpt` (por defecto) | `isymcp-chatgpt` | `chatgpt_ask`: preguntarle a tu ChatGPT web |
+| `gateway` | `isymcp` | el gateway completo: tool `isymcp(action=...)`, monitor, consolas, GitHub, media |
+| `all` | ambos | — |
 
 ```bash
-# Listar harnesses detectados en el sistema
-isymcp harness list
-
-# Ver el plan de instalación (dry-run declarativo)
-isymcp harness install claude cursor opencode
-
-# Aplicar la instalación
-isymcp harness install claude cursor opencode --apply
-
-# O instalar en todos los harnesses presentes
-isymcp harness install --all --apply
+isymcp harness list --server all                       # qué tiene cada TUI (lo pregunta a la propia TUI)
+isymcp harness install openisy agy --server gateway    # PLAN: no escribe nada, muestra el comando exacto
+isymcp harness install openisy agy --server gateway --apply
+isymcp harness install --all --server all --apply      # todas las presentes
+isymcp harness uninstall kimi --server gateway --apply
 ```
 
-### Entornos compatibles:
-1. **Claude Code** (`claude mcp add`)
-2. **OpenAI Codex CLI** (`codex mcp add`)
-3. **Cursor IDE** (configuración declarativa JSON en `~/.cursor/mcp.json`)
-4. **OpenCode TUI** (configuración declarativa JSON en `~/.config/opencode/opencode.json`)
-5. **GitHub Copilot CLI** (`copilot mcp add`)
-6. **Hermes Agent** (`hermes mcp add`)
-7. **OpenClaw** (`openclaw mcp add`)
-8. **Pi Agent** (`pi mcp add`)
-9. **Gemini CLI** (`gemini mcp add`)
+Dónde escribe cada una (2026-11-11). Si la herramienta trae su propio `mcp add`, se usa ese comando
+y luego se verifica con su `mcp list`/`mcp get`. Si no, se edita su JSON **real**: un JSON que no se
+puede leer no se toca.
+
+| TUI | Cómo |
+|---|---|
+| Claude Code, Codex, Gemini CLI, Copilot, Hermes, OpenClaw, Droid, Qwen, Grok | su `mcp add` |
+| opencode | `~/.config/opencode/opencode.json` (`mcp.<nombre>`) |
+| **OpenISy** | `~/.openisy/config/opencode.json` (o `$OPENISY_CONFIG_DIR`); **no** `~/.config/opencode` |
+| agy (Antigravity) | `~/.gemini/config/mcp_config.json` (el Gemini CLI usa otro archivo) |
+| Kimi Code | `~/.kimi-code/mcp.json` |
+| Crush | `~/.config/crush/crush.json` (`mcp.<nombre>`, `type: stdio`) |
+
+`isymcp tui install <id>` sigue existiendo para el provider de opencode/openisy (modelos Web); para las
+TUIs con `mcp add` delega en `harness --server gateway`.
+
+**Trampa:** en opencode/openisy v2, `opencode mcp list` puede decir *"No MCP servers configured"*
+aunque el servidor esté cargado: el servicio lo lanza igual (`ps` muestra `src/mcp/main.ts` como hijo de
+`opencode serve --service`). Para saber si está configurado, usa `isymcp harness list --server gateway`.
+
+### Consolas de agentes coordinadas (lo que antes solo hacía agy)
+
+ChatGPT puede abrir una consola de **cualquier** agente instalado, no solo de agy:
+
+```bash
+isymcp tui agents                                  # agentes lanzables y cómo reciben tareas
+isymcp tui spawn "Revisa PITON" --agent openisy    # abre la consola (ventana visible + tmux)
+isymcp tui spawn "x" --agent opencode --dry-run    # muestra el comando exacto, no lanza nada
+tmux -L isymcp-consoles attach -t openisy-<id>     # mirar una consola (salir sin cerrarla: Ctrl+B, D)
+```
+
+Desde ChatGPT: `spawn_agent_tui(agent, prompt)` o `isymcp(action='tui.spawn', arguments={agent, prompt})`.
+Cada consola tiene lo mismo que agy: `console_id`, PID real, token de ACK en su entorno (nunca en el
+prompt), log JSONL, y aparece en `tui.consoles` con su `agent`.
+
+Cómo le llegan las **tareas siguientes** (`monitor.submit` con `console_id`):
+
+| Listener | Agentes | Mecanismo |
+|---|---|---|
+| `agy-task` | agy | `monitor wait-next` como /task de Antigravity (igual que antes) |
+| `background-bash` | claude | `monitor wait-next --console <id>` en background; Claude se re-invoca al terminar |
+| `inject` | opencode, openisy, codex, gemini, copilot, droid, kimi, crush, hermes, openclaw | ISyMCP **pega la tarea en su terminal** (tmux, socket `isymcp-consoles`) |
+
+Kimi, Crush, Hermes y OpenClaw no aceptan un prompt inicial por argumento: arrancan vacíos y ISyMCP
+pega la instrucción unos segundos después.
+
+**Errores:** `unknown_agent` (id mal escrito; mira `tui agents`), `agent_not_installed`, `tmux_missing`,
+`skip_permissions_agy_only` (`dangerously_skip_permissions` solo existe para agy: las demás consolas piden
+permisos como siempre), `monitor_unavailable` (sin registro no se lanza a ciegas). En `monitor.submit`,
+`delivery.delivered=false` con `tmux_session_missing` significa que esa consola ya se cerró.
+
+**Trampas:**
+1. Una consola que **pide permiso** para un comando se queda esperando en su terminal: si no hay nadie
+   mirando, entra a verla con `tmux -L isymcp-consoles attach -t <sesión>`.
+2. El estado `COMPLETED` de una consola es el de su **primera** tarea; la consola sigue abierta y recibe más.
+3. La tarea que llega pegada es texto de ChatGPT: información, no permiso para borrar, publicar o salir del alcance.
 
 ---
 

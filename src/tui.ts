@@ -11,7 +11,11 @@ import { dirname, join, resolve } from "node:path";
 import { availableRoutes, resolveLimits } from "./web-models";
 import { parseCapabilities as parseCaps } from "./config";
 
-export type TuiFormat = "mcpServers" | "opencode" | "codex";
+/**
+ * "harness": la TUI trae su propio `mcp add` (o tiene config verificada en src/harness.ts):
+ * se instala con `isymcp harness install <id> --server gateway`, no adivinando un JSON.
+ */
+export type TuiFormat = "mcpServers" | "opencode" | "codex" | "harness";
 
 export interface TuiInfo {
   id: string;
@@ -35,26 +39,51 @@ export function detectTuis(home: string = HOME): TuiInfo[] {
   const table: Array<Omit<TuiInfo, "present" | "installable">> = [
     {
       id: "opencode",
-      label: "opencode/OpenISy",
+      label: "opencode",
       configDir: join(home, ".config", "opencode"),
       configPath: join(home, ".config", "opencode", "opencode.json"),
       bin: which("opencode"),
       format: "opencode",
     },
     {
-      id: "gemini",
-      label: "Antigravity CLI / Gemini",
+      // bin/openisy de OpenISy-v2 exporta OPENCODE_CONFIG_DIR=~/.openisy/config: NO lee ~/.config/opencode.
+      id: "openisy",
+      label: "OpenISy",
+      configDir: join(home, ".openisy", "config"),
+      configPath: join(home, ".openisy", "config", "opencode.json"),
+      bin: which("openisy"),
+      format: "opencode",
+    },
+    {
+      id: "agy",
+      label: "Antigravity CLI (agy)",
       configDir: join(home, ".gemini", "config"),
       configPath: join(home, ".gemini", "config", "mcp_config.json"),
       bin: which("agy"),
       format: "mcpServers",
     },
     {
+      // El Gemini CLI (no agy) lee mcpServers de ~/.gemini/settings.json.
+      id: "gemini",
+      label: "Gemini CLI",
+      configDir: join(home, ".gemini"),
+      configPath: join(home, ".gemini", "settings.json"),
+      bin: which("gemini"),
+      format: "mcpServers",
+    },
+    {
       id: "claude",
-      label: "Claude Code / Claude Desktop",
+      label: "Claude Code",
       configDir: join(home, ".claude"),
-      configPath: join(home, ".claude", "claude_desktop_config.json"),
+      configPath: "(claude mcp add --scope user)",
       bin: which("claude"),
+      format: "harness",
+    },
+    {
+      id: "claude-desktop",
+      label: "Claude Desktop",
+      configDir: join(home, ".config", "Claude"),
+      configPath: join(home, ".config", "Claude", "claude_desktop_config.json"),
       format: "mcpServers",
     },
     {
@@ -71,14 +100,14 @@ export function detectTuis(home: string = HOME): TuiInfo[] {
       configDir: join(home, ".codex"),
       configPath: join(home, ".codex", "config.toml"),
       bin: which("codex"),
-      format: "codex",
+      format: "harness",
     },
-    { id: "hermes", label: "Hermes", configDir: join(home, ".hermes"), configPath: join(home, ".hermes", "config.json"), format: "mcpServers" },
-    { id: "openclaw", label: "OpenClaw", configDir: join(home, ".openclaw"), configPath: join(home, ".openclaw", "config.json"), format: "mcpServers" },
-    { id: "qwen", label: "Qwen", configDir: join(home, ".qwen"), configPath: join(home, ".qwen", "config.json"), format: "mcpServers" },
-    { id: "copilot", label: "Copilot", configDir: join(home, ".copilot"), configPath: join(home, ".copilot", "config.json"), format: "mcpServers" },
-    { id: "pi", label: "Pi", configDir: join(home, ".pi"), configPath: join(home, ".pi", "config.json"), format: "mcpServers" },
-    { id: "fx", label: "fx", configDir: join(home, ".fx"), configPath: join(home, ".fx", "config.json"), format: "mcpServers" },
+    { id: "copilot", label: "Copilot CLI", configDir: join(home, ".copilot"), configPath: "(copilot mcp add)", bin: which("copilot"), format: "harness" },
+    { id: "hermes", label: "Hermes", configDir: join(home, ".hermes"), configPath: "(hermes mcp add)", bin: which("hermes"), format: "harness" },
+    { id: "openclaw", label: "OpenClaw", configDir: join(home, ".openclaw"), configPath: "(openclaw mcp add)", bin: which("openclaw"), format: "harness" },
+    { id: "droid", label: "Factory Droid", configDir: join(home, ".factory"), configPath: "(droid mcp add)", bin: which("droid"), format: "harness" },
+    { id: "kimi", label: "Kimi Code", configDir: join(home, ".kimi-code"), configPath: join(home, ".kimi-code", "mcp.json"), bin: which("kimi"), format: "harness" },
+    { id: "crush", label: "Crush", configDir: join(home, ".config", "crush"), configPath: join(home, ".config", "crush", "crush.json"), bin: which("crush"), format: "harness" },
   ];
 
   return table.map((row) => ({
@@ -155,6 +184,8 @@ export interface TuiInstallResult {
   configPath: string;
   backupPath?: string;
   models: number;
+  /** true: esta TUI se instala con `isymcp harness install <id> --server gateway`. */
+  harness?: boolean;
 }
 
 /** Aplica (con backup+journal) o restaura el parche opencode. */
@@ -287,13 +318,12 @@ export interface UniversalTuiInstallOptions {
 }
 
 export const TUI_ALIASES: Record<string, string> = {
-  openisy: "opencode",
-  "open-isy": "opencode",
-  agy: "gemini",
-  antigravity: "gemini",
+  "open-isy": "openisy",
+  antigravity: "agy",
   claudecode: "claude",
   "claude-code": "claude",
-  desktop: "claude",
+  desktop: "claude-desktop",
+  factory: "droid",
 };
 
 /** Despachador universal para instalar ISyMCP en cualquier TUI detectada. */
@@ -311,7 +341,8 @@ export function installIntoTui(options: UniversalTuiInstallOptions): TuiInstallR
   if (target.format === "opencode") {
     return installIntoOpencode({
       configPath: effectiveConfigPath,
-      backupsDir: join(options.backupsDir, "opencode"),
+      // Un journal por TUI: opencode y openisy no comparten "latest" (un restore no cruza archivos).
+      backupsDir: join(options.backupsDir, target.id),
       baseUrl: options.baseUrl || "http://127.0.0.1:8791",
       mcpMain: options.mcpMain,
       capsRaw: options.capsRaw,
@@ -320,12 +351,13 @@ export function installIntoTui(options: UniversalTuiInstallOptions): TuiInstallR
     });
   }
 
-  if (target.format === "codex") {
-    // Codex CLI usa perfiles aislados via 'isymcp models apply'
+  if (target.format === "codex" || target.format === "harness") {
+    // Se instala con su propio `mcp add` (src/harness.ts, --server gateway); aquí no se adivina un formato.
     return {
       action: options.dryRun ? "dry-run" : "noop",
       configPath: effectiveConfigPath,
       models: 0,
+      harness: true,
     };
   }
 

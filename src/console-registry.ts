@@ -35,6 +35,10 @@ export interface ConsoleRecord {
   last_event_at: number;
   events_count: number;
   log_path: string;
+  /** TUI de la consola (src/agent-tuis.ts); "agy" en consolas anteriores al multiharness. */
+  agent: string;
+  /** Socket tmux dedicado (-L) si la consola corre en uno; null = socket por defecto. */
+  tmux_socket: string | null;
 }
 
 const CONSOLE_ID_RE = /^con-[a-f0-9]{8}$/;
@@ -71,6 +75,10 @@ export function ensureConsoleSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_console_task ON console_sessions(task_id);
   `);
+  // Migración aditiva (multiharness): bases creadas antes no tienen estas columnas.
+  const cols = new Set((db.query("PRAGMA table_info(console_sessions)").all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has("agent")) db.exec("ALTER TABLE console_sessions ADD COLUMN agent TEXT NOT NULL DEFAULT 'agy'");
+  if (!cols.has("tmux_socket")) db.exec("ALTER TABLE console_sessions ADD COLUMN tmux_socket TEXT");
 }
 
 export function pidAlive(pid: number | null | undefined): boolean | null {
@@ -95,7 +103,7 @@ export interface NewConsole {
 /** Reserva identidad + archivos de una consola (aún sin PID). */
 export function createConsole(
   db: Database,
-  p: { taskId: string; operationId: string; title: string; cwd: string; workspaceId: string; terminal?: string; now?: number },
+  p: { taskId: string; operationId: string; title: string; cwd: string; workspaceId: string; terminal?: string; now?: number; agent?: string },
   env: Record<string, string | undefined> = process.env,
 ): NewConsole {
   ensureConsoleSchema(db);
@@ -111,10 +119,10 @@ export function createConsole(
   writeFileSync(token_file, `${ack_token}\n`, { mode: 0o600 });
   db.query(
     `INSERT INTO console_sessions (console_id, task_id, operation_id, title, cwd, workspace_id, terminal, state, token_hash, token_fp,
-       created_at, last_event_at, events_count, log_path)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'SPAWNED', ?, ?, ?, ?, 0, ?)`,
-  ).run(console_id, p.taskId, p.operationId, p.title, p.cwd, p.workspaceId, p.terminal ?? "", token_hash, token_fp, now, now, log_path);
-  appendConsoleEvent(db, console_id, "SPAWN_REQUESTED", { task_id: p.taskId, operation_id: p.operationId, cwd: p.cwd, token_fp }, now);
+       created_at, last_event_at, events_count, log_path, agent)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'SPAWNED', ?, ?, ?, ?, 0, ?, ?)`,
+  ).run(console_id, p.taskId, p.operationId, p.title, p.cwd, p.workspaceId, p.terminal ?? "", token_hash, token_fp, now, now, log_path, p.agent ?? "agy");
+  appendConsoleEvent(db, console_id, "SPAWN_REQUESTED", { task_id: p.taskId, operation_id: p.operationId, cwd: p.cwd, token_fp, agent: p.agent ?? "agy" }, now);
   return { console_id, ack_token, token_fp, log_path, token_file, pid_file };
 }
 
@@ -132,11 +140,12 @@ export function appendConsoleEvent(db: Database, consoleId: string, event: strin
 export function setLaunchInfo(
   db: Database,
   consoleId: string,
-  info: { launcherPid?: number; terminal?: string; tmuxSession?: string | null },
+  info: { launcherPid?: number; terminal?: string; tmuxSession?: string | null; tmuxSocket?: string | null },
 ): void {
+  ensureConsoleSchema(db);
   db.query(
-    "UPDATE console_sessions SET launcher_pid = COALESCE(?, launcher_pid), terminal = COALESCE(?, terminal), tmux_session = COALESCE(?, tmux_session) WHERE console_id = ?",
-  ).run(info.launcherPid ?? null, info.terminal ?? null, info.tmuxSession ?? null, consoleId);
+    "UPDATE console_sessions SET launcher_pid = COALESCE(?, launcher_pid), terminal = COALESCE(?, terminal), tmux_session = COALESCE(?, tmux_session), tmux_socket = COALESCE(?, tmux_socket) WHERE console_id = ?",
+  ).run(info.launcherPid ?? null, info.terminal ?? null, info.tmuxSession ?? null, info.tmuxSocket ?? null, consoleId);
   appendConsoleEvent(db, consoleId, "LAUNCHED", { ...info });
 }
 
@@ -232,6 +241,8 @@ function mapRow(row: any, alive: boolean | null): ConsoleRecord {
     last_event_at: Number(row.last_event_at),
     events_count: Number(row.events_count),
     log_path: row.log_path,
+    agent: row.agent ?? "agy",
+    tmux_socket: row.tmux_socket ?? null,
   };
 }
 
