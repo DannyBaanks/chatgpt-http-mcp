@@ -1,4 +1,5 @@
 import { contactSheet } from './contact-sheet';
+import { markTainted } from '../taint';
 import { MediaImporter } from './importer';
 import { withinDeadline } from './deadline';
 import { MediaCatalog } from './catalog';
@@ -22,7 +23,17 @@ export class MediaService {
  private busy=false;
  private importer:MediaImporter;
  constructor(public catalog=new MediaCatalog()){this.importer=new MediaImporter(catalog);}
+ /**
+  * Lo que el modelo recibe de un medio (metadatos, transcripción, fotogramas) viene de fuera:
+  * cualquier respuesta correcta marca la sesión como contaminada (src/taint.ts). media_import
+  * solo devuelve un job_id y no marca.
+  */
  async call(name:string,args:any):Promise<{isError?:boolean;content:Array<{type:string;text?:string;mimeType?:string;data?:string}>}> {
+  const result=await this.dispatch(name,args);
+  if(name!=='media_import'&&result.isError!==true)markTainted(name,typeof args?.asset_id==='string'?args.asset_id:typeof args?.url==='string'?args.url:undefined);
+  return result;
+ }
+ private async dispatch(name:string,args:any):Promise<{isError?:boolean;content:Array<{type:string;text?:string;mimeType?:string;data?:string}>}> {
    if(name==='media_import_status') {
     try {const result=await this.importer.status(args.job_id,args.wait_seconds??0);return {isError:result.state==='failed',content:[{type:'text' as const,
       text:JSON.stringify(result)}]};}

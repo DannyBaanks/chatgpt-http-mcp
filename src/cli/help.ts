@@ -100,6 +100,10 @@ export function help(): void {
   isymcp allow agents on|off abrir consolas de agentes y pegarles tareas desde ChatGPT
                              on caduca a las 12 h; --for 30m|2h|1d (máx 24h) o --forever
   isymcp allow log [--last N] bitácora de las puertas: qué se permitió/denegó, cuándo y por qué
+  isymcp allow once shell|agents [--for 10m] [--uses N]
+                             UN uso (o N, máx 10); caduca a los 10 min (máx 1h) si no se usa
+  isymcp taint [status|clear] contenido externo leído por ISyMCP (GitHub, medios): mientras dura,
+                             allow on ya no basta y cada uso pide allow once; dura 2 h desde la última lectura
   isymcp harness list [--server chatgpt|gateway|all]  CLIs/TUIs de agentes detectadas + si tienen el MCP
   isymcp harness install <ids|--all> [--server chatgpt|gateway|all] [--apply]
                              chatgpt = isymcp-chatgpt, gateway = isymcp completo (sin --apply: solo el plan)

@@ -481,6 +481,28 @@ Se guarda en `~/.codex-web-http/permissions.json` (0600) y se lee en cada llamad
 de un solo uso del Control Center. Tu CLI local (`isymcp tui spawn`, `isymcp github`) no pasa por estas
 puertas: ahí eres tú.
 
+**Después de leer contenido de fuera, un permiso por uso.** Cuando ChatGPT recibe por una herramienta
+de ISyMCP texto o imágenes que no escribiste tú (issues, PRs y API de GitHub; metadatos, transcripción
+o fotogramas de un medio), la sesión queda **contaminada** durante 2 h desde la última lectura. Mientras
+dure, `allow ... on` y las variables de entorno **ya no bastan** para shell y consolas: cada uso necesita
+tu permiso de un solo uso.
+
+```bash
+isymcp taint                       # ¿contaminada? por qué herramienta, cuándo y hasta qué hora
+isymcp allow once agents           # UN uso (abrir una consola o pegarle una tarea); caduca a los 10 min si no se usa
+isymcp allow once shell --uses 3   # tres usos (máx 10); --for 30m (máx 1h)
+isymcp taint clear                 # ya revisaste lo que leyó: vuelve a valer el permiso general
+```
+
+ChatGPT ve `DENIED: el modelo ya leyó contenido externo por ISyMCP (github.issues (o/r) hace 3 min)…`
+con el comando que tienes que correr, y te sale un aviso de escritorio. El OperatorGrant del Control
+Center también pasa. `ISYMCP_TAINT_GATE=0` en el entorno del server apaga este efecto.
+
+**Lo que NO cubre:** la búsqueda web y las páginas que ChatGPT lee por su cuenta no pasan por ISyMCP, así
+que no la contaminan. Tampoco contaminan la salida de `shell_exec` y de las consolas (ya están detrás de
+la puerta), el monitor ni `github_status`/`whoami`. Estado en `~/.codex-web-http/taint.json` y
+`~/.codex-web-http/grants/` (0600; un `taint.json` ilegible cuenta como contaminado).
+
 - `shell_exec` / `shell.exec`: denegados sin `allow shell`. `codex_exec` siempre pasa por el sandbox.
 - `spawn_agy_tui`, `spawn_agent_tui`, `tui.spawn` y la entrega pegada de `monitor.submit`: denegados sin
   `allow agents` (`dry_run` sí funciona: solo muestra el comando). La tarea se encola igual; en la respuesta

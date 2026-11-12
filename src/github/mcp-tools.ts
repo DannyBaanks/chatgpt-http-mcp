@@ -3,6 +3,7 @@ import { z } from "zod";
 import { callGitHubApi, dispatchWorkflow, runGhCli } from "./client";
 import { resolveActiveGitHubToken } from "./tokens";
 import { checkGhApi, checkGhArgs } from "./policy";
+import { markTainted } from "../taint";
 
 export const GITHUB_MCP_TOOLS = {
   github_api: {
@@ -26,6 +27,8 @@ export const GITHUB_MCP_TOOLS = {
         params: args.params,
         body: args.body,
       });
+      // Issues, PRs, comentarios, archivos: texto que no escribió el operador.
+      if (res.ok) markTainted("github_api", args.endpoint);
       return {
         ok: res.ok,
         status: res.status,
@@ -77,6 +80,7 @@ export const GITHUB_MCP_TOOLS = {
       const policy = checkGhArgs(args.args);
       if (!policy.ok) return { ok: false, exit_code: 126, stdout: "", stderr: policy.reason! };
       const res = await runGhCli(args.args);
+      if (res.code === 0) markTainted("github_exec", args.args.join(" "));
       return {
         ok: res.code === 0,
         exit_code: res.code,

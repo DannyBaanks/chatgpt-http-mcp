@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { spawnAgentTui } from "../tui-launcher";
 import { checkGate } from "../permissions";
+import { markTainted } from "../taint";
 import { insertTask, respondTask } from "../monitor/tasks";
 import { join as joinPath } from "node:path";
 import { GITHUB_MCP_TOOLS } from "../github/mcp-tools";
@@ -250,6 +251,7 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     const user = args.user ? String(args.user) : undefined;
     const endpoint = user ? `/users/${user}/repos` : "/user/repos";
     const res = await callGitHubApi(endpoint);
+    if (res.ok) markTainted("github.repos", endpoint);
     return { ok: res.ok, result: res.data, error: res.error };
     },
   },
@@ -278,6 +280,7 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     if (!owner || !repo) throw new Error("github.prs requiere owner y repo");
     const state = String(args.state ?? "open");
     const res = await callGitHubApi(`/repos/${owner}/${repo}/pulls?state=${encodeURIComponent(state)}`);
+    if (res.ok) markTainted("github.prs", `${owner}/${repo}`);
     return { ok: res.ok, result: res.data, error: res.error };
     },
   },
@@ -305,6 +308,7 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     if (!owner || !repo) throw new Error("github.issues requiere owner y repo");
     const state = String(args.state ?? "open");
     const res = await callGitHubApi(`/repos/${owner}/${repo}/issues?state=${encodeURIComponent(state)}`);
+    if (res.ok) markTainted("github.issues", `${owner}/${repo}`);
     return { ok: res.ok, result: res.data, error: res.error };
     },
   },
