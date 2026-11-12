@@ -22,6 +22,24 @@ export function downloadBudget(dir:string,maxBytes:number):string|undefined {
  if(sum>maxBytes*2)return 'Download workspace exceeds disk limit';
  const disk=statfsSync(dir);if(disk.bavail*disk.bsize<64*1024*1024)return 'Insufficient free disk space for import';
 }
+/**
+ * ¿El yt-dlp instalado puede suplantar a Chrome? Necesita curl_cffi (el build standalone lo trae; el
+ * zipapp de Python no). TikTok bloquea las peticiones sin suplantación ("Unexpected response from webpage
+ * request", medido 2026-11-12). Se pregunta UNA vez por binario y se recuerda.
+ */
+const impersonateSupport=new Map<string,Promise<boolean>>();
+export function canImpersonateChrome(command:string,runner:typeof run=run):Promise<boolean> {
+ if(!impersonateSupport.has(command)) {
+  impersonateSupport.set(command,runner(command,['--ignore-config','--list-impersonate-targets'],65536,30000,
+   {env:{PATH:process.env.PATH||'/usr/bin:/bin',LANG:'C.UTF-8'}})
+   .then((out)=>out.toString().split('\n').some((l)=>/^\s*chrome\b/i.test(l)&&!/unavailable/i.test(l)))
+   .catch(()=>false));
+ }
+ return impersonateSupport.get(command)!;
+}
+/** Solo para pruebas: olvida lo que se sabía de cada binario. */
+export function resetImpersonateCache():void { impersonateSupport.clear(); }
+
 async function extractWithYtDlp(url:string,dir:string,maxBytes:number,runner:typeof run,
  includeWebpageUrl:boolean):Promise<{path:string;video_id:string;webpage_url?:string}> {
  const command=youtubeDownloaderBinary();
@@ -37,6 +55,8 @@ async function extractWithYtDlp(url:string,dir:string,maxBytes:number,runner:typ
   '--match-filters','!is_live & duration <= 1800','--max-filesize',String(maxBytes),
   '--js-runtimes',`node:${node}`,
   '-f',formatSelector,'--merge-output-format','mp4',
+  // Solo fuera de YouTube (TikTok, Instagram, X, genéricos) y solo si este yt-dlp puede: YouTube no cambia.
+  ...(includeWebpageUrl&&await canImpersonateChrome(command,runner)?['--impersonate','chrome']:[]),
   '--print-to-file','after_move:%(id)s',idPath,
  ];
  if(includeWebpageUrl) args.push('--print-to-file','after_move:%(webpage_url)s',webpageUrlPath);
