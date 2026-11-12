@@ -720,6 +720,9 @@ function help(): void {
   isymcp canary status       ultimo resultado
   isymcp canary schedule [--apply]   programacion diaria (systemd / Task Scheduler; sin --apply: solo muestra)
   isymcp canary unschedule [--apply]
+  isymcp allow [status]      permisos del operador para lo que ejecuta código (cerrados por defecto)
+  isymcp allow shell on|off  shell_exec en el host sin sandbox
+  isymcp allow agents on|off abrir consolas de agentes y pegarles tareas desde ChatGPT
   isymcp harness list [--server chatgpt|gateway|all]  CLIs/TUIs de agentes detectadas + si tienen el MCP
   isymcp harness install <ids|--all> [--server chatgpt|gateway|all] [--apply]
                              chatgpt = isymcp-chatgpt, gateway = isymcp completo (sin --apply: solo el plan)
@@ -1325,6 +1328,30 @@ EJEMPLOS:
   }
 } else if (cmd === "canary") {
   await canaryCommand(sub ?? "run", rest);
+} else if (cmd === "allow") {
+  // Permisos del operador (src/permissions.ts). Se leen en cada llamada: no hace falta reiniciar nada.
+  const { CAPABILITIES, capabilityEnvVar, permissionSource, permissionsPath, setPermission } = await import("./permissions");
+  const alias: Record<string, "host_shell" | "agent_spawn"> = { shell: "host_shell", host_shell: "host_shell", agents: "agent_spawn", agent_spawn: "agent_spawn", consoles: "agent_spawn" };
+  const show = () => {
+    for (const cap of CAPABILITIES) {
+      const src = permissionSource(cap);
+      const label = cap === "host_shell" ? "shell  " : "agents ";
+      const what = cap === "host_shell" ? "shell_exec en el host (sin sandbox)" : "abrir consolas de agentes y pegarles tareas";
+      console.log(`  ${src ? "● ENCENDIDO" : "○ apagado  "} ${label} ${what}${src ? ` · por ${src === "env" ? capabilityEnvVar(cap) : src === "file" ? permissionsPath() : "OperatorGrant"}` : ""}`);
+    }
+  };
+  if (!sub || sub === "status") {
+    show();
+  } else {
+    const cap = alias[sub];
+    const state = rest[0];
+    if (!cap || (state !== "on" && state !== "off")) throw new Error("uso: isymcp allow [status] | isymcp allow shell|agents on|off");
+    setPermission(cap, state === "on");
+    show();
+    if (state === "off" && process.env[capabilityEnvVar(cap)] === "1") {
+      console.log(`  ojo: ${capabilityEnvVar(cap)}=1 en el entorno lo sigue encendiendo`);
+    }
+  }
 } else if (cmd === "harness") {
   await harnessCommand(sub ?? "list", rest);
 } else if (cmd === "metrics") {

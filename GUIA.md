@@ -335,7 +335,8 @@ aunque el servidor esté cargado: el servicio lo lanza igual (`ps` muestra `src/
 
 ### Consolas de agentes coordinadas (lo que antes solo hacía agy)
 
-ChatGPT puede abrir una consola de **cualquier** agente instalado, no solo de agy:
+ChatGPT puede abrir una consola de **cualquier** agente instalado, no solo de agy, **si lo
+encendiste** con `isymcp allow agents on` (§9):
 
 ```bash
 isymcp tui agents                                  # agentes lanzables y cómo reciben tareas
@@ -358,7 +359,7 @@ Cómo le llegan las **tareas siguientes** (`monitor.submit` con `console_id`):
 Kimi, Crush, Hermes y OpenClaw no aceptan un prompt inicial por argumento: arrancan vacíos y ISyMCP
 pega la instrucción unos segundos después.
 
-**Errores:** `unknown_agent` (id mal escrito; mira `tui agents`), `agent_not_installed`, `tmux_missing`,
+**Errores:** `agent_spawn_disabled` (enciéndelo con `isymcp allow agents on`), `unknown_agent` (id mal escrito; mira `tui agents`), `agent_not_installed`, `tmux_missing`,
 `skip_permissions_agy_only` (`dangerously_skip_permissions` solo existe para agy: las demás consolas piden
 permisos como siempre), `monitor_unavailable` (sin registro no se lanza a ciegas). En `monitor.submit`,
 `delivery.delivered=false` con `tmux_session_missing` significa que esa consola ya se cerró.
@@ -437,6 +438,38 @@ Para evitar desbordar ventanas de contexto en conversaciones muy largas, ISyMCP 
 ---
 
 ## 9. Seguridad y Sandbox (Bubblewrap)
+
+**Cerrado por defecto (fail-closed).** ChatGPT puede leer webs, repos o issues con instrucciones
+escondidas; lo que ejecuta código en tu máquina queda detrás de una decisión tuya:
+
+```bash
+isymcp allow                  # estado
+isymcp allow agents on        # ChatGPT puede abrir consolas de agentes y pegarles tareas
+isymcp allow shell on         # ChatGPT puede usar shell_exec en el host (sin sandbox)
+isymcp allow agents off       # apagar; vale desde la siguiente llamada, sin reiniciar nada
+```
+
+Se guarda en `~/.codex-web-http/permissions.json` (0600) y se lee en cada llamada. También habilitan
+`ISYMCP_ALLOW_HOST_SHELL=1` / `ISYMCP_ALLOW_AGENT_SPAWN=1` en el entorno del proceso, o un OperatorGrant
+de un solo uso del Control Center. Tu CLI local (`isymcp tui spawn`, `isymcp github`) no pasa por estas
+puertas: ahí eres tú.
+
+- `shell_exec` / `shell.exec`: denegados sin `allow shell`. `codex_exec` siempre pasa por el sandbox.
+- `spawn_agy_tui`, `spawn_agent_tui`, `tui.spawn` y la entrega pegada de `monitor.submit`: denegados sin
+  `allow agents` (`dry_run` sí funciona: solo muestra el comando). La tarea se encola igual; en la respuesta
+  verás `delivery: agent_spawn_disabled`.
+- `dangerously_skip_permissions` ya no se puede pedir por MCP: solo con la CLI local.
+- **Entorno limpio:** lo que ejecuta el modelo (shell y consolas) corre sin tokens del bridge, sin
+  `*TOKEN*`, `*API_KEY*`, `OPENAI_*` ni `ANTHROPIC_*`. Solo pasan HOME, PATH, idioma, terminal, sesión
+  gráfica/D-Bus, `SSH_AUTH_SOCK` y las rutas de ISyMCP.
+- **GitHub por MCP** (`github_exec`, `github_api`, `github.*`): `gh` solo con `pr`, `issue`, `run`,
+  `workflow`, `release list/view`, `repo view/list/clone`, `search`, `label list` y `status`. No se puede
+  `alias`, `extension`, `api`, `auth`, `secret`, `config`, `repo delete` ni `pr merge`, ni usar flags que
+  suban archivos locales (`--body-file`, `-F`). En la API no se puede `DELETE`, cambiar la configuración o
+  visibilidad del repo, llaves, webhooks, colaboradores ni hacer mutaciones GraphQL destructivas. Crear PRs,
+  issues y comentarios sí.
+- Los turnos automáticos sobre el Chrome visible necesitan `ISYMCP_ALLOW_VISIBLE_TURNS=1`.
+- El monitor HTTP (:8799) solo acepta loopback, rechaza `Host`/`Origin` ajenos y POST que no sean JSON.
 
 1. **Tokens de Sesión para Herramientas:**
    ```bash

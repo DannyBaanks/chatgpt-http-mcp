@@ -4,6 +4,26 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { stopProcessTree } from "../platform/process";
+import { deniedMessage, permissionEnabled, runWithOperatorAuthorization, scrubbedEnv } from "../permissions";
+
+//
+// Autorización de shell en el host (fail-closed), ver src/permissions.ts:
+//   1. ISYMCP_ALLOW_HOST_SHELL=1 en el entorno del proceso (operador).
+//   2. `isymcp allow shell on` (~/.codex-web-http/permissions.json, se lee en cada llamada).
+//   3. Un OperatorGrant firmado y de un solo uso del Control Center, consumido
+//      ANTES de llegar aquí (runWithHostShellAuthorization).
+// Sin ninguna, DENIED. codex_exec no pasa por aquí: usa sandboxPlan.
+// El comando corre con un entorno limpio: sin tokens del bridge ni API keys.
+//
+
+/** Marca el contexto async actual como autorizado (OperatorGrant consumido). */
+export function runWithHostShellAuthorization<T>(fn: () => T): T {
+  return runWithOperatorAuthorization(fn);
+}
+
+function hostShellAuthorized(): boolean {
+  return permissionEnabled("host_shell");
+}
 
 export interface ShellExecOptions {
   command: string;
@@ -54,6 +74,23 @@ function expandPath(p: string): string {
 export async function executeShellCommand(options: ShellExecOptions): Promise<ShellExecResult> {
   const started = Date.now();
   const rawCommand = (options.command ?? "").trim();
+
+  // Gate fail-closed: shell_exec corre sobre el HOST (sin bwrap), asi que solo
+  // existe con opt-in explicito del operador. El resto de la superficie MCP
+  // (codex_exec) si pasa por sandboxPlan; este gate no lo toca.
+  if (!hostShellAuthorized()) {
+    return {
+      ok: false,
+      command: rawCommand,
+      cwd: activeCwd,
+      exit_code: 1,
+      stdout: "",
+      stderr: "",
+      duration_ms: Date.now() - started,
+      timed_out: false,
+      error: deniedMessage("host_shell"),
+    };
+  }
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000), 300_000);
   const maxBytes = options.maxOutputBytes ?? MAX_OUTPUT_BYTES;
 
@@ -167,7 +204,7 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
 
     const proc = spawn(shellBinary, shellArgs, {
       cwd: effectiveCwd,
-      env: process.env,
+      env: scrubbedEnv(process.env),
       stdio: ["ignore", "pipe", "pipe"],
     });
 

@@ -1,10 +1,36 @@
 // tests/shell-exec.test.ts — Pruebas para ejecutor de comandos shell arbitrarios y CWD.
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { executeShellCommand, getActiveCwd, setActiveCwd } from "../src/shell/executor";
 import { homedir, tmpdir } from "node:os";
-import { realpathSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 
 describe("Shell Executor Suite", () => {
+  let prevAllow: string | undefined;
+
+  beforeEach(() => {
+    prevAllow = process.env.ISYMCP_ALLOW_HOST_SHELL;
+    process.env.ISYMCP_ALLOW_HOST_SHELL = "1";
+  });
+  afterEach(() => {
+    if (prevAllow === undefined) delete process.env.ISYMCP_ALLOW_HOST_SHELL;
+    else process.env.ISYMCP_ALLOW_HOST_SHELL = prevAllow;
+  });
+
+  it("SE-00: fails closed without explicit opt-in", async () => {
+    delete process.env.ISYMCP_ALLOW_HOST_SHELL;
+    // Home aislado: un `isymcp allow shell on` del host no debe abrir esta prueba.
+    const prevHome = process.env.CODEX_WEB_HTTP_HOME;
+    process.env.CODEX_WEB_HTTP_HOME = mkdtempSync(join(tmpdir(), "se00-"));
+    const res = await executeShellCommand({ command: "echo 'SHOULD_NOT_RUN'" });
+    if (prevHome === undefined) delete process.env.CODEX_WEB_HTTP_HOME; else process.env.CODEX_WEB_HTTP_HOME = prevHome;
+    expect(res.ok).toBe(false);
+    expect(res.exit_code).toBe(1);
+    expect(res.error).toContain("DENIED");
+    expect(res.error).toContain("ISYMCP_ALLOW_HOST_SHELL");
+    expect(res.stdout).toBe("");
+  });
+
   it("SE-01: executes a standard shell command and returns output", async () => {
     const res = await executeShellCommand({ command: "echo 'ISYMCP_SHELL_TEST'" });
     expect(res.ok).toBe(true);

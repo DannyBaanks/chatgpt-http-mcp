@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
+import { guardLocalRequest } from "./local-guard";
 import { ensureConsoleSchema } from "./console-registry";
 import { hmacHex, safeEqualHex, sha256Hex, sha256Prefixed } from "./crypto";
 import { resolveWithinReal } from "./path";
@@ -1895,6 +1896,11 @@ export class MonitorRemoteTransport {
    */
   public async handleHttpRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
+    // Misma guarda que el resto de superficies locales: Host loopback, Origin
+    // permitido y POST application/json. Sin esto, una pagina web podria hacer
+    // POST simple (CSRF) al submit del monitor.
+    const denied = guardLocalRequest(req, { requireJsonBody: true });
+    if (denied) return denied;
     if (req.method === "GET" && url.pathname === "/ready") {
       return Response.json({ ok: true, service: "isymcp-remote-monitor", pid: process.pid }, { status: 200 });
     }
