@@ -1157,7 +1157,6 @@ EJEMPLOS:
     process.exit(0);
   }
   const baseUrl = process.env.ISYMCP_TUI_BASE_URL?.trim() || "http://127.0.0.1:8791";
-  const mcpMain = join(ROOT, "src", "mcp", "main.ts");
   const configPath = flag("--config", rest) ?? join(homedir(), ".config", "opencode", "opencode.json");
   if (!sub || sub === "list") {
     for (const tui of detectTuis(homedir())) {
@@ -1188,7 +1187,6 @@ EJEMPLOS:
       const results = installIntoAllTuis({
         backupsDir,
         baseUrl,
-        mcpMain,
         dryRun,
         restore,
         onlyPresent: !rest.includes("--force-all"),
@@ -1199,15 +1197,16 @@ EJEMPLOS:
         if (error) {
           hasErrors = true;
           console.error(`✗ ${tui.id} (${tui.label}): ${error}`);
-        } else if (result?.harness) {
-          viaHarness.push(tui.id);
         } else if (result) {
-          const detail = result.models > 0 ? `modelos=${result.models}` : "servidor_mcp=isymcp";
-          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${tui.id} (${tui.label}): ${result.configPath} ${detail} ${result.backupPath ? `(backup: ${result.backupPath})` : ""}`);
+          // Provider de modelos Web (solo opencode/openisy); el MCP de todas va por harness.
+          if (result.models > 0 || result.action === "restore") {
+            console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${tui.id} (${tui.label}): provider ${result.configPath} modelos=${result.models} ${result.backupPath ? `(backup: ${result.backupPath})` : ""}`);
+          }
+          if (result.harness) viaHarness.push(tui.id);
         }
       }
       if (viaHarness.length > 0 && !restore) {
-        console.log(`\nCon su propio \`mcp add\` (gateway isymcp): ${viaHarness.join(", ")}`);
+        console.log(`\nMCP (gateway isymcp) por harness: ${viaHarness.join(", ")}`);
         await harnessCommand("install", [...viaHarness, "--server", "gateway", ...(dryRun ? [] : ["--apply"])]);
       }
       if (hasErrors) process.exitCode = 1;
@@ -1219,18 +1218,23 @@ EJEMPLOS:
           configPath: targetConfigPath,
           backupsDir,
           baseUrl,
-          mcpMain,
           dryRun,
           restore,
         });
-        if (result.harness) {
-          if (restore) throw new Error(`${which} se instala con su propio \`mcp add\`: usa isymcp harness uninstall ${which} --server gateway --apply`);
-          await harnessCommand("install", [which, "--server", "gateway", ...(dryRun ? [] : ["--apply"])]);
-        } else {
-          const detail = result.models > 0 ? `modelos=${result.models}` : "servidor_mcp=isymcp";
-          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${which}: ${result.configPath} ${detail}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
-          if (result.action === "dry-run") console.log("nada escrito (usa --apply para escribir con backup)");
+        const { findAgent } = await import("./agents/catalog");
+        const id = findAgent(which)?.id ?? which;
+        const providerTouched = result.models > 0 || result.action === "restore";
+        if (providerTouched) {
+          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${id}: provider ${result.configPath} modelos=${result.models}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
         }
+        if (result.harness && restore && !providerTouched) {
+          throw new Error(`el MCP de ${id} lo instala harness: usa isymcp harness uninstall ${id} --server gateway --apply`);
+        }
+        if (result.harness && !restore) {
+          console.log(`MCP (gateway isymcp) por harness:`);
+          await harnessCommand("install", [id, "--server", "gateway", ...(dryRun ? [] : ["--apply"])]);
+        }
+        if (dryRun) console.log("nada escrito (usa --apply para escribir)");
       } catch (err: any) {
         console.error(`Error instalando en ${which}: ${err.message}`);
         process.exitCode = 1;
