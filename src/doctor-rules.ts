@@ -24,6 +24,19 @@ export const DOCTOR_RULES: Record<MediaErrorCode, DoctorRule> = {
     remedy: "Prueba otro enlace publico: el import es sin cookies por politica y no puede iniciar sesion.",
     guide_anchor: "GUIA.md#media-youtube",
   },
+  media_login_required: {
+    cause: "El sitio exige sesion iniciada para este medio (tipico de Instagram, Vimeo o posts privados).",
+    remedy: "El import es sin cookies por politica: prueba un enlace publico que se vea sin iniciar sesion, o descargalo tu y usa media.import con el archivo.",
+  },
+  media_site_blocked: {
+    cause: "El sitio bloqueo la descarga automatica (TikTok la bloquea sin suplantar un navegador).",
+    remedy: "Hace falta un yt-dlp con curl_cffi (build standalone) o mas nuevo; ISyMCP usa --impersonate chrome solo si esta disponible.",
+    command_hint: "isymcp doctor",
+  },
+  media_no_video: {
+    cause: "El enlace no tiene video descargable (solo texto o imagenes).",
+    remedy: "Revisa que sea el post del video y no el del hilo, o comparte el enlace directo al video.",
+  },
   media_rate_limited: {
     cause: "YouTube limito temporalmente las descargas (HTTP 429).",
     remedy: "Espera unos minutos antes de reintentar y evita importaciones en rafaga.",

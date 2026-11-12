@@ -32,6 +32,8 @@ export interface DoctorReport {
 export interface DoctorDeps {
   env?: NodeJS.ProcessEnv;
   probe?: (command: string, args: string[]) => string | undefined;
+  /** Salida completa de `yt-dlp --list-impersonate-targets` (inyectable en pruebas). */
+  listImpersonate?: (command: string) => string | undefined;
   exists?: (path: string) => boolean;
   mediaHome?: string;
   home?: string;
@@ -42,6 +44,15 @@ function realProbe(command: string, args: string[]): string | undefined {
     const result = spawnSync(command, args, { timeout: 8000, encoding: "utf8" });
     if (result.error || result.status !== 0) return undefined;
     return (result.stdout || result.stderr || "").trim().split("\n")[0]?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function realListImpersonate(command: string): string | undefined {
+  try {
+    const result = spawnSync(command, ["--ignore-config", "--list-impersonate-targets"], { timeout: 15000, encoding: "utf8" });
+    return result.error ? undefined : `${result.stdout ?? ""}${result.stderr ?? ""}`;
   } catch {
     return undefined;
   }
@@ -109,6 +120,13 @@ export function runDoctor(deps: DoctorDeps = {}): DoctorReport {
   const ytdlpVersion = !isAbsolute(ytdlp) || exists(ytdlp) ? probe(ytdlp, ["--version"]) : undefined;
   if (ytdlpVersion) add("yt-dlp", "yt-dlp", "ok", `${ytdlpVersion} (${ytdlp})`);
   else add("yt-dlp", "yt-dlp", "fail", `no encontrado o sin --version: ${ytdlp}`);
+  if (ytdlpVersion) {
+    // TikTok (y otros) bloquean sin suplantar un navegador: hace falta curl_cffi (build standalone).
+    const targets = (deps.listImpersonate ?? realListImpersonate)(ytdlp) ?? "";
+    const chrome = targets.split("\n").some((l) => /^\s*chrome\b/i.test(l) && !/unavailable/i.test(l));
+    add("yt-dlp-impersonate", "yt-dlp suplantación", chrome ? "ok" : "warn",
+      chrome ? "chrome disponible (curl_cffi)" : "sin curl_cffi: TikTok puede bloquear la descarga; instala el build standalone (REQUIREMENTS.md)");
+  }
 
   for (const tool of ["ffmpeg", "ffprobe"] as const) {
     const version = probe(tool, ["-version"]);

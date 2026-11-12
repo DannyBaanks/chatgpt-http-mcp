@@ -35,6 +35,11 @@ export const MEDIA_ERROR_CODES = {
   media_asset_changed: 'Asset changed: register again',
   media_invalid_request: 'Invalid media request',
   media_busy: 'Media worker busy; retry after current query finishes',
+  media_login_required:
+    'The site requires a signed-in session for this media; imports run without cookies',
+  media_site_blocked:
+    'The site blocked the automated download; it needs browser impersonation (a yt-dlp build with curl_cffi) or a newer yt-dlp',
+  media_no_video: 'The link has no downloadable video (for example a post with only text or images)',
   media_download_unknown:
     'Download or media validation failed; source may be unavailable, require login, or be blocked',
   media_unknown: 'Media operation failed',

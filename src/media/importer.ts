@@ -13,7 +13,9 @@ export { youtubeSource } from './youtube-url';
 export { mediaSource } from './video-url';
 export { verifyDownloadedTikTok } from './tiktok-url';
 export type ImportJob={job_id:string,state:'running'|'complete'|'failed',source_url:string,phase:string,asset?:{id:string,name:string,bytes:number,
-  sha256:string},error?:string,error_code?:MediaErrorCode};
+  sha256:string},error?:string,error_code?:MediaErrorCode,
+  /** Detalle del proveedor recortado y saneado (sin URLs, rutas ni tokens): dice POR QUÉ falló. */
+  error_detail?:string};
 export type Downloader=(url:string,dir:string,maxBytes:number)=>Promise<string|YouTubeDownloadResult|TikTokDownloadResult|GenericDownloadResult>;
 async function downloadPublicVideo(url:string,dir:string,maxBytes:number):Promise<YouTubeDownloadResult|TikTokDownloadResult|GenericDownloadResult> {
  const src = mediaSource(url);
@@ -73,6 +75,7 @@ export class MediaImporter {
    // classifyMediaError reduces the raw failure to a stable code plus a sanitized message.
    const classified=classifyMediaError(error);
    view.error_code=classified.code;view.error=classified.message;
+   if(classified.detail_sanitized)view.error_detail=classified.detail_sanitized;
    try{save();}catch{/* state remains available in memory if disk is full */}
   });
   this.jobs.set(job_id,{view,done});return {...view};
