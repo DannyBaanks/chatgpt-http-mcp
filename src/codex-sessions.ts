@@ -144,6 +144,8 @@ function writeRegistry(reg: Registry): void {
 
 const REGISTRY_LOCK_WAIT_MS = 10_000;
 const REGISTRY_LOCK_STALE_MS = 30_000;
+/** Ventana en la que un EPERM/EACCES sin lock visible se trata como "lock borrándose" (Windows). */
+const REGISTRY_LOCK_VANISH_MS = 1_000;
 
 /**
  * Exclusion entre procesos para leer-modificar-escribir el registro: el bridge
@@ -157,10 +159,23 @@ function withRegistryLock<T>(work: () => T): T {
   const lock = `${registryPath()}.lock`;
   const deadline = Date.now() + REGISTRY_LOCK_WAIT_MS;
   let fd: number | null = null;
+  let vanishingSince: number | null = null;
   while (fd === null) {
     try {
       fd = openSync(lock, "wx", 0o600);
     } catch (error: any) {
+      // Windows: el dueño cerró y borró el lock, pero el archivo queda unos ms en "delete pending".
+      // En ese estado open() da EPERM/EACCES y existsSync() ya da false. No es un problema de ACL:
+      // es el lock liberándose. Se reintenta durante REGISTRY_LOCK_VANISH_MS; si persiste más,
+      // sí es un problema real de permisos y se lanza (medido en CI de Windows, 2026-11-12).
+      if (process.platform === "win32" && (error?.code === "EPERM" || error?.code === "EACCES") && !existsSync(lock)) {
+        vanishingSince ??= Date.now();
+        if (Date.now() - vanishingSince <= REGISTRY_LOCK_VANISH_MS) {
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+          continue;
+        }
+        throw error;
+      }
       // Un lock ya poseido por OTRO proceso puede devolver EPERM en vez de EEXIST: en
       // Windows libuv traduce ERROR_ACCESS_DENIED, no ERROR_FILE_EXISTS, cuando el archivo
       // existe ademas de estar abierto. Relanzar ese EPERM mataba al segundo escritor en
