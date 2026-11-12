@@ -151,7 +151,8 @@ describe.skipIf(!hasTmux)("E2E multiharness con tmux real", () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "agent-e2e-"));
-    for (const k of ["PATH", "CODEX_WEB_HTTP_HOME", "CODEX_WEB_HTTP_MONITOR_DB", "ISYMCP_CONSOLE_TMUX_SOCKET", "DISPLAY", "WAYLAND_DISPLAY"]) saved[k] = process.env[k];
+    for (const k of ["PATH", "CODEX_WEB_HTTP_HOME", "CODEX_WEB_HTTP_MONITOR_DB", "ISYMCP_CONSOLE_TMUX_SOCKET", "DISPLAY", "WAYLAND_DISPLAY",
+      "ISYMCP_ALLOW_AGENT_SPAWN", "CODEX_WEB_HTTP_TOKEN", "OPENAI_API_KEY"]) saved[k] = process.env[k];
     const bin = join(dir, "bin");
     mkdirSync(bin);
     // Falso opencode: guarda su argv y entorno, y luego todo lo que se le escriba.
@@ -166,6 +167,10 @@ exec cat >> '${dir}/input.txt'
     process.env.CODEX_WEB_HTTP_MONITOR_DB = join(dir, "m.sqlite");
     process.env.ISYMCP_CONSOLE_TMUX_SOCKET = socket;
     delete process.env.DISPLAY; delete process.env.WAYLAND_DISPLAY;
+    // El operador habilitó consolas; y hay secretos en el entorno que NO deben llegar al agente.
+    process.env.ISYMCP_ALLOW_AGENT_SPAWN = "1";
+    process.env.CODEX_WEB_HTTP_TOKEN = "bridge-secret-should-not-leak";
+    process.env.OPENAI_API_KEY = "sk-should-not-leak";
     ({ spawnAgentTui } = await import("../src/tui-launcher"));
     ({ dispatchIsyMcpAction: dispatch } = await import("../src/mcp/gateway"));
   });
@@ -200,6 +205,11 @@ exec cat >> '${dir}/input.txt'
     const envTxt = readFileSync(join(dir, "env.txt"), "utf8");
     expect(envTxt).toContain(`ISYMCP_CONSOLE_ID=${res.consoleId}`);
     expect(envTxt).toMatch(/ISYMCP_ACK_TOKEN=ctk_/);
+    // Entorno limpio: ni el token del bridge ni API keys; sí las ubicaciones de ISyMCP.
+    expect(envTxt).not.toContain("bridge-secret-should-not-leak");
+    expect(envTxt).not.toContain("sk-should-not-leak");
+    expect(envTxt).toContain(`CODEX_WEB_HTTP_HOME=${join(dir, "home")}`);
+    expect(envTxt).toMatch(/^PATH=/m);
     expect(argv).not.toContain("ctk_");
 
     const db = openMonitorDatabase(join(dir, "m.sqlite"));
@@ -217,6 +227,16 @@ exec cat >> '${dir}/input.txt'
     const input = readFileSync(join(dir, "input.txt"), "utf8");
     expect(input).toContain("[ISyMCP] Nueva tarea");
     expect(input).toContain("monitor respond");
+
+    // Con el permiso apagado, la tarea se encola pero NO se pega en la consola.
+    delete process.env.ISYMCP_ALLOW_AGENT_SPAWN;
+    const off = await dispatch("monitor.submit", { console_id: res.consoleId, description: "no debe llegar" });
+    expect((off.result as any).delivery).toEqual({ delivered: false, reason: "agent_spawn_disabled" });
+    const offSpawn = await dispatch("tui.spawn", { agent: "opencode", prompt: "x" });
+    expect(offSpawn.ok).toBe(false);
+    expect(offSpawn.error).toContain("isymcp allow agents on");
+    process.env.ISYMCP_ALLOW_AGENT_SPAWN = "1";
+    expect((await dispatch("tui.spawn", { agent: "agy", prompt: "x", dangerously_skip_permissions: true })).error).toContain("solo desde la CLI local");
 
     // Una tarea dirigida a una consola que no existe no se entrega.
     const ghost = await dispatch("monitor.submit", { console_id: "con-00000000", description: "x" });

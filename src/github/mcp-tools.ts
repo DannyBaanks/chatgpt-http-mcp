@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { callGitHubApi, dispatchWorkflow, runGhCli } from "./client";
 import { resolveActiveGitHubToken } from "./tokens";
+import { checkGhApi, checkGhArgs } from "./policy";
 
 export const GITHUB_MCP_TOOLS = {
   github_api: {
@@ -18,6 +19,8 @@ export const GITHUB_MCP_TOOLS = {
       params?: Record<string, string | number | boolean>;
       body?: Record<string, unknown>;
     }) => {
+      const policy = checkGhApi(args.endpoint, args.method, args.body);
+      if (!policy.ok) return { ok: false, status: 403, data: null, error: policy.reason, rate_limit_remaining: undefined };
       const res = await callGitHubApi(args.endpoint, {
         method: args.method || "GET",
         params: args.params,
@@ -71,6 +74,8 @@ export const GITHUB_MCP_TOOLS = {
       args: z.array(z.string()).describe("Argumentos para gh (ej. ['pr', 'list', '--state', 'open'])"),
     }),
     handler: async (args: { args: string[] }) => {
+      const policy = checkGhArgs(args.args);
+      if (!policy.ok) return { ok: false, exit_code: 126, stdout: "", stderr: policy.reason! };
       const res = await runGhCli(args.args);
       return {
         ok: res.code === 0,

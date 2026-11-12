@@ -11,6 +11,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
 import { hmacHex, randomHex, sha256Hex, sha256Prefixed } from "./crypto";
+import { SAFE_PASS_ENV } from "./permissions";
 
 export type ConsoleState = "SPAWNED" | "ACKED" | "RUNNING" | "COMPLETED" | "FAILED";
 
@@ -276,9 +277,16 @@ export function readConsoleLog(db: Database, idOrTask: string, tail = 50): { con
   return { console: rec, events: events.slice(-n) };
 }
 
-/** Script que ejecuta la terminal: registra el PID real y exporta identidad antes de `exec`. */
+/**
+ * Script que ejecuta la terminal: registra el PID real, exporta identidad y hace `exec` del agente
+ * con un entorno LIMPIO (env -i): solo SAFE_PASS_ENV + la identidad de la consola. Así un agente
+ * que lee contenido con instrucciones escondidas no encuentra tokens del bridge ni API keys en su
+ * entorno. `exec env -i ... agente` conserva el PID ($$ = env = agente).
+ */
 export const CONSOLE_WRAPPER_SCRIPT =
-  'echo $$ > "$ISYMCP_CONSOLE_PID_FILE"; export ISYMCP_ACK_TOKEN="$(cat "$ISYMCP_CONSOLE_TOKEN_FILE")"; exec "$@"';
+  'echo $$ > "$ISYMCP_CONSOLE_PID_FILE"; export ISYMCP_ACK_TOKEN="$(cat "$ISYMCP_CONSOLE_TOKEN_FILE")"; ' +
+  'keep=(); for v in $ISYMCP_PASS_ENV ISYMCP_ACK_TOKEN ISYMCP_CONSOLE_ID ISYMCP_TASK_ID ISYMCP_OPERATION_ID ISYMCP_MONITOR_URL; do ' +
+  '[ -n "${!v+x}" ] && keep+=("$v=${!v}"); done; exec env -i "${keep[@]}" "$@"';
 
 export function wrapperArgv(c: NewConsole, ids: { taskId: string; operationId: string; monitorUrl: string }, inner: string[]): string[] {
   return [
@@ -289,6 +297,11 @@ export function wrapperArgv(c: NewConsole, ids: { taskId: string; operationId: s
     `ISYMCP_TASK_ID=${ids.taskId}`,
     `ISYMCP_OPERATION_ID=${ids.operationId}`,
     `ISYMCP_MONITOR_URL=${ids.monitorUrl}`,
+    `ISYMCP_PASS_ENV=${SAFE_PASS_ENV.join(" ")}`,
+    // Un servidor tmux ya vivo no hereda el entorno de quien lanza: las ubicaciones de ISyMCP van explícitas.
+    ...(["CODEX_WEB_HTTP_HOME", "CODEX_WEB_HTTP_MONITOR_DB"] as const)
+      .filter((k) => process.env[k])
+      .map((k) => `${k}=${process.env[k]}`),
     "bash", "-c", CONSOLE_WRAPPER_SCRIPT, "isymcp-console",
     ...inner,
   ];
