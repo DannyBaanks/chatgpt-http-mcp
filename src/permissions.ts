@@ -11,14 +11,21 @@
 //      encender/apagar no requiere reiniciar el server ni el túnel. Caduca solo (`<cap>_until`):
 //      por defecto DEFAULT_TTL_MS; `--forever` lo deja sin caducidad a propósito.
 //   3. Un OperatorGrant de un solo uso del Control Center (runWithOperatorAuthorization).
+//   4. Un permiso de un solo uso del CLI (`isymcp allow once shell|agents`): sirve para UNA llamada
+//      (o --uses N) y caduca en ONCE_DEFAULT_TTL_MS si nadie lo usa.
+//
+// Contaminación (src/taint.ts): si el modelo ya leyó contenido externo por una herramienta de ISyMCP,
+// las vías 1 y 2 dejan de bastar; solo pasan 3 y 4, una decisión del operador por cada uso.
 //
 // Por qué: el modelo puede leer contenido externo (webs, repos, issues) con instrucciones escondidas.
 // Lo que ejecuta código queda detrás de una decisión explícita del operador.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
+import { activeTaint, describeTaint, taintGateEnabled } from "./taint";
 
 export type Capability = "host_shell" | "agent_spawn";
 export const CAPABILITIES: Capability[] = ["host_shell", "agent_spawn"];
@@ -94,7 +101,7 @@ function readFile(env: Record<string, string | undefined>): PermissionsFile {
   }
 }
 
-export type PermissionSource = "env" | "file" | "operator_grant" | null;
+export type PermissionSource = "env" | "file" | "operator_grant" | "once" | null;
 
 /** Quién habilita la capacidad ahora mismo (null = cerrada). Solo `true` literal cuenta. */
 export function permissionSource(cap: Capability, env: Record<string, string | undefined> = process.env): PermissionSource {
@@ -136,6 +143,94 @@ export function deniedMessage(cap: Capability): string {
   const what = cap === "host_shell" ? "shell_exec ejecuta en el host sin sandbox" : "abrir o escribir en consolas de agentes ejecuta código en el host";
   const allow = cap === "host_shell" ? "shell" : "agents";
   return `DENIED: ${what}; el operador lo habilita con \`isymcp allow ${allow} on\` (o ${ENV_VAR[cap]}=1)`;
+}
+
+// ─── Permisos de un solo uso (`isymcp allow once`) ──────────────────────────
+
+/** Si nadie lo usa, un permiso de un solo uso caduca en esto. */
+export const ONCE_DEFAULT_TTL_MS = 10 * 60_000;
+export const ONCE_MAX_TTL_MS = 3600_000;
+export const ONCE_MAX_USES = 10;
+
+export interface OnceGrant {
+  cap: Capability;
+  uses: number;
+  until: string;
+  created_at: string;
+}
+
+function grantsDir(env: Record<string, string | undefined>): string {
+  return join(bridgeHome(env), "grants");
+}
+
+/** Crea un permiso de un solo uso (o `uses` usos) para `cap`. Solo lo llama el CLI del operador. */
+export function grantOnce(
+  cap: Capability,
+  env: Record<string, string | undefined> = process.env,
+  opts: { ttlMs?: number; uses?: number } = {},
+): OnceGrant {
+  const ttl = Math.min(Math.max(opts.ttlMs ?? ONCE_DEFAULT_TTL_MS, 1000), ONCE_MAX_TTL_MS);
+  const uses = Math.min(Math.max(Math.trunc(opts.uses ?? 1), 1), ONCE_MAX_USES);
+  const dir = grantsDir(env);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const grant: OnceGrant = { cap, uses, until: new Date(Date.now() + ttl).toISOString(), created_at: new Date().toISOString() };
+  const path = join(dir, `${cap}.${randomBytes(8).toString("hex")}.json`);
+  writeFileSync(`${path}.tmp`, JSON.stringify(grant), { mode: 0o600 });
+  renameSync(`${path}.tmp`, path);
+  return grant;
+}
+
+function readGrant(path: string): OnceGrant | null {
+  try {
+    const g = JSON.parse(readFileSync(path, "utf8"));
+    return g && typeof g === "object" && typeof g.until === "string" && Number.isInteger(g.uses) ? g : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Permisos de un solo uso vigentes (para `isymcp allow status`). */
+export function pendingOnceGrants(cap: Capability, env: Record<string, string | undefined> = process.env, now = Date.now()): OnceGrant[] {
+  const dir = grantsDir(env);
+  if (!existsSync(dir)) return [];
+  const out: OnceGrant[] = [];
+  for (const name of readdirSync(dir)) {
+    if (!name.startsWith(`${cap}.`) || !name.endsWith(".json")) continue;
+    const g = readGrant(join(dir, name));
+    if (g && g.cap === cap && g.uses > 0 && Date.parse(g.until) > now) out.push(g);
+  }
+  return out;
+}
+
+/**
+ * Gasta un uso de un permiso vigente para `cap`. El archivo se reclama con rename (atómico): si dos
+ * procesos compiten, solo uno lo gana. Los caducados o ilegibles se descartan.
+ */
+export function consumeOnceGrant(cap: Capability, env: Record<string, string | undefined> = process.env, now = Date.now()): boolean {
+  const dir = grantsDir(env);
+  if (!existsSync(dir)) return false;
+  let names: string[];
+  try { names = readdirSync(dir).sort(); } catch { return false; }
+  for (const name of names) {
+    if (!name.startsWith(`${cap}.`) || !name.endsWith(".json")) continue;
+    const path = join(dir, name);
+    const claimed = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.claim`;
+    try { renameSync(path, claimed); } catch { continue; } // otro proceso lo ganó
+    const g = readGrant(claimed);
+    const valid = g !== null && g.cap === cap && g.uses > 0 && Number.isFinite(Date.parse(g.until)) && Date.parse(g.until) > now;
+    try {
+      if (valid && g!.uses > 1) {
+        writeFileSync(claimed, JSON.stringify({ ...g!, uses: g!.uses - 1 }), { mode: 0o600 });
+        renameSync(claimed, path);
+      } else {
+        rmSync(claimed, { force: true });
+      }
+    } catch {
+      /* el uso ya se contó: nunca se devuelve */
+    }
+    if (valid) return true;
+  }
+  return false;
 }
 
 // ─── Puerta única: decide, registra y avisa ──────────────────────────────────
@@ -207,15 +302,38 @@ export function checkGate(
   detail: Record<string, unknown> = {},
   env: Record<string, string | undefined> = process.env,
 ): GateDecision {
-  const source = permissionSource(cap, env);
+  const base = permissionSource(cap, env);
+  const taint = taintGateEnabled(env) ? activeTaint(env) : null;
+  // Con contaminación, env/archivo ya no bastan: solo una decisión del operador por cada uso.
+  const blockedByTaint = taint !== null && (base === "env" || base === "file");
+  let source: PermissionSource = blockedByTaint ? null : base;
+  if (source === null && consumeOnceGrant(cap, env)) source = "once";
   const ok = source !== null;
-  const expired = !ok && fileGrant(cap, env).expired;
-  appendAudit({ cap, action, decision: ok ? "allow" : "deny", source, ...(expired ? { reason: "expired" } : {}), ...auditDetail(detail) }, env);
+  const expired = !ok && !blockedByTaint && fileGrant(cap, env).expired;
+  const reason = ok ? undefined : blockedByTaint ? "tainted" : expired ? "expired" : undefined;
+  appendAudit({
+    cap, action, decision: ok ? "allow" : "deny", source,
+    ...(reason ? { reason } : {}),
+    ...(taint ? { taint: describeTaint(taint) } : {}),
+    ...auditDetail(detail),
+  }, env);
+  const allow = cap === "host_shell" ? "shell" : "agents";
   if (ok && cap === "agent_spawn") {
     const who = typeof detail.agent === "string" ? detail.agent : typeof detail.console_id === "string" ? detail.console_id : "";
     notifyOperator(`ISyMCP: ${action}`, `${who ? `${who} · ` : ""}permiso por ${source}. Bitácora: isymcp allow log`, env);
   }
   if (ok) return { ok, source };
+  if (blockedByTaint) {
+    notifyOperator(`ISyMCP pide permiso: ${action}`, `El modelo leyó contenido externo (${describeTaint(taint!)}). Para un uso: isymcp allow once ${allow}`, env);
+    return {
+      ok,
+      source,
+      message:
+        `DENIED: el modelo ya leyó contenido externo por ISyMCP (${describeTaint(taint!)}), que puede traer instrucciones escondidas. ` +
+        `El permiso general no basta: el operador concede UN uso con \`isymcp allow once ${allow}\` (o limpia con \`isymcp taint clear\`). ` +
+        `Pide al usuario que lo haga si de verdad quiere esta acción; no lo intentes por otra vía.`,
+    };
+  }
   const message = expired ? `${deniedMessage(cap)} (el permiso caducó)` : deniedMessage(cap);
   return { ok, source, message };
 }

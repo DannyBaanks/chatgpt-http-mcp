@@ -1,8 +1,8 @@
 // src/github/register.ts — Registro de herramientas MCP de GitHub en el servidor McpServer.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { callGitHubApi, dispatchWorkflow, runGhCli } from "./client";
-import { checkGhApi, checkGhArgs } from "./policy";
+import { callGitHubApi, dispatchWorkflow } from "./client";
+import { GITHUB_MCP_TOOLS } from "./mcp-tools";
 import { resolveActiveGitHubToken } from "./tokens";
 
 function jsonText(data: unknown) {
@@ -60,22 +60,8 @@ export function registerGitHubTools(server: McpServer): void {
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async (args) => {
-      const policy = checkGhApi(args.endpoint, args.method, (args as { body?: unknown }).body);
-      if (!policy.ok) return jsonText({ ok: false, status: 403, error: policy.reason });
-      const res = await callGitHubApi(args.endpoint, {
-        method: args.method || "GET",
-        params: args.params,
-        body: args.body,
-      });
-      return jsonText({
-        ok: res.ok,
-        status: res.status,
-        data: res.data,
-        error: res.error,
-        rate_limit_remaining: res.rateLimitRemaining,
-      });
-    }
+    // Misma lógica que el gateway (política + marca de contaminación): un solo lugar, mcp-tools.ts.
+    async (args) => jsonText(await GITHUB_MCP_TOOLS.github_api.handler(args as Parameters<typeof GITHUB_MCP_TOOLS.github_api.handler>[0])),
   );
 
   server.registerTool(
@@ -119,16 +105,6 @@ export function registerGitHubTools(server: McpServer): void {
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async (args) => {
-      const policy = checkGhArgs(args.args);
-      if (!policy.ok) return jsonText({ ok: false, exit_code: 126, stdout: "", stderr: policy.reason });
-      const res = await runGhCli(args.args);
-      return jsonText({
-        ok: res.code === 0,
-        exit_code: res.code,
-        stdout: res.stdout,
-        stderr: res.stderr,
-      });
-    }
+    async (args) => jsonText(await GITHUB_MCP_TOOLS.github_exec.handler(args)),
   );
 }
