@@ -28,6 +28,12 @@ describe("códigos precisos por plataforma", () => {
     }
   });
 
+  it("MP-01b: DRM real de Vimeo -> media_drm_protected", () => {
+    const c = classifyMediaError("Media process failed (1): ERROR: This format is DRM protected; Try selecting another format with --format or add --check-formats");
+    expect(c.code).toBe("media_drm_protected");
+    expect(DOCTOR_RULES[c.code].remedy).toContain("No se puede importar");
+  });
+
   it("MP-02: lo de YouTube y lo genérico no cambia", () => {
     expect(classifyMediaError("ERROR: Sign in to confirm you're not a bot").code).toBe("media_youtube_bot_wall");
     expect(classifyMediaError("HTTP 403").code).toBe("media_download_unknown");

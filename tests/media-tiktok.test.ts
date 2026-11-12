@@ -56,7 +56,9 @@ test('TikTok downloader obtains its identity and final URL from yt-dlp before re
   const result=await download(share,staging,1024,runner);
   expect(result).toEqual({path:file,platform:'tiktok',video_id:videoId,source_url:'https://vt.tiktok.com/ZSgLUAEhe/',canonical_url:canonical});
   expect(argsSeen).toContain('--ignore-config');expect(argsSeen).toContain('--no-plugin-dirs');expect(argsSeen).toContain('--no-playlist');
-  expect(argsSeen[argsSeen.indexOf('-f')+1]).toBe('best[height<=720]/best[width<=720]');
+  // Verticales (720x1280) por ancho, y fallback a video+audio separados (Vimeo/HLS).
+  expect(argsSeen[argsSeen.indexOf('-f')+1]).toStartWith('best[height<=720]/best[width<=720]/');
+  expect(argsSeen[argsSeen.indexOf('-f')+1]).toContain('bestvideo[height<=720]+bestaudio');
   expect(argsSeen).toContain('after_move:%(webpage_url)s');
  } finally {rmSync(root,{recursive:true,force:true});}
 });
