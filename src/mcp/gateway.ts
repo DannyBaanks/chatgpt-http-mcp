@@ -2,6 +2,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { spawnAgentTui } from "../tui-launcher";
+import { deniedMessage, permissionEnabled } from "../permissions";
 import { join as joinPath } from "node:path";
 
 /** Entrada del CLI isymcp que las consolas usan para responder. */
@@ -51,7 +52,6 @@ export const ISYMCP_GLOSSARY: {
             mode: "enum: 'plan' | 'auto' | 'accept-edits' (por defecto 'auto')",
             title: "string (opcional: título de la ventana)",
             terminal: "enum: 'auto' | 'gui' | 'tmux' (por defecto 'auto')",
-            dangerously_skip_permissions: "boolean (por defecto false; solo agy lo admite)",
             task_id: "string (opcional: ID de tarea para vincular con el monitor, auto-generado si se omite)",
             operation_id: "string (opcional: ID de operación asociada)",
           },
@@ -392,6 +392,12 @@ export async function dispatchIsyMcpAction(
     }
 
     if (normalized === "tui.spawn" || normalized === "spawn" || normalized === "tui") {
+      const dryRunOnly = args.dryRun === true || args.dry_run === true; // no ejecuta nada: solo muestra el comando
+      if (!dryRunOnly && !permissionEnabled("agent_spawn")) return { ok: false, result: null, error: deniedMessage("agent_spawn") };
+      // Saltarse los permisos del agente solo desde la CLI local del operador, nunca por el gateway.
+      if (args.dangerously_skip_permissions === true) {
+        return { ok: false, result: null, error: "DENIED: dangerously_skip_permissions solo desde la CLI local (isymcp tui spawn), no por MCP" };
+      }
       const res = await spawnAgentTui({
         agent: args.agent ? String(args.agent) : "agy",
         prompt: String(args.prompt ?? "Hola Danny, consola coordinada por ISyMCP"),
@@ -399,7 +405,7 @@ export async function dispatchIsyMcpAction(
         title: args.title ? String(args.title) : undefined,
         mode: args.mode as any,
         terminalPreference: args.terminal as any,
-        dangerouslySkipPermissions: args.dangerously_skip_permissions === true,
+        dangerouslySkipPermissions: false,
         includeMonitorHint: args.include_monitor_hint !== false,
         dryRun: args.dryRun === true || args.dry_run === true,
         taskId: args.task_id ? String(args.task_id) : undefined,
@@ -559,9 +565,11 @@ export async function dispatchIsyMcpAction(
             const { getConsole } = await import("../console-registry");
             const { deliverTaskToConsole } = await import("../console-delivery");
             const rec = getConsole(db, String(args.console_id));
-            delivery = rec
-              ? deliverTaskToConsole(rec, { task_id: taskId, kind, description }, isymcpCliEntry())
-              : { delivered: false, reason: "console_not_found" };
+            delivery = !permissionEnabled("agent_spawn")
+              ? { delivered: false, reason: "agent_spawn_disabled" }
+              : rec
+                ? deliverTaskToConsole(rec, { task_id: taskId, kind, description }, isymcpCliEntry())
+                : { delivered: false, reason: "console_not_found" };
           } catch (e) {
             delivery = { delivered: false, reason: `delivery_error: ${(e as Error).message}` };
           }

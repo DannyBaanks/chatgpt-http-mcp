@@ -3,30 +3,26 @@ import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { stopProcessTree } from "../platform/process";
+import { deniedMessage, permissionEnabled, runWithOperatorAuthorization, scrubbedEnv } from "../permissions";
 
 //
-// Autorización de shell en el host (fail-closed):
-//
-// shell_exec corre SIN sandbox sobre el host, así que solo se ejecuta cuando
-// alguien autorizó explícitamente, por una de estas vías:
+// Autorización de shell en el host (fail-closed), ver src/permissions.ts:
 //   1. ISYMCP_ALLOW_HOST_SHELL=1 en el entorno del proceso (operador).
-//   2. Un OperatorGrant firmado y de un solo uso del Control Center, consumido
-//      ANTES de llegar aquí. dispatchControlCenterAction marca el contexto con
-//      runWithHostShellAuthorization() y este gate lo honra.
-// Sin ninguna de las dos, DENIED. codex_exec no pasa por aquí: usa sandboxPlan.
+//   2. `isymcp allow shell on` (~/.codex-web-http/permissions.json, se lee en cada llamada).
+//   3. Un OperatorGrant firmado y de un solo uso del Control Center, consumido
+//      ANTES de llegar aquí (runWithHostShellAuthorization).
+// Sin ninguna, DENIED. codex_exec no pasa por aquí: usa sandboxPlan.
+// El comando corre con un entorno limpio: sin tokens del bridge ni API keys.
 //
-const hostShellAuth = new AsyncLocalStorage<{ authorized: true }>();
 
-/** Marca el contexto async actual como autorizado para shell en el host. */
+/** Marca el contexto async actual como autorizado (OperatorGrant consumido). */
 export function runWithHostShellAuthorization<T>(fn: () => T): T {
-  return hostShellAuth.run({ authorized: true }, fn);
+  return runWithOperatorAuthorization(fn);
 }
 
 function hostShellAuthorized(): boolean {
-  if (process.env.ISYMCP_ALLOW_HOST_SHELL === "1") return true;
-  return hostShellAuth.getStore()?.authorized === true;
+  return permissionEnabled("host_shell");
 }
 
 export interface ShellExecOptions {
@@ -92,7 +88,7 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
       stderr: "",
       duration_ms: Date.now() - started,
       timed_out: false,
-      error: "DENIED: shell_exec ejecuta en el host sin sandbox; export ISYMCP_ALLOW_HOST_SHELL=1 para habilitarlo",
+      error: deniedMessage("host_shell"),
     };
   }
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000), 300_000);
@@ -208,7 +204,7 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
 
     const proc = spawn(shellBinary, shellArgs, {
       cwd: effectiveCwd,
-      env: process.env,
+      env: scrubbedEnv(process.env),
       stdio: ["ignore", "pipe", "pipe"],
     });
 

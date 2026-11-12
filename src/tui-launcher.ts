@@ -443,7 +443,7 @@ export async function spawnAgentTui(options: SpawnAgentOptions): Promise<SpawnAg
     };
   }
 
-  const started = Bun.spawnSync(tmuxCmd, { cwd, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const started = Bun.spawnSync(tmuxCmd, { cwd, env: process.env, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   if (started.exitCode !== 0) {
     const err = started.stderr ? new TextDecoder().decode(started.stderr).trim().slice(0, 300) : "";
     return fail("tmux_start_failed", `tmux no pudo crear la sesión ${session}: ${err}`, { ...base, terminal: "tmux", command: tmuxCmd });
