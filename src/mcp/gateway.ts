@@ -1,7 +1,13 @@
 // src/mcp/gateway.ts — Universal Gateway y Glosario de Herramientas para ISyMCP estilo REA.
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { spawnAgyTui } from "../tui-launcher";
+import { spawnAgentTui } from "../tui-launcher";
+import { join as joinPath } from "node:path";
+
+/** Entrada del CLI isymcp que las consolas usan para responder. */
+function isymcpCliEntry(): string {
+  return joinPath(import.meta.dir, "..", "isymcp.ts");
+}
 import { GITHUB_MCP_TOOLS } from "../github/mcp-tools";
 import { callGitHubApi } from "../github/client";
 import { openBridgeMonitorStack } from "../remote-monitor";
@@ -34,17 +40,18 @@ export const ISYMCP_GLOSSARY: {
     "Para invocar cualquier herramienta usa: isymcp(action='<familia>.<accion>', arguments={...}). Para ver este glosario usa: isymcp(action='glossary').",
   families: {
     tui: {
-      description: "Orquestación y despliegue de consolas interactivas Antigravity (AGY) en el escritorio local.",
+      description: "Orquestación y despliegue de consolas interactivas de agentes (agy, claude, opencode, openisy, codex, gemini, copilot, droid, kimi, crush, hermes, openclaw) en el escritorio local.",
       actions: {
         "tui.spawn": {
           description:
-            "Abre una consola TUI de Antigravity en una ventana visible (gnome-terminal/tmux) con auto-registro de tarea y enlace al bus del monitor.",
+            "Abre una consola TUI de un agente (por defecto agy) en una ventana visible (gnome-terminal/tmux) con auto-registro de tarea, identidad de consola y enlace al bus del monitor. Usa tui.agents para ver qué agentes hay instalados.",
           parameters: {
             prompt: "string (obligatorio: instrucción o tarea para el nuevo agente)",
+            agent: "string (opcional, por defecto 'agy'): agy | claude | opencode | openisy | codex | gemini | copilot | droid | kimi | crush | hermes | openclaw",
             mode: "enum: 'plan' | 'auto' | 'accept-edits' (por defecto 'auto')",
             title: "string (opcional: título de la ventana)",
             terminal: "enum: 'auto' | 'gui' | 'tmux' (por defecto 'auto')",
-            dangerously_skip_permissions: "boolean (por defecto false para seguridad)",
+            dangerously_skip_permissions: "boolean (por defecto false; solo agy lo admite)",
             task_id: "string (opcional: ID de tarea para vincular con el monitor, auto-generado si se omite)",
             operation_id: "string (opcional: ID de operación asociada)",
           },
@@ -52,9 +59,15 @@ export const ISYMCP_GLOSSARY: {
             action: "tui.spawn",
             arguments: {
               prompt: "Auditar arquitectura y pruebas en modo seguro",
-              mode: "plan",
+              agent: "opencode",
             },
           },
+        },
+        "tui.agents": {
+          description:
+            "Catálogo multiharness: por agente, si está instalado, cómo recibe el prompt inicial (argv o pegado) y cómo le llegan las tareas siguientes (agy-task, background-bash o inject por tmux).",
+          parameters: {},
+          example: { action: "tui.agents" },
         },
         "tui.consoles": {
           description:
@@ -164,7 +177,7 @@ export const ISYMCP_GLOSSARY: {
           description: "Encola una tarea estructurada para ejecución o supervisión.",
           parameters: {
             operation_id: "string",
-            console_id: "string (opcional: dirige la tarea SOLO a esa consola; su wait-next --console la recibe)",
+            console_id: "string (opcional: dirige la tarea SOLO a esa consola; agy/claude la reciben con wait-next --console, las demás TUIs la reciben pegada en su terminal)",
             kind: "string (ej. 'diagnostics', 'review_and_test')",
             description: "string",
             requested_actions: "array de strings (ej. ['status:read', 'tests:run', 'report:write'])",
@@ -367,8 +380,20 @@ export async function dispatchIsyMcpAction(
     }
 
     // 3. Familia TUI
+    if (normalized === "tui.agents" || normalized === "agents.list") {
+      const { AGENT_TUIS, findAgentBinary } = await import("../agent-tuis");
+      return {
+        ok: true,
+        result: AGENT_TUIS.map((a) => ({
+          agent: a.id, label: a.label, aliases: a.aliases, installed: Boolean(findAgentBinary(a)),
+          prompt_via: a.promptVia, listener: a.listener, skip_permissions: a.id === "agy",
+        })),
+      };
+    }
+
     if (normalized === "tui.spawn" || normalized === "spawn" || normalized === "tui") {
-      const res = await spawnAgyTui({
+      const res = await spawnAgentTui({
+        agent: args.agent ? String(args.agent) : "agy",
         prompt: String(args.prompt ?? "Hola Danny, consola coordinada por ISyMCP"),
         cwd: args.cwd ? String(args.cwd) : undefined,
         title: args.title ? String(args.title) : undefined,
@@ -527,7 +552,21 @@ export async function dispatchIsyMcpAction(
           null,
         );
         const task = monitor.inspectTask(taskId);
-        return { ok: true, result: task };
+        // Consolas sin listener propio (opencode, openisy, codex...): la tarea se pega en su terminal.
+        let delivery: { delivered: boolean; reason: string } | undefined;
+        if (args.console_id) {
+          try {
+            const { getConsole } = await import("../console-registry");
+            const { deliverTaskToConsole } = await import("../console-delivery");
+            const rec = getConsole(db, String(args.console_id));
+            delivery = rec
+              ? deliverTaskToConsole(rec, { task_id: taskId, kind, description }, isymcpCliEntry())
+              : { delivered: false, reason: "console_not_found" };
+          } catch (e) {
+            delivery = { delivered: false, reason: `delivery_error: ${(e as Error).message}` };
+          }
+        }
+        return { ok: true, result: delivery ? { ...task, delivery } : task };
       } finally {
         db.close();
       }

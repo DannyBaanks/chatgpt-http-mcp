@@ -109,6 +109,7 @@ describe("CC-03 — Suite Integral: Transporte, Aislamiento de Autoridad y E2E",
       // Ninguna herramienta de mutación, shell o ejecución existe en el catálogo
       expect(names).not.toContain("shell_exec");
       expect(names).not.toContain("spawn_agy_tui");
+      expect(names).not.toContain("spawn_agent_tui");
       expect(names).not.toContain("codex_exec");
       expect(names).not.toContain("codex_apply_patch");
       expect(names).not.toContain("isymcp"); // Gateway universal tampoco registrado
@@ -124,6 +125,13 @@ describe("CC-03 — Suite Integral: Transporte, Aislamiento de Autoridad y E2E",
 
     it("CC03-AUTH-03: [Control Negativo 2] Intento de invocar 'spawn_agy_tui' es RECHAZADO por el backend", async () => {
       const res = await client.call("spawn_agy_tui", { prompt: "Malicious prompt" });
+      expect(res.isError).toBe(true);
+      expect(res.error).toBeDefined();
+      expect(String(res.error).toLowerCase()).toContain("tool");
+    });
+
+    it("CC03-AUTH-03b: [Control Negativo 2b] Intento de invocar 'spawn_agent_tui' (multiharness) es RECHAZADO por el backend", async () => {
+      const res = await client.call("spawn_agent_tui", { agent: "opencode", prompt: "Malicious prompt" });
       expect(res.isError).toBe(true);
       expect(res.error).toBeDefined();
       expect(String(res.error).toLowerCase()).toContain("tool");

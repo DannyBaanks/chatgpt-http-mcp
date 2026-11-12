@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { apply, CATALOG, detect, launcherPath, MCP_NAME, plan, resolveExecutable } from "../src/harness";
+import { apply, CATALOG, detect, GATEWAY_MCP_NAME, gatewayLauncherPath, launcherPath, MCP_NAME, mentionsServer, plan, resolveExecutable } from "../src/harness";
 import { handleHarnessApi } from "../src/panel";
 import { loadChat } from "../src/chats";
 import { ROOT } from "./helpers/mcp-call";
@@ -33,11 +33,15 @@ beforeAll(() => {
   process.env.CODEX_WEB_HTTP_HOME = join(dir, "home");
   process.env.CURSOR_HOME = join(dir, "empty_cursor");
   process.env.OPENCODE_HOME = join(dir, "empty_opencode");
+  // Las configs JSON nuevas (agy, openisy, kimi, crush) nunca deben tocar el home real.
+  for (const v of ["AGY_HOME", "OPENISY_HOME", "KIMI_HOME", "CRUSH_HOME"]) process.env[v] = join(dir, `empty_${v.toLowerCase()}`);
+  delete process.env.OPENISY_CONFIG_DIR;
 });
 afterAll(() => {
   process.env.PATH = savedPath;
   delete process.env.CODEX_WEB_HTTP_HOME;
   delete process.env.CURSOR_HOME; delete process.env.OPENCODE_HOME;
+  for (const v of ["AGY_HOME", "OPENISY_HOME", "KIMI_HOME", "CRUSH_HOME"]) delete process.env[v];
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -54,7 +58,8 @@ describe("deteccion", () => {
     for (const id of ["claude", "codex", "qwen", "gemini", "grok", "copilot", "hermes", "openclaw", "pi"]) {
       expect(by[id]).toMatchObject({ present: true, supported: true, installed: false });
     }
-    expect(by.kimi).toMatchObject({ present: true, supported: false, installed: null });
+    // kimi ya tiene estrategia JSON verificada (~/.kimi-code/mcp.json): sin archivo = no instalado.
+    expect(by.kimi).toMatchObject({ present: true, supported: true, installed: false });
     // Si opencode/crush estan en el host no lo decide el fixture sino la maquina
     // (en Windows conviven con bun en PATH). Lo que se afirma aqui es la matriz de
     // soporte y que "instalado" solo se consulta cuando hay algo que consultar.
@@ -62,9 +67,10 @@ describe("deteccion", () => {
     expect(by.opencode.supported).toBe(true);
     expect(by.opencode.present).toBe(onHost("opencode"));
     expect(by.opencode.installed).toBe(onHost("opencode") ? false : null);
-    expect(by.crush.supported).toBe(false);
+    expect(by.crush.supported).toBe(true);
     expect(by.crush.present).toBe(onHost("crush"));
-    expect(by.crush.installed).toBeNull();
+    expect(by.crush.installed).toBe(onHost("crush") ? false : null);
+    expect(by.fx.supported).toBe(false);
   });
 });
 
@@ -79,6 +85,7 @@ describe("plan / apply / verify", () => {
     expect(steps.find((s) => s.id === "copilot")!.argv).toEqual([fakes.copilot.path, "mcp", "add", MCP_NAME, "--", launcherPath()]);
     expect(steps.find((s) => s.id === "pi")!.argv).toEqual([fakes.pi.path, "mcp", "add", MCP_NAME, "--", launcherPath()]);
     expect(steps.find((s) => s.id === "kimi")!.argv).toBeNull();
+    expect(steps.find((s) => s.id === "kimi")!.reason).toContain(join(".kimi-code", "mcp.json"));
     expect(steps.find((s) => s.id === "nope")!.reason).toBe("harness desconocido");
     const after = readFileSync(log, "utf8").slice(before.length);
     expect(after).not.toContain(" mcp add ");
@@ -143,6 +150,92 @@ describe("plan / apply / verify", () => {
 
     delete process.env.CURSOR_HOME;
     delete process.env.OPENCODE_HOME;
+  });
+});
+
+describe("gateway isymcp (--server gateway)", () => {
+  test("isymcp no se confunde con isymcp-chatgpt al leer la salida de `mcp list`", () => {
+    expect(mentionsServer("isymcp-chatgpt  connected", GATEWAY_MCP_NAME)).toBe(false);
+    expect(mentionsServer("isymcp  connected\nisymcp-chatgpt ok", GATEWAY_MCP_NAME)).toBe(true);
+    expect(mentionsServer("  isymcp-chatgpt ✓", MCP_NAME)).toBe(true);
+  });
+
+  test("con isymcp-chatgpt instalado, el gateway sigue figurando como no instalado", async () => {
+    await apply("install", ["codex"], true);
+    expect((await detect(["codex"]))[0]!.installed).toBe(true);
+    expect((await detect(["codex"], "gateway"))[0]!.installed).toBe(false);
+    await apply("uninstall", ["codex"], true);
+  });
+
+  test("el plan usa el nombre isymcp y el lanzador del gateway", async () => {
+    const steps = await plan("install", ["claude", "hermes"], "gateway");
+    expect(steps.find((s) => s.id === "claude")!.argv).toEqual([fakes.claude.path, "mcp", "add", "--scope", "user", GATEWAY_MCP_NAME, "--", gatewayLauncherPath()]);
+    expect(steps.find((s) => s.id === "hermes")!.argv).toEqual([fakes.hermes.path, "mcp", "add", GATEWAY_MCP_NAME, "--command", gatewayLauncherPath()]);
+  });
+
+  test("openisy, agy, kimi y crush: JSON en SU archivo real, preservando lo ajeno, y se quitan", async () => {
+    const home = join(dir, "gw_home");
+    process.env.OPENISY_HOME = home; process.env.AGY_HOME = home; process.env.KIMI_HOME = home; process.env.CRUSH_HOME = home;
+    const openisyCfg = join(home, ".openisy", "config", "opencode.json");
+    const agyCfg = join(home, ".gemini", "config", "mcp_config.json");
+    const kimiCfg = join(home, ".kimi-code", "mcp.json");
+    const crushCfg = join(home, ".config", "crush", "crush.json");
+    for (const f of [openisyCfg, agyCfg, kimiCfg, crushCfg]) mkdirSync(join(f, ".."), { recursive: true });
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(openisyCfg, JSON.stringify({ plugins: ["/x/l1"], providers: { a: {} } }));
+    writeFileSync(agyCfg, JSON.stringify({ mcpServers: { rea: { command: "rea" } } }));
+    writeFileSync(kimiCfg, JSON.stringify({ mcpServers: { rea: { command: "rea", args: ["mcp"] } } }));
+    writeFileSync(crushCfg, JSON.stringify({ mcp: { playwright: { type: "stdio", command: "npx" } }, options: { x: 1 } }));
+    // Los ejecutables no están en el PATH falso: presencia por carpeta de config no aplica a CLIs;
+    // se crean falsos mínimos para que cuenten como instalados en esta máquina.
+    for (const name of ["openisy", "agy", "crush"]) fakeExecutable({ bin, name, body: { print: "" } });
+    const ids = ["openisy", "agy", "kimi", "crush"];
+    const res = await apply("install", ids, true, "gateway");
+    expect(res.every((r) => r.ran && r.ok && r.verified === true)).toBe(true);
+    expect(existsSync(gatewayLauncherPath())).toBe(true);
+    expect(readFileSync(gatewayLauncherPath(), "utf8")).toContain("--contract native");
+    const oi = JSON.parse(readFileSync(openisyCfg, "utf8"));
+    expect(oi.plugins).toEqual(["/x/l1"]);
+    expect(oi.mcp[GATEWAY_MCP_NAME]).toEqual({ type: "local", command: [gatewayLauncherPath()], enabled: true });
+    const agy = JSON.parse(readFileSync(agyCfg, "utf8"));
+    expect(agy.mcpServers.rea).toEqual({ command: "rea" });
+    expect(agy.mcpServers[GATEWAY_MCP_NAME].command).toBe(gatewayLauncherPath());
+    const crush = JSON.parse(readFileSync(crushCfg, "utf8"));
+    expect(crush.options).toEqual({ x: 1 });
+    expect(crush.mcp[GATEWAY_MCP_NAME]).toEqual({ type: "stdio", command: gatewayLauncherPath() });
+    expect(JSON.parse(readFileSync(kimiCfg, "utf8")).mcpServers.rea.args).toEqual(["mcp"]);
+    expect((await detect(ids, "gateway")).every((s) => s.installed === true)).toBe(true);
+    // El chatgpt NO quedó instalado por accidente.
+    expect((await detect(ids, "chatgpt")).every((s) => s.installed === false)).toBe(true);
+    const removed = await apply("uninstall", ids, true, "gateway");
+    expect(removed.every((r) => r.ran && r.ok && r.verified === true)).toBe(true);
+    expect(JSON.parse(readFileSync(agyCfg, "utf8")).mcpServers).toEqual({ rea: { command: "rea" } });
+    for (const v of ["AGY_HOME", "OPENISY_HOME", "KIMI_HOME", "CRUSH_HOME"]) process.env[v] = join(dir, `empty_${v.toLowerCase()}`);
+  });
+
+  test("el alias isyco-web-http (instalado por tui.ts en opencode) cuenta como gateway", async () => {
+    const home = join(dir, "oc_alias");
+    mkdirSync(join(home, ".config", "opencode"), { recursive: true });
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(join(home, ".config", "opencode", "opencode.json"), JSON.stringify({ mcp: { "isyco-web-http": { type: "local", command: ["bun", "main.ts"] } } }));
+    process.env.OPENCODE_HOME = home;
+    fakeExecutable({ bin, name: "opencode", body: { print: "" } });
+    expect((await detect(["opencode"], "gateway"))[0]!.installed).toBe(true);
+    expect((await plan("install", ["opencode"], "gateway"))[0]!.reason).toBe(`ya tiene ${GATEWAY_MCP_NAME}`);
+    process.env.OPENCODE_HOME = join(dir, "empty_opencode");
+  });
+
+  test("un JSON ilegible no se pisa", async () => {
+    const home = join(dir, "bad_json");
+    mkdirSync(join(home, ".kimi-code"), { recursive: true });
+    const { writeFileSync } = await import("node:fs");
+    const cfg = join(home, ".kimi-code", "mcp.json");
+    writeFileSync(cfg, "{ esto no es json");
+    process.env.KIMI_HOME = home;
+    const [r] = await apply("install", ["kimi"], true, "gateway");
+    expect(r!.ok).toBe(false);
+    expect(readFileSync(cfg, "utf8")).toBe("{ esto no es json");
+    process.env.KIMI_HOME = join(dir, "empty_kimi_home");
   });
 });
 

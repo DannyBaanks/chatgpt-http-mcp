@@ -22,6 +22,8 @@ describe("detectTuis", () => {
     const installable = found.filter((t) => t.installable).map((t) => t.id);
     expect(installable).toContain("opencode");
     expect(installable).toContain("gemini");
+    expect(installable).toContain("agy");
+    expect(installable).toContain("openisy");
     expect(installable).toContain("claude");
     expect(installable).toContain("cursor");
   });
@@ -138,63 +140,42 @@ describe("installIntoStandardMcpTui", () => {
 });
 
 describe("installIntoTui & installIntoAllTuis", () => {
-  test("despacha correctamente a gemini, claude y opencode", () => {
+  test("cada TUI escribe en SU archivo real: agy, gemini, openisy, opencode; claude va por su propio mcp add", () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "fake-home-"));
     const backupsDir = join(fakeHome, "backups");
+    const run = (tuiId: string, dryRun = false) =>
+      installIntoTui({ tuiId, home: fakeHome, backupsDir, mcpMain: "/path/to/main.ts", dryRun });
 
-    const resGemini = installIntoTui({
-      tuiId: "gemini",
-      home: fakeHome,
-      backupsDir,
-      mcpMain: "/path/to/main.ts",
-      dryRun: false,
-    });
-    expect(resGemini.action).toBe("apply");
-    const geminiConfig = join(fakeHome, ".gemini", "config", "mcp_config.json");
-    expect(existsSync(geminiConfig)).toBe(true);
+    // agy (Antigravity CLI) -> ~/.gemini/config/mcp_config.json
+    expect(run("agy").action).toBe("apply");
+    expect(existsSync(join(fakeHome, ".gemini", "config", "mcp_config.json"))).toBe(true);
+    expect(run("antigravity", true).action).toBe("dry-run");
 
-    const resClaude = installIntoTui({
-      tuiId: "claude",
-      home: fakeHome,
-      backupsDir,
-      mcpMain: "/path/to/main.ts",
-      dryRun: false,
-    });
-    expect(resClaude.action).toBe("apply");
-    const claudeConfig = join(fakeHome, ".claude", "claude_desktop_config.json");
-    expect(existsSync(claudeConfig)).toBe(true);
+    // Gemini CLI -> ~/.gemini/settings.json (NO el archivo de agy)
+    expect(run("gemini").configPath).toBe(join(fakeHome, ".gemini", "settings.json"));
+    expect(JSON.parse(readFileSync(join(fakeHome, ".gemini", "settings.json"), "utf8")).mcpServers.isymcp).toBeDefined();
 
-    // Alias 'openisy' resuelve a 'opencode'
-    const resOpenIsy = installIntoTui({
-      tuiId: "openisy",
-      home: fakeHome,
-      backupsDir,
-      mcpMain: "/path/to/main.ts",
-      dryRun: false,
-    });
-    expect(resOpenIsy.action).toBe("apply");
-    expect(existsSync(join(fakeHome, ".config", "opencode", "opencode.json"))).toBe(true);
+    // openisy -> ~/.openisy/config/opencode.json (bin/openisy exporta OPENCODE_CONFIG_DIR ahí)
+    expect(run("openisy").configPath).toBe(join(fakeHome, ".openisy", "config", "opencode.json"));
+    expect(existsSync(join(fakeHome, ".openisy", "config", "opencode.json"))).toBe(true);
+    expect(existsSync(join(fakeHome, ".config", "opencode", "opencode.json"))).toBe(false);
 
-    // Alias 'agy' resuelve a 'gemini'
-    const resAgy = installIntoTui({
-      tuiId: "agy",
-      home: fakeHome,
-      backupsDir,
-      mcpMain: "/path/to/main.ts",
-      dryRun: true,
-    });
-    expect(resAgy.action).toBe("dry-run");
+    // opencode sigue en ~/.config/opencode, con su propio journal de backup
+    expect(run("opencode").configPath).toBe(join(fakeHome, ".config", "opencode", "opencode.json"));
+    expect(existsSync(join(backupsDir, "openisy", "tui-latest.json"))).toBe(true);
+    expect(existsSync(join(backupsDir, "opencode", "tui-latest.json"))).toBe(true);
+
+    // Claude Code: nada de claude_desktop_config.json en ~/.claude; se delega a `claude mcp add`
+    const claude = run("claude");
+    expect(claude.harness).toBe(true);
+    expect(claude.action).toBe("noop");
+    expect(existsSync(join(fakeHome, ".claude", "claude_desktop_config.json"))).toBe(false);
+
+    // Claude Desktop sí es JSON, en su ruta de Linux
+    expect(run("desktop").configPath).toBe(join(fakeHome, ".config", "Claude", "claude_desktop_config.json"));
 
     // TUI desconocida lanza error
-    expect(() => {
-      installIntoTui({
-        tuiId: "nonexistent_tui_999",
-        home: fakeHome,
-        backupsDir,
-        mcpMain: "/path/to/main.ts",
-        dryRun: false,
-      });
-    }).toThrow("TUI desconocida");
+    expect(() => run("nonexistent_tui_999")).toThrow("TUI desconocida");
   });
 
   test("installIntoAllTuis procesa todas las TUIs registradas", () => {
