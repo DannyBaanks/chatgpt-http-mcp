@@ -30,12 +30,14 @@ import { installWebModels } from "../scripts/install-web-models";
 import { defaultExportPath, exportLines, formatLine, parseBound, readAll, selectLines } from "./logs";
 import { MENU, brandHeader, findItem, select, visible, visibleLabels } from "./menu";
 import { buildChatGPTCommand, CONNECTOR_NAME, MENTION } from "./mcp/identity";
-import { detectTuis, installIntoOpencode, installIntoTui, installIntoAllTuis } from "./tui";
 import { bridgeAuthHeaders, bridgeToken } from "./local-guard";
 import { processMatches, stopProcessTree } from "./platform/process";
 import { findCodexWindowsCli } from "./platform/codex-windows-sandbox";
 import { installTunnelClient, storeRuntimeKey, storeTunnelId, validateRuntimeKey, validateTunnelId } from "../scripts/install-tunnel";
 import { nativeBrowserCommand, parseBrowserOption, rejectUnavailableBrowser } from "./visible/native-browser";
+import { ask, confirm, flag } from "./cli/args";
+import { findCliModule } from "./cli/module";
+import { harnessCommand, harnessInteractive } from "./cli/commands/harness";
 
 const ROOT = join(import.meta.dir, "..");
 const PORT = process.env.CODEX_WEB_HTTP_PORT?.trim() || "8791";
@@ -412,22 +414,6 @@ async function settingsSync(): Promise<void> {
 
 // ── Confirmaciones del menu ────────────────────────────────────────────────
 
-async function confirm(question: string): Promise<boolean> {
-  return /^(s|si|sí|y|yes)$/i.test(await ask(`${question} [s/N] `));
-}
-
-async function harnessInteractive(sub: "install" | "uninstall"): Promise<void> {
-  const { detect } = await import("./harness");
-  const usable = (await detect()).filter((s) => s.present && s.supported);
-  if (usable.length === 0) { console.log("no hay harnesses instalables detectados"); return; }
-  console.log(`detectados: ${usable.map((s) => `${s.id}${s.installed === true ? " ✓" : ""}`).join(", ")}`);
-  const raw = await ask("¿cuales? (separados por coma, o 'todos'): ");
-  if (!raw) return;
-  const ids = /^(todos|all)$/i.test(raw) ? ["--all"] : raw.split(/[\s,]+/).filter(Boolean);
-  await harnessCommand(sub, ids);
-  if (await confirm("¿Ejecutar este plan?")) await harnessCommand(sub, [...ids, "--apply"]);
-  else console.log("nada escrito");
-}
 
 async function canaryScheduleInteractive(sub: "schedule" | "unschedule"): Promise<void> {
   await canaryCommand(sub, []);
@@ -746,10 +732,6 @@ Cerrar esta terminal no mata nada: server y panel quedan detached.
 `);
 }
 
-function flag(name: string, args: string[]): string | undefined {
-  const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
-}
 
 function logs(args: string[]): void {
   const since = flag("--since", args);
@@ -779,15 +761,6 @@ function logs(args: string[]): void {
   console.log(`lineas: ${saved.count}`);
 }
 
-function ask(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
-  });
-}
 
 async function askHidden(question: string): Promise<string> {
   const input = process.stdin;
@@ -1027,6 +1000,9 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   await openMenu();
 } else if (!cmd || cmd === "status") {
   await status();
+} else if (findCliModule(cmd)) {
+  // Comandos ya migrados a módulos (src/cli/commands/*). El resto sigue en esta cadena hasta migrarlos.
+  await findCliModule(cmd)!.run(sub, rest, { root: ROOT, help });
 } else if (cmd === "native-browser") {
   process.exitCode = await nativeBrowserCommand(sub, rest);
 } else if (cmd === "tablero") {
@@ -1132,146 +1108,6 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   else installIntoCodex(false);
 } else if (cmd === "command" && sub) {
   command([sub, ...rest.filter((a) => a !== "--effort" && a !== effortFlag)].join(" "), effortFlag);
-} else if (cmd === "tui") {
-  if (sub === "--help" || sub === "-h") {
-    console.log(`
-isymcp tui — Gestión de integración MCP en entornos de agentes y TUIs
-
-USO:
-  isymcp tui list                         Lista las herramientas/TUIs detectadas en el sistema
-  isymcp tui install [tui|--all]          Muestra el plan de configuración MCP (dry-run por defecto)
-  isymcp tui install [tui|--all] --apply  Aplica los cambios en las configs con respaldo automático
-  isymcp tui install [tui|--all] --restore Restaura la configuración previa desde el último backup
-  isymcp tui spawn "<instrucción>" [--agent <id>] [--dry-run]  Abre una consola de agente (agy por defecto)
-  isymcp tui agents                       Agentes que se pueden lanzar y cómo reciben tareas
-
-EJEMPLOS:
-  isymcp tui install openisy --apply      # Configura OpenCode / OpenISy
-  isymcp tui install agy --apply          # Configura Antigravity CLI / Gemini
-  isymcp tui install claude --apply       # Configura Claude Desktop / Code
-  isymcp tui install --all --apply        # Aplica en todas las TUIs presentes en el host
-  isymcp tui spawn "Hola agy"             # Lanza consola visible de Antigravity
-  isymcp tui spawn "Revisa PITON" --agent openisy   # Misma coordinación con OpenISy
-`);
-    process.exit(0);
-  }
-  const baseUrl = process.env.ISYMCP_TUI_BASE_URL?.trim() || "http://127.0.0.1:8791";
-  const configPath = flag("--config", rest) ?? join(homedir(), ".config", "opencode", "opencode.json");
-  if (!sub || sub === "list") {
-    for (const tui of detectTuis(homedir())) {
-      console.log(`${tui.present ? "presente " : "ausente  "}${tui.installable ? "[instalable]" : "            "} ${tui.id} (${tui.label}) ${
-        tui.bin ?? tui.configDir}`);
-    }
-  } else if (sub === "install") {
-    const targetConfigPath = flag("--config", rest);
-    const positional: string[] = [];
-    const flagsWithValues = new Set(["--config", "--tui", "--base-url", "--mcp-main"]);
-    for (let i = 0; i < rest.length; i++) {
-      if (flagsWithValues.has(rest[i])) {
-        i++; // saltar el valor asociado
-        continue;
-      }
-      if (!rest[i].startsWith("-")) {
-        positional.push(rest[i]);
-      }
-    }
-
-    const isAll = rest.includes("--all") || flag("--tui", rest) === "all" || positional.includes("all");
-    const which = flag("--tui", rest) ?? (positional[0] ? positional[0] : (isAll ? "all" : (targetConfigPath ? "opencode" : "all")));
-    const dryRun = !rest.includes("--apply");
-    const restore = rest.includes("--restore");
-    const backupsDir = join(ROOT, "backups", "tui");
-
-    if (isAll || which === "all") {
-      const results = installIntoAllTuis({
-        backupsDir,
-        baseUrl,
-        dryRun,
-        restore,
-        onlyPresent: !rest.includes("--force-all"),
-      });
-      let hasErrors = false;
-      const viaHarness: string[] = [];
-      for (const { tui, result, error } of results) {
-        if (error) {
-          hasErrors = true;
-          console.error(`✗ ${tui.id} (${tui.label}): ${error}`);
-        } else if (result) {
-          // Provider de modelos Web (solo opencode/openisy); el MCP de todas va por harness.
-          if (result.models > 0 || result.action === "restore") {
-            console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${tui.id} (${tui.label}): provider ${result.configPath} modelos=${result.models} ${result.backupPath ? `(backup: ${result.backupPath})` : ""}`);
-          }
-          if (result.harness) viaHarness.push(tui.id);
-        }
-      }
-      if (viaHarness.length > 0 && !restore) {
-        console.log(`\nMCP (gateway isymcp) por harness: ${viaHarness.join(", ")}`);
-        await harnessCommand("install", [...viaHarness, "--server", "gateway", ...(dryRun ? [] : ["--apply"])]);
-      }
-      if (hasErrors) process.exitCode = 1;
-      if (dryRun) console.log("\nModo dry-run: ningún archivo modificado. Usa '--apply' para escribir los cambios con backup.");
-    } else {
-      try {
-        const result = installIntoTui({
-          tuiId: which,
-          configPath: targetConfigPath,
-          backupsDir,
-          baseUrl,
-          dryRun,
-          restore,
-        });
-        const { findAgent } = await import("./agents/catalog");
-        const id = findAgent(which)?.id ?? which;
-        const providerTouched = result.models > 0 || result.action === "restore";
-        if (providerTouched) {
-          console.log(`${result.action === "dry-run" ? "[dry-run]" : "✓"} ${id}: provider ${result.configPath} modelos=${result.models}${result.backupPath ? ` backup=${result.backupPath}` : ""}`);
-        }
-        if (result.harness && restore && !providerTouched) {
-          throw new Error(`el MCP de ${id} lo instala harness: usa isymcp harness uninstall ${id} --server gateway --apply`);
-        }
-        if (result.harness && !restore) {
-          console.log(`MCP (gateway isymcp) por harness:`);
-          await harnessCommand("install", [id, "--server", "gateway", ...(dryRun ? [] : ["--apply"])]);
-        }
-        if (dryRun) console.log("nada escrito (usa --apply para escribir)");
-      } catch (err: any) {
-        console.error(`Error instalando en ${which}: ${err.message}`);
-        process.exitCode = 1;
-      }
-    }
-  } else if (sub === "agents") {
-    const { AGENT_TUIS, findAgentBinary } = await import("./agent-tuis");
-    const rows = AGENT_TUIS.map((a) => ({ agent: a.id, label: a.label, bin: findAgentBinary(a), prompt_via: a.promptVia, listener: a.listener }));
-    if (rest.includes("--json")) console.log(JSON.stringify(rows, null, 2));
-    else for (const r of rows) {
-      console.log(`  ${r.bin ? "●" : "·"} ${r.agent.padEnd(9)} ${r.bin ? r.bin : "no instalado"}  · prompt ${r.prompt_via} · tareas ${r.listener}`);
-    }
-  } else if (sub === "spawn") {
-    const flagsWithVal = new Set(["--cwd", "--title", "--mode", "--terminal", "--agent"]);
-    const positionals: string[] = [];
-    for (let i = 0; i < rest.length; i++) {
-      if (flagsWithVal.has(rest[i])) {
-        i++;
-        continue;
-      }
-      if (!rest[i].startsWith("-")) positionals.push(rest[i]);
-    }
-    const agent = flag("--agent", rest) || "agy";
-    const prompt = positionals.join(" ") || `Hola ${agent}`;
-    const cwd = flag("--cwd", rest);
-    const title = flag("--title", rest);
-    const mode = (flag("--mode", rest) as any) || "auto";
-    const terminalPreference = flag("--terminal", rest) as any;
-    const dryRun = rest.includes("--dry-run");
-    const { spawnAgentTui } = await import("./tui-launcher");
-    const res = await spawnAgentTui({ agent, prompt, cwd, title, mode, terminalPreference, dryRun });
-    if (dryRun) console.log(JSON.stringify({ ...res, command: res.command.map((a) => (a.length > 160 ? `${a.slice(0, 157)}...` : a)) }, null, 2));
-    console.log(res.ok ? `✓ ${res.message}` : `✗ Error: ${res.error || res.message}`);
-    process.exitCode = res.ok ? 0 : 1;
-  } else {
-    help();
-    process.exit(2);
-  }
 } else if (cmd === "ui" || cmd === "control-center" || (cmd === "panel" && (sub === "control-center" || sub === "ui"))) {
   await openPanel("#control-center");
 } else if (cmd === "panel") {
@@ -1333,68 +1169,6 @@ EJEMPLOS:
   }
 } else if (cmd === "canary") {
   await canaryCommand(sub ?? "run", rest);
-} else if (cmd === "allow") {
-  // Permisos del operador (src/permissions.ts). Se leen en cada llamada: no hace falta reiniciar nada.
-  const P = await import("./permissions");
-  const alias: Record<string, "host_shell" | "agent_spawn"> = { shell: "host_shell", host_shell: "host_shell", agents: "agent_spawn", agent_spawn: "agent_spawn", consoles: "agent_spawn" };
-  const left = (iso: string) => {
-    const total = Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 60_000));
-    const h = Math.floor(total / 60), m = total % 60;
-    return h > 0 ? `${h} h ${m} min` : `${m} min`;
-  };
-  const show = () => {
-    for (const cap of P.CAPABILITIES) {
-      const src = P.permissionSource(cap);
-      const fg = P.fileGrant(cap);
-      const label = cap === "host_shell" ? "shell  " : "agents ";
-      const what = cap === "host_shell" ? "shell_exec en el host (sin sandbox)" : "abrir consolas de agentes y pegarles tareas";
-      const by = src === "env" ? `por ${P.capabilityEnvVar(cap)}` : src === "file" ? (fg.until ? `caduca en ${left(fg.until)} (${new Date(fg.until).toLocaleTimeString()})` : "sin caducidad (--forever)") : src ? "por OperatorGrant" : fg.expired ? "caducó" : "";
-      console.log(`  ${src ? "● ENCENDIDO" : "○ apagado  "} ${label} ${what}${by ? ` · ${by}` : ""}`);
-    }
-  };
-  if (!sub || sub === "status") {
-    show();
-  } else if (sub === "log") {
-    const n = Number(flag("--last", rest) ?? "20");
-    const rows = P.readAudit(Number.isFinite(n) ? n : 20);
-    if (rest.includes("--json")) console.log(JSON.stringify(rows, null, 2));
-    else if (rows.length === 0) console.log(`  (bitácora vacía: ${P.auditLogPath()})`);
-    else for (const r of rows) {
-      const extra = ["agent", "console_id", "task_id", "command"].filter((k) => r[k] !== undefined).map((k) => `${k}=${String(r[k])}`).join(" ");
-      const mark = r.decision === "allow" ? "✓" : r.decision === "deny" ? "✗" : "•";
-      const cap = r.cap === "host_shell" ? "shell " : "agents";
-      console.log(`  ${String(r.ts).slice(0, 19).replace("T", " ")}  ${mark} ${cap} ${String(r.action).padEnd(24)} ${r.source ?? (r.reason ?? "-")}${r.ttl ? ` ${r.ttl}` : ""}  ${extra}`.slice(0, 220));
-    }
-  } else {
-    const cap = alias[sub];
-    const state = rest[0];
-    const usage = (msg: string): never => {
-      console.error(`✗ ${msg}`);
-      process.exit(2);
-    };
-    if (!cap || (state !== "on" && state !== "off")) {
-      usage("uso: isymcp allow [status|log] | isymcp allow shell|agents on [--for 2h|--forever] | isymcp allow shell|agents off");
-    }
-    let ttl: number | null | undefined;
-    if (state === "on") {
-      const forRaw = flag("--for", rest);
-      if (rest.includes("--forever")) ttl = null;
-      else if (forRaw !== undefined) {
-        const ms = P.parseDuration(forRaw);
-        if (ms === null) usage(`--for no se entiende: '${forRaw}' (usa 30m, 2h, 1d)`);
-        if (ms! > P.MAX_TTL_MS) usage("--for máximo 24h; para dejarlo sin caducidad usa --forever a propósito");
-        ttl = ms;
-      }
-    }
-    P.setPermission(cap, state === "on", process.env, ttl);
-    P.appendAudit({ cap, action: `allow ${state}`, decision: "operator", source: "cli", ...(ttl !== undefined ? { ttl: ttl === null ? "forever" : `${Math.round(ttl / 60_000)}m` } : {}) });
-    show();
-    if (state === "off" && process.env[P.capabilityEnvVar(cap)] === "1") {
-      console.log(`  ojo: ${P.capabilityEnvVar(cap)}=1 en el entorno lo sigue encendiendo`);
-    }
-  }
-} else if (cmd === "harness") {
-  await harnessCommand(sub ?? "list", rest);
 } else if (cmd === "metrics") {
   await metricsCommand(sub, rest);
 } else if (cmd === "health") {
@@ -1541,59 +1315,6 @@ async function healthCommand(sub?: string, rest: string[] = []): Promise<void> {
   } catch (err) {
     console.error(`Bridge no disponible en :${port}: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
-  }
-}
-
-// harness list|install|uninstall — MCP de ISyMCP en otras CLIs/TUIs.
-//   --server chatgpt (defecto): isymcp-chatgpt (chatgpt_ask)
-//   --server gateway: isymcp (gateway completo: tool isymcp, monitor, consolas, media, github)
-//   --server all: ambos
-// Sin --apply NUNCA escribe: imprime el comando exacto que correria.
-async function harnessCommand(sub: string, rest: string[]): Promise<void> {
-  const { apply, CATALOG, detect, plan, serverName } = await import("./harness");
-  const json = rest.includes("--json");
-  const serverArg = (() => {
-    const i = rest.indexOf("--server");
-    const v = i >= 0 ? rest[i + 1] : rest.find((a) => a.startsWith("--server="))?.slice(9);
-    return (v ?? "chatgpt").toLowerCase();
-  })();
-  if (!["chatgpt", "gateway", "all"].includes(serverArg)) throw new Error("--server debe ser chatgpt, gateway o all");
-  const kinds = (serverArg === "all" ? ["chatgpt", "gateway"] : [serverArg]) as Array<"chatgpt" | "gateway">;
-  const positional = rest.filter((a, i) => !a.startsWith("--") && rest[i - 1] !== "--server");
-  if (sub === "list") {
-    const byKind = await Promise.all(kinds.map((k) => detect(undefined, k)));
-    if (json) { console.log(JSON.stringify(Object.fromEntries(kinds.map((k, i) => [k, byKind[i]])), null, 2)); return; }
-    const first = byKind[0]!;
-    for (let r = 0; r < first.length; r++) {
-      const s = first[r]!;
-      const cols = kinds.map((k, i) => {
-        const x = byKind[i]![r]!;
-        const n = serverName(k);
-        return !x.present ? "" : !x.supported ? `detectado · ${x.pending}` : x.installed === true ? `${n} ✓` : x.installed === false ? `sin ${n}` : `${n}: estado desconocido`;
-      });
-      console.log(`  ${s.present ? "●" : "·"} ${s.id.padEnd(9)} ${s.present ? cols.join("  ·  ") : "no instalado"}`);
-    }
-    return;
-  }
-  if (sub !== "install" && sub !== "uninstall") throw new Error("uso: isymcp harness list | install|uninstall <ids|--all> [--server chatgpt|gateway|all] [--apply]");
-  for (const kind of kinds) {
-    const ids = rest.includes("--all")
-      ? (await detect(undefined, kind)).filter((s) => s.present && s.supported).map((s) => s.id)
-      : positional;
-    if (ids.length === 0) throw new Error(`indica harnesses (${CATALOG.filter((d) => d.strategy).map((d) => d.id).join(", ")}) o --all`);
-    if (kinds.length > 1) console.log(`── ${serverName(kind)} ──`);
-    if (!rest.includes("--apply")) {
-      console.log(`PLAN (${sub} ${serverName(kind)}) — no se escribio nada. Repite con --apply para ejecutarlo:`);
-      for (const step of await plan(sub, ids, kind)) console.log(`  ${step.id.padEnd(9)} ${step.argv ? step.argv.join(" ") : `(nada) ${step.reason}`}`);
-      continue;
-    }
-    const results = await apply(sub, ids, true, kind);
-    if (json) { console.log(JSON.stringify(results, null, 2)); continue; }
-    for (const r of results) {
-      const mark = !r.ran ? "–" : r.ok ? "✓" : "✗";
-      console.log(`  ${mark} ${r.id.padEnd(9)} ${r.ran ? `verificado=${r.verified}` : ""} ${r.detail}`);
-    }
-    if (results.some((r) => r.ran && !r.ok)) process.exitCode = 1;
   }
 }
 
