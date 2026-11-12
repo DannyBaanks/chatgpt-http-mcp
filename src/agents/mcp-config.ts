@@ -35,6 +35,19 @@ export function readJson(path: string): Record<string, any> | null {
     return null;
   }
 }
+/**
+ * El campo `key` como objeto plano: lo crea si no existe; si existe y NO es un objeto (p. ej. un arreglo),
+ * lanza en vez de escribir (un arreglo perdería en silencio lo agregado y pisaría datos ajenos).
+ */
+export function objectField(data: Record<string, any>, key: string, path: string): Record<string, any> {
+  const value = data[key];
+  if (value === undefined || value === null) return (data[key] = {});
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`"${key}" no es un objeto JSON en ${path}: no se modifica`);
+  }
+  return value;
+}
+
 /** Escribe solo si el archivo existente se pudo leer: nunca se pisa un JSON que no se entendió. */
 export function editJson(path: string, edit: (data: Record<string, any>) => boolean): void {
   let data: Record<string, any> = {};
@@ -58,8 +71,7 @@ export function mcpServersStrategy(configPath: () => string, entry: (launcher: s
       return names.some((n) => Boolean(data?.mcpServers?.[n]));
     },
     add: (path, launcher, name) => editJson(path, (data) => {
-      data.mcpServers = data.mcpServers && typeof data.mcpServers === "object" ? data.mcpServers : {};
-      data.mcpServers[name] = entry(launcher);
+      objectField(data, "mcpServers", path)[name] = entry(launcher);
       return true;
     }),
     remove: (path, names) => {
@@ -87,8 +99,7 @@ export function opencodeStrategy(configPath: () => string): JsonStrategy {
       return names.some((n) => Boolean(data?.mcp?.[n] || data?.mcp?.servers?.[n]));
     },
     add: (path, launcher, name) => editJson(path, (data) => {
-      data.mcp = data.mcp && typeof data.mcp === "object" ? data.mcp : {};
-      data.mcp[name] = { type: "local", command: [launcher], enabled: true };
+      objectField(data, "mcp", path)[name] = { type: "local", command: [launcher], enabled: true };
       return true;
     }),
     remove: (path, names) => {
@@ -115,8 +126,7 @@ export function crushStrategy(configPath: () => string): JsonStrategy {
     return names.some((n) => Boolean(data?.mcp?.[n]));
   },
   add: (path, launcher, name) => editJson(path, (data) => {
-    data.mcp = data.mcp && typeof data.mcp === "object" ? data.mcp : {};
-    data.mcp[name] = { type: "stdio", command: launcher };
+    objectField(data, "mcp", path)[name] = { type: "stdio", command: launcher };
     return true;
   }),
   remove: (path, names) => {

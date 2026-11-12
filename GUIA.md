@@ -330,8 +330,11 @@ puede leer no se toca.
 alias, cómo arranca su consola y cómo recibe tareas, cómo se le instala el MCP y dónde está su config.
 `harness`, `tui` y las consolas leen de ahí; `tests/agent-catalog.test.ts` falla si se desincronizan.
 
-`isymcp tui install <id>` sigue existiendo para el provider de opencode/openisy (modelos Web); para las
-TUIs con `mcp add` delega en `harness --server gateway`.
+`isymcp tui install <id|--all>` hace dos cosas: en opencode/openisy escribe el **provider de modelos
+Web** (ChatGPT como modelo dentro de opencode), y para **todas** las TUIs delega el MCP en
+`harness --server gateway`, el único que escribe MCP en las configs y lo verifica con la propia TUI.
+Sin `--apply` no escribe nada y muestra el plan completo. Si un archivo trae `mcpServers`/`mcp` que no
+es un objeto (p. ej. un arreglo), se rechaza sin tocarlo, igual que un JSON ilegible.
 
 **Trampa:** en opencode/openisy v2, `opencode mcp list` puede decir *"No MCP servers configured"*
 aunque el servidor esté cargado: el servicio lo lanza igual (`ps` muestra `src/mcp/main.ts` como hijo de

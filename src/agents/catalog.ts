@@ -15,7 +15,11 @@ import { join } from "node:path";
 import { cli, crushStrategy, mcpServersStrategy, opencodeStrategy, type Strategy } from "./mcp-config";
 
 export type ListenerStyle = "agy-task" | "background-bash" | "inject";
-export type TuiFormat = "mcpServers" | "opencode" | "codex" | "harness";
+/**
+ * Cómo lo trata `isymcp tui install`: "opencode" = además del MCP, el provider de modelos Web;
+ * "harness" = solo el MCP, siempre por src/harness.ts (`--server gateway`).
+ */
+export type TuiFormat = "opencode" | "harness";
 type Env = Record<string, string | undefined>;
 
 export interface ConsoleProfile {
@@ -107,7 +111,7 @@ export const AGENTS: AgentDef[] = [
     config: { dir: (h) => join(h, ".gemini"), file: (h) => join(h, ".gemini", "settings.json") },
     console: { promptVia: "argv", promptArgs: (p) => ["-i", p], listener: "inject" },
     mcp: () => userScopeCli,
-    tuiFormat: "mcpServers",
+    tuiFormat: "harness",
   },
   { id: "grok", label: "Grok", aliases: [], executables: ["grok"], mcp: () => userScopeCli },
   {
@@ -155,7 +159,7 @@ export const AGENTS: AgentDef[] = [
     id: "cursor", label: "Cursor", aliases: [], executables: ["cursor-agent", "cursor"],
     config: { homeEnv: "CURSOR_HOME", dir: (h) => join(h, ".cursor"), file: (h) => join(h, ".cursor", "mcp.json") },
     mcp: (path) => mcpServersStrategy(path, (l) => ({ command: l })),
-    tuiFormat: "mcpServers",
+    tuiFormat: "harness",
   },
   {
     id: "opencode", label: "opencode", aliases: [], executables: ["opencode"], extraPaths: [join(HOME, ".opencode", "bin", "opencode")],
@@ -183,7 +187,7 @@ export const AGENTS: AgentDef[] = [
     config: { homeEnv: "AGY_HOME", dir: (h) => join(h, ".gemini", "config"), file: (h) => join(h, ".gemini", "config", "mcp_config.json") },
     console: { promptVia: "argv", promptArgs: (p, o) => ["-i", p, "--mode", o.mode || "auto"], listener: "agy-task" },
     mcp: (path) => mcpServersStrategy(path, (l) => ({ command: l, args: [], disabled: false })),
-    tuiFormat: "mcpServers",
+    tuiFormat: "harness",
   },
   {
     id: "kimi", label: "Kimi Code", aliases: [], executables: ["kimi"], extraPaths: [join(HOME, ".kimi-code", "bin", "kimi")],
@@ -202,9 +206,10 @@ export const AGENTS: AgentDef[] = [
   { id: "fx", label: "fx", aliases: [], executables: ["fx"], mcp: null, pending: "CLI sin subcomando mcp nativo" },
   {
     id: "claude-desktop", label: "Claude Desktop", aliases: ["desktop"], executables: [],
-    config: { dir: (h) => join(h, ".config", "Claude"), file: (h) => join(h, ".config", "Claude", "claude_desktop_config.json") },
-    mcp: null, pending: "solo `isymcp tui install claude-desktop` (JSON mcpServers)",
-    tuiFormat: "mcpServers",
+    config: { homeEnv: "CLAUDE_DESKTOP_HOME", dir: (h) => join(h, ".config", "Claude"), file: (h) => join(h, ".config", "Claude", "claude_desktop_config.json") },
+    // Sin ejecutable en PATH: harness lo detecta por su carpeta de config.
+    mcp: (path) => mcpServersStrategy(path, (l) => ({ command: l })),
+    tuiFormat: "harness",
   },
 ];
 

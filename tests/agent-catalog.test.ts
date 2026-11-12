@@ -9,7 +9,7 @@ import { AGENT_TUIS, resolveAgentTui } from "../src/agent-tuis";
 import { CATALOG } from "../src/harness";
 import { detectTuis, TUI_ALIASES } from "../src/tui";
 
-const HOME_VARS = ["CURSOR_HOME", "OPENCODE_HOME", "OPENISY_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "OPENISY_CONFIG_DIR"];
+const HOME_VARS = ["CURSOR_HOME", "OPENCODE_HOME", "OPENISY_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CLAUDE_DESKTOP_HOME", "OPENISY_CONFIG_DIR"];
 let home: string;
 const saved: Record<string, string | undefined> = {};
 beforeAll(() => {
@@ -36,13 +36,14 @@ describe("catálogo único de agentes", () => {
       } else {
         expect(a.pending).toBeTruthy();
       }
-      if (a.tuiFormat === "mcpServers" || a.tuiFormat === "opencode") expect(a.config?.file).toBeDefined();
+      if (a.tuiFormat === "opencode") expect(a.config?.file).toBeDefined();
       if (a.console) expect(a.executables.length).toBeGreaterThan(0);
     }
   });
 
   it("AC-03: las tres vistas son exactamente proyecciones del catálogo", () => {
-    expect(CATALOG.map((h) => h.id)).toEqual(AGENTS.filter((a) => a.executables.length > 0).map((a) => a.id));
+    expect(CATALOG.map((h) => h.id)).toEqual(AGENTS.filter((a) => a.executables.length > 0 || a.mcp !== null).map((a) => a.id));
+    expect(CATALOG.find((h) => h.id === "claude-desktop")?.strategy?.kind).toBe("json");
     expect(AGENT_TUIS.map((t) => t.id)).toEqual(AGENTS.filter((a) => a.console).map((a) => a.id));
     expect(detectTuis(home).map((t) => t.id)).toEqual(AGENTS.filter((a) => a.tuiFormat).map((a) => a.id));
     for (const t of AGENT_TUIS) expect(t.label).toBe(findAgent(t.id)!.label);
@@ -52,7 +53,7 @@ describe("catálogo único de agentes", () => {
   });
 
   it("AC-04: harness y `tui install` usan la MISMA ruta de config para cada agente", () => {
-    for (const k of ["OPENCODE_HOME", "OPENISY_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CURSOR_HOME"]) process.env[k] = home;
+    for (const k of ["OPENCODE_HOME", "OPENISY_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CURSOR_HOME", "CLAUDE_DESKTOP_HOME"]) process.env[k] = home;
     try {
       const tuis = Object.fromEntries(detectTuis(home).map((t) => [t.id, t]));
       for (const h of CATALOG) {
@@ -65,7 +66,7 @@ describe("catálogo único de agentes", () => {
       expect(tuis.agy!.configPath).toBe(join(home, ".gemini", "config", "mcp_config.json"));
       expect(tuis.gemini!.configPath).toBe(join(home, ".gemini", "settings.json"));
     } finally {
-      for (const k of ["OPENCODE_HOME", "OPENISY_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CURSOR_HOME"]) delete process.env[k];
+      for (const k of ["OPENCODE_HOME", "OPENISY_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CURSOR_HOME", "CLAUDE_DESKTOP_HOME"]) delete process.env[k];
     }
   });
 });
