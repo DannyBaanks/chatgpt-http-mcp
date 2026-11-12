@@ -158,6 +158,31 @@ export async function mediaCommand(command:string|undefined,args:string[],depend
  const errorOut=dependencies.stderr??((text:string)=>console.error(text));
  if(command==='add' && args.length===1) { const {id,name,bytes,sha256}=await catalog.add(args[0]); out(JSON.stringify({id,name,bytes,sha256},null,2)); }
  else if(command==='list' && !args.length) out(JSON.stringify(catalog.list(),null,2));
+ else if(command==='login') {
+  // Cookies opcionales por sitio (src/media/cookies.ts): mismo flujo de dos fases que el login de ChatGPT.
+  const { COOKIE_SITES, findCookieSite } = await import('./cookies');
+  const site=args[0]?findCookieSite(args[0]):null;
+  if(!site) throw Error(`uso: isymcp media login <sitio> [--export]; sitios: ${COOKIE_SITES.map(s=>s.id).join(', ')}`);
+  const { captureSiteCookies } = await import('./cookie-login');
+  await captureSiteCookies(site,{exportOnly:args.includes('--export'),out});
+ }
+ else if(command==='cookies') {
+  const C = await import('./cookies');
+  const [sub,id]=args;
+  if(!sub||sub==='list') {
+   const rows=C.listSiteCookies();
+   out(rows.length?rows.map(r=>`  ${r.site.padEnd(10)} ${r.cookies} cookies`).join('\n'):'  (ningún sitio con cookies; los imports van sin cookies)');
+  } else {
+   const site=id?C.findCookieSite(id):null;
+   if(!site) throw Error(`uso: isymcp media cookies list | import <sitio> --file cookies.txt | forget <sitio>; sitios: ${C.COOKIE_SITES.map(s=>s.id).join(', ')}`);
+   if(sub==='import') {
+    const i=args.indexOf('--file'); const file=i>=0?args[i+1]:undefined;
+    if(!file) throw Error('falta --file <cookies.txt> (formato Netscape, exportado de tu navegador)');
+    out(`importadas ${C.importSiteCookiesFile(site,file)} cookies de ${site.label} (0600)`);
+   } else if(sub==='forget') out(C.forgetSiteCookies(site)?`olvidadas las cookies de ${site.label}`:`no había cookies de ${site.label}`);
+   else throw Error('uso: isymcp media cookies list | import <sitio> --file cookies.txt | forget <sitio>');
+  }
+ }
  else if(command==='revoke' && args.length===1) {catalog.revoke(args[0]); out('Asset revoked; original preserved.');}
  else if(command==='prepare' && args.length===0) await guidedPrepare(catalog,importer,dependencies,out,errorOut);
  else if(command==='prepare' && args.length===1) {

@@ -84,3 +84,36 @@ describe("--impersonate chrome", () => {
     expect(calls.filter((a) => a.includes("--list-impersonate-targets")).length).toBe(1);
   });
 });
+
+describe("403 intermitente al bajar datos", () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "media-403-")); resetImpersonateCache(); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  function flaky(failures: string[], calls: string[][]) {
+    const ok = fakeYtDlp({ chrome: false, id: "BGQWPY4IigY", webpage: "" }, calls);
+    return async (cmd: string, args: string[]) => {
+      if (!args.includes("--list-impersonate-targets") && failures.length) { calls.push(args); throw Error(failures.shift()!); }
+      return ok(cmd, args);
+    };
+  }
+
+  it("MP-07: un 403 de datos se reintenta una vez y el import pasa", async () => {
+    const calls: string[][] = [];
+    const r = await downloadYouTube("https://www.youtube.com/watch?v=BGQWPY4IigY", dir, 1e8,
+      flaky(["Media process failed (1): ERROR: unable to download video data: HTTP Error 403: Forbidden"], calls) as any);
+    expect(r.video_id).toBe("BGQWPY4IigY");
+    expect(calls.filter((a) => a.includes("-o")).length).toBe(2);
+  });
+
+  it("MP-08: otros errores no se reintentan; dos 403 seguidos sí fallan", async () => {
+    const calls: string[][] = [];
+    await expect(downloadYouTube("https://www.youtube.com/watch?v=BGQWPY4IigY", dir, 1e8,
+      flaky(["Media process failed (1): ERROR: Video unavailable"], calls) as any)).rejects.toThrow("unavailable");
+    expect(calls.length).toBe(1);
+    const calls2: string[][] = [];
+    const e403 = "Media process failed (1): ERROR: unable to download video data: HTTP Error 403: Forbidden";
+    await expect(downloadYouTube("https://www.youtube.com/watch?v=BGQWPY4IigY", dir, 1e8, flaky([e403, e403], calls2) as any)).rejects.toThrow("403");
+    expect(calls2.length).toBe(2);
+  });
+});
