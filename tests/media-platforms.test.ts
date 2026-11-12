@@ -56,7 +56,10 @@ describe("--impersonate chrome", () => {
 
   const TT = "https://www.tiktok.com/@scout2015/video/6718335390845095173";
 
-  it("MP-03: TikTok lo usa si el yt-dlp puede", async () => {
+  afterEach(() => { delete process.env.ISYMCP_YTDLP_IMPERSONATE; });
+
+  it("MP-03: TikTok lo usa si el yt-dlp puede (forzado como en producción con curl_cffi)", async () => {
+    process.env.ISYMCP_YTDLP_IMPERSONATE = "1";
     const calls: string[][] = [];
     const r = await downloadTikTok(TT, dir, 1e8, fakeYtDlp({ chrome: true, id: "6718335390845095173", webpage: TT }, calls) as any);
     expect(r.video_id).toBe("6718335390845095173");
@@ -64,13 +67,18 @@ describe("--impersonate chrome", () => {
     expect(dl.slice(dl.indexOf("--impersonate"), dl.indexOf("--impersonate") + 2)).toEqual(["--impersonate", "chrome"]);
   });
 
-  it("MP-04: sin curl_cffi no se agrega (no rompe nada)", async () => {
+  it("MP-04: sin curl_cffi (o con un runner inyectado) no se agrega ni se sondea", async () => {
     const calls: string[][] = [];
     await downloadTikTok(TT, dir, 1e8, fakeYtDlp({ chrome: false, id: "6718335390845095173", webpage: TT }, calls) as any);
     expect(calls.find((a) => a.includes("-o"))).not.toContain("--impersonate");
+    expect(calls.some((a) => a.includes("--list-impersonate-targets"))).toBe(false);
+    process.env.ISYMCP_YTDLP_IMPERSONATE = "0";
+    await downloadTikTok(TT, dir, 1e8, fakeYtDlp({ chrome: true, id: "6718335390845095173", webpage: TT }, calls) as any);
+    expect(calls.filter((a) => a.includes("-o")).every((a) => !a.includes("--impersonate"))).toBe(true);
   });
 
   it("MP-05: YouTube nunca lo usa (no cambia lo que ya funciona)", async () => {
+    process.env.ISYMCP_YTDLP_IMPERSONATE = "1";
     const calls: string[][] = [];
     await downloadYouTube("https://www.youtube.com/watch?v=BGQWPY4IigY", dir, 1e8, fakeYtDlp({ chrome: true, id: "BGQWPY4IigY", webpage: "" }, calls) as any);
     expect(calls.some((a) => a.includes("--impersonate"))).toBe(false);

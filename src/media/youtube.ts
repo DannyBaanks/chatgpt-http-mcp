@@ -43,6 +43,17 @@ export function canImpersonateChrome(command:string,runner:typeof run=run):Promi
  }
  return impersonateSupport.get(command)!;
 }
+/**
+ * ¿Usar --impersonate chrome? ISYMCP_YTDLP_IMPERSONATE=1|0 lo fuerza (pruebas, o para apagarlo). Si no, se
+ * pregunta al binario, pero SOLO con el runner real: un runner inyectado (pruebas) es un yt-dlp falso que no
+ * conoce la sonda (escribía archivos con nombre de argumento en el cwd).
+ */
+async function shouldImpersonate(command:string,runner:typeof run):Promise<boolean> {
+ const forced=process.env.ISYMCP_YTDLP_IMPERSONATE?.trim();
+ if(forced==='1')return true;
+ if(forced==='0')return false;
+ return runner===run&&canImpersonateChrome(command);
+}
 /** Solo para pruebas: olvida lo que se sabía de cada binario. */
 export function resetImpersonateCache():void { impersonateSupport.clear(); }
 
@@ -62,7 +73,7 @@ async function extractWithYtDlp(url:string,dir:string,maxBytes:number,runner:typ
   '--js-runtimes',`node:${node}`,
   '-f',formatSelector,'--merge-output-format','mp4',
   // Solo fuera de YouTube (TikTok, Instagram, X, genéricos) y solo si este yt-dlp puede: YouTube no cambia.
-  ...(includeWebpageUrl&&await canImpersonateChrome(command,runner)?['--impersonate','chrome']:[]),
+  ...(includeWebpageUrl&&await shouldImpersonate(command,runner)?['--impersonate','chrome']:[]),
   '--print-to-file','after_move:%(id)s',idPath,
  ];
  if(includeWebpageUrl) args.push('--print-to-file','after_move:%(webpage_url)s',webpageUrlPath);

@@ -43,6 +43,9 @@ isymcp doctor | grep yt-dlp                              # versión y "chrome di
 
 Actualizar: repite lo mismo (no uses `yt-dlp -U` sobre un binario que no verificaste).
 
+`--impersonate chrome` se usa fuera de YouTube cuando el binario lo soporta. `ISYMCP_YTDLP_IMPERSONATE=0` lo
+apaga y `=1` lo fuerza.
+
 Orden en que ISyMCP busca yt-dlp: `ISYMCP_YTDLP_BIN` → `~/.local/share/isymcp/tools/yt-dlp` →
 `~/.oamaestro/bin/yt-dlp` → `yt-dlp` en el `PATH`.
 
