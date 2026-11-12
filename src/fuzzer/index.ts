@@ -2,7 +2,7 @@
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installIntoStandardMcpTui, installIntoOpencode } from "../tui";
+import { mcpServersStrategy } from "../agents/mcp-config";
 import { dispatchIsyMcpAction } from "../mcp/gateway";
 import { executeShellCommand } from "../shell/executor";
 
@@ -68,7 +68,6 @@ export async function runConfigFuzzer(iterations: number = 50): Promise<FuzzRepo
       const payload = payloads[i % payloads.length];
       const testDir = join(tempRoot, `run-${i}`);
       const cfgPath = join(testDir, "config.json");
-      const backupsDir = join(testDir, "backups");
 
       try {
         const { mkdirSync } = await import("node:fs");
@@ -77,13 +76,8 @@ export async function runConfigFuzzer(iterations: number = 50): Promise<FuzzRepo
 
         // Intentar instalar
         try {
-          const res = installIntoStandardMcpTui({
-            configPath: cfgPath,
-            backupsDir,
-            mcpMain: "/tmp/fake-main.ts",
-            dryRun: false,
-            tuiId: `fuzz-${i}`,
-          });
+          // La estrategia REAL que escribe las configs mcpServers (agy, cursor, kimi, Claude Desktop).
+          mcpServersStrategy(() => cfgPath, (l) => ({ command: l })).add(cfgPath, "/tmp/fake-launcher", "isymcp");
 
           // Si pasó, el resultado debe ser un JSON válido que contenga mcpServers.isymcp
           const content = readFileSync(cfgPath, "utf8");
@@ -96,7 +90,8 @@ export async function runConfigFuzzer(iterations: number = 50): Promise<FuzzRepo
           }
         } catch (err: any) {
           // Si el payload era sintácticamente inválido, el instalador DEBE lanzar un error controlado
-          if (err.message.includes("JSON") || err.message.includes("Error al leer archivo")) {
+          // editJson nunca pisa un archivo que no entiende: "no se pudo leer ... como JSON".
+          if (err.message.includes("JSON")) {
             passed++; // Rechazo controlado esperado
           } else {
             anomalies.push(`Iteración ${i}: excepción inesperada con payload '${payload.slice(0, 30)}': ${err.message}`);

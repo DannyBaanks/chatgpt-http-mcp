@@ -7,7 +7,6 @@ import {
   buildOpencodePatch,
   detectTuis,
   installIntoOpencode,
-  installIntoStandardMcpTui,
   installIntoTui,
   installIntoAllTuis,
 } from "../src/tui";
@@ -39,8 +38,8 @@ describe("detectTuis", () => {
 });
 
 describe("buildOpencodePatch", () => {
-  test("provider openai-compatible con filas web y MCP local", () => {
-    const patch = buildOpencodePatch("http://127.0.0.1:8791", "/x/src/mcp/main.ts", "sol");
+  test("provider openai-compatible con filas web; el MCP ya no va en el parche", () => {
+    const patch = buildOpencodePatch("http://127.0.0.1:8791", "sol");
     const provider = patch.provider["isyco-web"] as Record<string, unknown>;
     expect(provider.npm).toBe("@ai-sdk/openai-compatible");
     expect((provider.options as Record<string, unknown>).baseURL).toBe("http://127.0.0.1:8791/v1");
@@ -49,9 +48,8 @@ describe("buildOpencodePatch", () => {
     expect(Object.keys(models).every((slug) => slug.startsWith("chatgpt-web/"))).toBe(true);
     expect(Object.keys(models)).toEqual(["chatgpt-web/gpt-5.6-sol"]);
     expect(models["chatgpt-web/gpt-5.6-sol"].limit.context).toBeGreaterThan(0);
-    const mcp = patch.mcp["isyco-web-http"] as Record<string, unknown>;
-    expect(mcp.type).toBe("local");
-    expect(mcp.command).toEqual(["bun", "/x/src/mcp/main.ts", "--contract", "native"]);
+    // El MCP lo instala solo src/harness.ts (--server gateway).
+    expect(Object.keys(patch)).toEqual(["provider"]);
   });
 });
 
@@ -60,7 +58,7 @@ describe("installIntoOpencode", () => {
     const dir = mkdtempSync(join(tmpdir(), "tui-install-"));
     const configPath = join(dir, "opencode.json");
     const backupsDir = join(dir, "backups");
-    const opts = { configPath, backupsDir, baseUrl: "http://127.0.0.1:8791", mcpMain: "/x/main.ts", capsRaw: "sol" };
+    const opts = { configPath, backupsDir, baseUrl: "http://127.0.0.1:8791", capsRaw: "sol" };
     const dry = installIntoOpencode({ ...opts, dryRun: true });
     expect(dry.action).toBe("dry-run");
     expect(existsSync(configPath)).toBe(false);
@@ -68,6 +66,7 @@ describe("installIntoOpencode", () => {
     expect(applied.action).toBe("apply");
     const written = JSON.parse(readFileSync(configPath, "utf8"));
     expect(written.provider["isyco-web"].models["chatgpt-web/gpt-5.6-sol"].name).toBe("GPT-5.6 Sol (Web)");
+    expect(written.mcp).toBeUndefined();
     const restored = installIntoOpencode({ ...opts, dryRun: false, restore: true });
     expect(restored.action).toBe("restore");
     expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({});
@@ -77,7 +76,7 @@ describe("installIntoOpencode", () => {
     const dir = mkdtempSync(join(tmpdir(), "tui-merge-"));
     const configPath = join(dir, "opencode.json");
     writeFileSync(configPath, JSON.stringify({ model: "otro/prov", provider: { otro: { models: {} } } }));
-    installIntoOpencode({ configPath, backupsDir: join(dir, "b"), baseUrl: "http://127.0.0.1:8791", mcpMain: "/x/main.ts", capsRaw: "sol", dryRun: false });
+    installIntoOpencode({ configPath, backupsDir: join(dir, "b"), baseUrl: "http://127.0.0.1:8791", capsRaw: "sol", dryRun: false });
     const written = JSON.parse(readFileSync(configPath, "utf8"));
     expect(written.model).toBe("otro/prov");
     expect(written.provider.otro).toBeTruthy();
@@ -85,79 +84,19 @@ describe("installIntoOpencode", () => {
   });
 });
 
-describe("installIntoStandardMcpTui", () => {
-  test("dry-run no escribe; apply inyecta mcpServers.isymcp; restore recupera", () => {
-    const dir = mkdtempSync(join(tmpdir(), "std-mcp-"));
-    const configPath = join(dir, "mcp_config.json");
-    const backupsDir = join(dir, "backups");
-    const opts = { configPath, backupsDir, mcpMain: "/path/to/main.ts", dryRun: true, tuiId: "gemini" };
-
-    // Dry-run
-    const dry = installIntoStandardMcpTui(opts);
-    expect(dry.action).toBe("dry-run");
-    expect(existsSync(configPath)).toBe(false);
-
-    // Apply
-    const applied = installIntoStandardMcpTui({ ...opts, dryRun: false });
-    expect(applied.action).toBe("apply");
-    expect(existsSync(configPath)).toBe(true);
-
-    const written = JSON.parse(readFileSync(configPath, "utf8"));
-    expect(written.mcpServers?.isymcp).toBeDefined();
-    expect(written.mcpServers.isymcp.command).toContain("bun");
-    expect(written.mcpServers.isymcp.args).toContain("--contract");
-
-    // Restore elimina el archivo si fue creado desde cero
-    const restored = installIntoStandardMcpTui({ ...opts, dryRun: false, restore: true });
-    expect(restored.action).toBe("restore");
-    expect(existsSync(configPath)).toBe(false);
-  });
-
-  test("preserva servidores MCP preexistentes", () => {
-    const dir = mkdtempSync(join(tmpdir(), "std-mcp-merge-"));
-    const configPath = join(dir, "mcp.json");
-    const initialConfig = {
-      otherKey: "keep_me",
-      mcpServers: {
-        other_tool: { command: "python", args: ["script.py"] },
-      },
-    };
-    writeFileSync(configPath, JSON.stringify(initialConfig, null, 2));
-
-    installIntoStandardMcpTui({
-      configPath,
-      backupsDir: join(dir, "backups"),
-      mcpMain: "/path/to/main.ts",
-      dryRun: false,
-      tuiId: "cursor",
-    });
-
-    const updated = JSON.parse(readFileSync(configPath, "utf8"));
-    expect(updated.otherKey).toBe("keep_me");
-    expect(updated.mcpServers.other_tool.command).toBe("python");
-    expect(updated.mcpServers.isymcp.command).toContain("bun");
-  });
-});
-
 describe("installIntoTui & installIntoAllTuis", () => {
-  test("cada TUI escribe en SU archivo real: agy, gemini, openisy, opencode; claude va por su propio mcp add", () => {
+  test("tui install solo escribe el provider de opencode/openisy; el MCP de TODAS va por harness", () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "fake-home-"));
     const backupsDir = join(fakeHome, "backups");
-    const run = (tuiId: string, dryRun = false) =>
-      installIntoTui({ tuiId, home: fakeHome, backupsDir, mcpMain: "/path/to/main.ts", dryRun });
+    const run = (tuiId: string, dryRun = false) => installIntoTui({ tuiId, home: fakeHome, backupsDir, dryRun });
 
-    // agy (Antigravity CLI) -> ~/.gemini/config/mcp_config.json
-    expect(run("agy").action).toBe("apply");
-    expect(existsSync(join(fakeHome, ".gemini", "config", "mcp_config.json"))).toBe(true);
-    expect(run("antigravity", true).action).toBe("dry-run");
-
-    // Gemini CLI -> ~/.gemini/settings.json (NO el archivo de agy)
-    expect(run("gemini").configPath).toBe(join(fakeHome, ".gemini", "settings.json"));
-    expect(JSON.parse(readFileSync(join(fakeHome, ".gemini", "settings.json"), "utf8")).mcpServers.isymcp).toBeDefined();
-
-    // openisy -> ~/.openisy/config/opencode.json (bin/openisy exporta OPENCODE_CONFIG_DIR ahí)
-    expect(run("openisy").configPath).toBe(join(fakeHome, ".openisy", "config", "opencode.json"));
-    expect(existsSync(join(fakeHome, ".openisy", "config", "opencode.json"))).toBe(true);
+    // openisy -> provider en ~/.openisy/config/opencode.json (bin/openisy exporta OPENCODE_CONFIG_DIR ahí), MCP por harness
+    const oi = run("openisy");
+    expect(oi.configPath).toBe(join(fakeHome, ".openisy", "config", "opencode.json"));
+    expect(oi.harness).toBe(true);
+    const oiCfg = JSON.parse(readFileSync(oi.configPath, "utf8"));
+    expect(oiCfg.provider["isyco-web"]).toBeDefined();
+    expect(oiCfg.mcp).toBeUndefined();
     expect(existsSync(join(fakeHome, ".config", "opencode", "opencode.json"))).toBe(false);
 
     // opencode sigue en ~/.config/opencode, con su propio journal de backup
@@ -165,29 +104,30 @@ describe("installIntoTui & installIntoAllTuis", () => {
     expect(existsSync(join(backupsDir, "openisy", "tui-latest.json"))).toBe(true);
     expect(existsSync(join(backupsDir, "opencode", "tui-latest.json"))).toBe(true);
 
-    // Claude Code: nada de claude_desktop_config.json en ~/.claude; se delega a `claude mcp add`
-    const claude = run("claude");
-    expect(claude.harness).toBe(true);
-    expect(claude.action).toBe("noop");
-    expect(existsSync(join(fakeHome, ".claude", "claude_desktop_config.json"))).toBe(false);
-
-    // Claude Desktop sí es JSON, en su ruta de Linux
+    // Todas las demás: tui install NO escribe nada; harness instala con su estrategia verificada.
+    for (const id of ["agy", "antigravity", "gemini", "claude", "cursor", "desktop", "kimi", "crush"]) {
+      const r = run(id);
+      expect(r.harness).toBe(true);
+      expect(r.action).toBe("noop");
+      expect(r.models).toBe(0);
+    }
+    for (const f of [join(".gemini", "config", "mcp_config.json"), join(".gemini", "settings.json"), join(".claude", "claude_desktop_config.json"),
+      join(".config", "Claude", "claude_desktop_config.json"), join(".cursor", "mcp.json")]) {
+      expect(existsSync(join(fakeHome, f))).toBe(false);
+    }
+    // Las rutas que informa siguen siendo las reales (las mismas que usa harness).
+    expect(run("gemini").configPath).toBe(join(fakeHome, ".gemini", "settings.json"));
+    expect(run("agy").configPath).toBe(join(fakeHome, ".gemini", "config", "mcp_config.json"));
     expect(run("desktop").configPath).toBe(join(fakeHome, ".config", "Claude", "claude_desktop_config.json"));
 
-    // TUI desconocida lanza error
     expect(() => run("nonexistent_tui_999")).toThrow("TUI desconocida");
   });
 
   test("installIntoAllTuis procesa todas las TUIs registradas", () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "fake-home-all-"));
-    const results = installIntoAllTuis({
-      home: fakeHome,
-      backupsDir: join(fakeHome, "backups"),
-      mcpMain: "/path/to/main.ts",
-      dryRun: false,
-    });
-
+    const results = installIntoAllTuis({ home: fakeHome, backupsDir: join(fakeHome, "backups"), dryRun: false });
     expect(results.length).toBeGreaterThan(5);
     expect(results.every((r) => r.result?.action === "apply" || r.result?.action === "noop")).toBe(true);
+    expect(results.every((r) => r.result?.harness === true)).toBe(true);
   });
 });

@@ -34,14 +34,14 @@ beforeAll(() => {
   process.env.CURSOR_HOME = join(dir, "empty_cursor");
   process.env.OPENCODE_HOME = join(dir, "empty_opencode");
   // Las configs JSON nuevas (agy, openisy, kimi, crush) nunca deben tocar el home real.
-  for (const v of ["AGY_HOME", "OPENISY_HOME", "KIMI_HOME", "CRUSH_HOME"]) process.env[v] = join(dir, `empty_${v.toLowerCase()}`);
+  for (const v of ["AGY_HOME", "OPENISY_HOME", "KIMI_HOME", "CRUSH_HOME", "CLAUDE_DESKTOP_HOME"]) process.env[v] = join(dir, `empty_${v.toLowerCase()}`);
   delete process.env.OPENISY_CONFIG_DIR;
 });
 afterAll(() => {
   process.env.PATH = savedPath;
   delete process.env.CODEX_WEB_HTTP_HOME;
   delete process.env.CURSOR_HOME; delete process.env.OPENCODE_HOME;
-  for (const v of ["AGY_HOME", "OPENISY_HOME", "KIMI_HOME", "CRUSH_HOME"]) delete process.env[v];
+  for (const v of ["AGY_HOME", "OPENISY_HOME", "KIMI_HOME", "CRUSH_HOME", "CLAUDE_DESKTOP_HOME"]) delete process.env[v];
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -223,6 +223,21 @@ describe("gateway isymcp (--server gateway)", () => {
     expect((await detect(["opencode"], "gateway"))[0]!.installed).toBe(true);
     expect((await plan("install", ["opencode"], "gateway"))[0]!.reason).toBe(`ya tiene ${GATEWAY_MCP_NAME}`);
     process.env.OPENCODE_HOME = join(dir, "empty_opencode");
+  });
+
+  test("un campo mcpServers/mcp que no es objeto se rechaza sin tocar el archivo", async () => {
+    const home = join(dir, "array_field");
+    mkdirSync(join(home, ".gemini", "config"), { recursive: true });
+    const { writeFileSync } = await import("node:fs");
+    const cfg = join(home, ".gemini", "config", "mcp_config.json");
+    writeFileSync(cfg, JSON.stringify({ mcpServers: ["algo"] }));
+    process.env.AGY_HOME = home;
+    fakeExecutable({ bin, name: "agy", body: { print: "" } });
+    const [r] = await apply("install", ["agy"], true, "gateway");
+    expect(r!.ok).toBe(false);
+    expect(r!.detail).toContain("no es un objeto JSON");
+    expect(JSON.parse(readFileSync(cfg, "utf8"))).toEqual({ mcpServers: ["algo"] });
+    process.env.AGY_HOME = join(dir, "empty_agy_home");
   });
 
   test("un JSON ilegible no se pisa", async () => {
