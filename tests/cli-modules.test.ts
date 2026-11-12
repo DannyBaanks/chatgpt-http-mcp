@@ -16,7 +16,11 @@ describe("núcleo de la CLI", () => {
   it("CM-01: nombres únicos y resolución por nombre", () => {
     const names = CLI_MODULES.flatMap((m) => m.names);
     expect(new Set(names).size).toBe(names.length);
-    for (const n of ["allow", "harness", "tui"]) expect(findCliModule(n)?.names).toContain(n);
+    // Todos los comandos de la CLI viven en módulos (isymcp.ts solo resuelve menú/status/menu).
+    const ALL = ["allow", "harness", "tui", "up", "down", "server", "tunnel", "ask", "codex", "conversation", "models", "command", "session",
+      "monitor", "protocol", "agents", "health", "metrics", "smoke", "e2e", "doctor", "tree", "canary", "logs", "panel", "ui", "control-center",
+      "exec", "sh", "fuzz", "version", "--version", "-v", "help", "--help", "-h", "native-browser", "tablero", "media", "comfy", "github"];
+    for (const n of ALL) expect(findCliModule(n)?.names).toContain(n);
     expect(findCliModule("no-existe")).toBeNull();
     expect(findCliModule(undefined)).toBeNull();
   });
@@ -34,6 +38,11 @@ describe("núcleo de la CLI", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+
+  it("CM-04: isymcp.ts ya no tiene la cadena de comandos", async () => {
+    const src = await Bun.file(CLI).text();
+    expect(src.match(/cmd === "/g)?.length ?? 0).toBeLessThanOrEqual(2); // "status" y "menu"
   });
 
   it("CM-03: subcomando desconocido de un módulo muestra la ayuda global y sale con 2", () => {
