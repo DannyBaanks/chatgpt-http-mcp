@@ -20,6 +20,7 @@ export const YTDLP_SIGNATURES: ReadonlyArray<readonly [RegExp, MediaErrorCode]> 
   //   TikTok "Unexpected response from webpage request" (sin impersonation), X "No video could be found".
   [/use --cookies|--cookies-from-browser|only works when logged.?in|logged.?in|login required|empty media response/i, 'media_login_required'],
   [/unexpected response from webpage request|impersonat|blocked by|captcha/i, 'media_site_blocked'],
+  [/drm protected|drm-protected|widevine|playready/i, 'media_drm_protected'],
   [/no video could be found|there'?s no video|no media found|does not contain (?:a )?video/i, 'media_no_video'],
   [/too many requests|http error 429|rate.?limit/i, 'media_rate_limited'],
   [/requested format is not available|no video formats found|unsupported url|no downloadable format/i, 'media_format_unavailable'],

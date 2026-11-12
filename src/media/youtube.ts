@@ -65,7 +65,11 @@ async function extractWithYtDlp(url:string,dir:string,maxBytes:number,runner:typ
  const webpageUrlPath=join(dir,'downloaded-webpage-url.txt');
  // Vertical TikToks report their portrait resolution in `width` (for example
  // 720x1280), while the YouTube selector has historically capped `height`.
- const formatSelector=includeWebpageUrl?'best[height<=720]/best[width<=720]':'best[height<=720]/bestvideo[height<=720]+bestaudio';
+ // Vimeo (y otros HLS/DASH) sirven video y audio POR SEPARADO: sin el fallback bestvideo+bestaudio fallaba con
+ // "Requested format is not available" (medido 2026-11-12). Se prefiere igual un archivo progresivo (TikTok, X).
+ const formatSelector=includeWebpageUrl
+  ?'best[height<=720]/best[width<=720]/bestvideo[height<=720]+bestaudio/bestvideo[width<=720]+bestaudio/bestvideo+bestaudio/best'
+  :'best[height<=720]/bestvideo[height<=720]+bestaudio';
  const args=[
   '--ignore-config','--no-plugin-dirs','--no-cache-dir','--no-playlist','--no-progress','--no-warnings',
   '--socket-timeout','10','--retries','1','--fragment-retries','1','--concurrent-fragments','1',

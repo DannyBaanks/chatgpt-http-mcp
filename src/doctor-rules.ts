@@ -33,6 +33,10 @@ export const DOCTOR_RULES: Record<MediaErrorCode, DoctorRule> = {
     remedy: "Hace falta un yt-dlp con curl_cffi (build standalone) o mas nuevo; ISyMCP usa --impersonate chrome solo si esta disponible.",
     command_hint: "isymcp doctor",
   },
+  media_drm_protected: {
+    cause: "El video esta protegido con DRM (por ejemplo algunos de Vimeo); no hay formato descargable sin DRM.",
+    remedy: "No se puede importar: usa otro video o un archivo que tengas tu.",
+  },
   media_no_video: {
     cause: "El enlace no tiene video descargable (solo texto o imagenes).",
     remedy: "Revisa que sea el post del video y no el del hilo, o comparte el enlace directo al video.",
