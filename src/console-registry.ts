@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { bridgeHome } from "./codex-sessions";
 import { hmacHex, randomHex, sha256Hex, sha256Prefixed } from "./crypto";
 import { SAFE_PASS_ENV } from "./permissions";
+import { withAckTag } from "./monitor/tasks";
 
 export type ConsoleState = "SPAWNED" | "ACKED" | "RUNNING" | "COMPLETED" | "FAILED";
 
@@ -203,7 +204,7 @@ export function consoleReport(
   appendConsoleEvent(db, p.consoleId, p.kind.toUpperCase(), { summary: p.summary, hmac, token_fp: row.token_fp }, now);
   // La tarea solo se cierra con complete/fail; ack y progress la dejan RUNNING (nunca SUCCEEDED prematuro).
   if (p.kind === "complete" || p.kind === "fail") {
-    const text = p.summary.includes("[ARGON-ACK]") ? p.summary : `[ARGON-ACK] ${p.summary}`;
+    const text = withAckTag(p.summary);
     const result = {
       exit_code: p.kind === "complete" ? 0 : 1,
       output_summary: text,
