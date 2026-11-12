@@ -6,6 +6,7 @@
 // confinamiento realpath de workspaces y reconciliación segura (estado UNKNOWN
 // sin reintento ciego para operaciones no idempotentes).
 
+import { insertTask } from "./monitor/tasks";
 import { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -1077,34 +1078,24 @@ export class QueueService {
       const reason = matchedGrantId ? "authorized_by_task_grant" : "task_grant_required";
       const idempotentFlag = task.idempotent === false ? 0 : 1;
 
-      this.db
-        .query(
-          `INSERT INTO tasks (
-            task_id, operation_id, idempotency_key, goal_id, conversation_ref,
-            lease_id, workspace_id, kind, description, requested_actions_json,
-            target_relpath, idempotent, state, reason, grant_id, worker_lease_id,
-            attempt_count, created_at, updated_at, result_json, receipt_hmac
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, NULL, NULL)`,
-        )
-        .run(
-          task_id,
-          submission.operation_id,
-          submission.idempotency_key,
-          submission.goal_id,
-          submission.conversation_ref,
-          lease.lease_id,
-          lease.workspace_id,
-          task.kind,
-          task.description,
-          JSON.stringify(task.requested_actions),
-          task.target_relpath ?? null,
-          idempotentFlag,
-          initialState,
-          reason,
-          matchedGrantId,
-          now,
-          now,
-        );
+      insertTask(this.db, {
+        task_id,
+        operation_id: submission.operation_id,
+        idempotency_key: submission.idempotency_key,
+        goal_id: submission.goal_id,
+        conversation_ref: submission.conversation_ref,
+        lease_id: lease.lease_id,
+        workspace_id: lease.workspace_id,
+        kind: task.kind,
+        description: task.description,
+        requested_actions: task.requested_actions,
+        target_relpath: task.target_relpath ?? null,
+        idempotent: idempotentFlag === 1,
+        state: initialState,
+        reason,
+        grant_id: matchedGrantId,
+        created_at: now,
+      });
 
       return {
         operation_id: submission.operation_id,
@@ -1188,27 +1179,23 @@ export class QueueService {
       completed_at: now,
     };
 
-    this.db
-      .query(
-        `INSERT INTO tasks (
-          task_id, operation_id, idempotency_key, goal_id, conversation_ref,
-          lease_id, workspace_id, kind, description, requested_actions_json,
-          target_relpath, idempotent, state, reason, grant_id, worker_lease_id,
-          attempt_count, created_at, updated_at, result_json, receipt_hmac
-        ) VALUES (?, ?, ?, 'goal-alerts', 'ref-system-alerts', ?, ?, 'system_alert', ?, ?, NULL, 1, 'SUCCEEDED', 'system_alert_notification', NULL, NULL, 1, ?, ?, ?, NULL)`,
-      )
-      .run(
-        taskId,
-        operationId,
-        idempotencyKey,
-        leaseId,
-        wsId,
-        description,
-        JSON.stringify([actionPayload]),
-        now,
-        now,
-        JSON.stringify(resultObj),
-      );
+    insertTask(this.db, {
+      task_id: taskId,
+      operation_id: operationId,
+      idempotency_key: idempotencyKey,
+      goal_id: "goal-alerts",
+      conversation_ref: "ref-system-alerts",
+      lease_id: leaseId,
+      workspace_id: wsId,
+      kind: "system_alert",
+      description,
+      requested_actions: [actionPayload],
+      state: "SUCCEEDED",
+      reason: "system_alert_notification",
+      attempt_count: 1,
+      created_at: now,
+      result: resultObj,
+    });
 
     return { accepted: true, task_id: taskId, operation_id: operationId, state: "SUCCEEDED" };
   }
