@@ -1,17 +1,29 @@
 // tests/mcp-gateway.test.ts — Pruebas unitarias para el Universal Gateway de ISyMCP (estilo REA).
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { dispatchIsyMcpAction, ISYMCP_GLOSSARY } from "../src/mcp/gateway";
 
 describe("ISyMCP Universal Gateway Suite", () => {
   let prevAllow: string | undefined;
+  let prevHome: string | undefined;
+  let home: string;
 
   beforeEach(() => {
     prevAllow = process.env.ISYMCP_ALLOW_HOST_SHELL;
     process.env.ISYMCP_ALLOW_HOST_SHELL = "1";
+    // Home aislado: monitor.submit/respond NO deben escribir en el monitor real del operador.
+    prevHome = process.env.CODEX_WEB_HTTP_HOME;
+    home = mkdtempSync(join(tmpdir(), "gw-suite-"));
+    process.env.CODEX_WEB_HTTP_HOME = home;
   });
   afterEach(() => {
     if (prevAllow === undefined) delete process.env.ISYMCP_ALLOW_HOST_SHELL;
     else process.env.ISYMCP_ALLOW_HOST_SHELL = prevAllow;
+    if (prevHome === undefined) delete process.env.CODEX_WEB_HTTP_HOME;
+    else process.env.CODEX_WEB_HTTP_HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
   });
 
   it("GW-01: returns the glossary when action is empty or 'glossary'", async () => {
