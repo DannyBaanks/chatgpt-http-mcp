@@ -104,6 +104,9 @@ export function help(): void {
                              UN uso (o N, máx 10); caduca a los 10 min (máx 1h) si no se usa
   isymcp taint [status|clear] contenido externo leído por ISyMCP (GitHub, medios): mientras dura,
                              allow on ya no basta y cada uso pide allow once; dura 2 h desde la última lectura
+  isymcp phone start|stop|status       API de la app del celular: solo por Tailscale (:8797), peticiones firmadas
+  isymcp phone pair                    código de un solo uso para emparejar la app (Face ID para lo que da permisos)
+  isymcp phone devices | revoke <id>   celulares emparejados / quitar acceso
   isymcp harness list [--server chatgpt|gateway|all]  CLIs/TUIs de agentes detectadas + si tienen el MCP
   isymcp harness install <ids|--all> [--server chatgpt|gateway|all] [--apply]
                              chatgpt = isymcp-chatgpt, gateway = isymcp completo (sin --apply: solo el plan)

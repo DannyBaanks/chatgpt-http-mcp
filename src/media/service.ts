@@ -28,9 +28,10 @@ export class MediaService {
   * cualquier respuesta correcta marca la sesión como contaminada (src/taint.ts). media_import
   * solo devuelve un job_id y no marca.
   */
- async call(name:string,args:any):Promise<{isError?:boolean;content:Array<{type:string;text?:string;mimeType?:string;data?:string}>}> {
+ async call(name:string,args:any,opts:{taint?:boolean}={}):Promise<{isError?:boolean;content:Array<{type:string;text?:string;mimeType?:string;data?:string}>}> {
   const result=await this.dispatch(name,args);
-  if(name!=='media_import'&&result.isError!==true)markTainted(name,typeof args?.asset_id==='string'?args.asset_id:typeof args?.url==='string'?args.url:undefined);
+  // taint:false solo para el operador (app del celular): lo que ve no se le entrega al modelo.
+  if(opts.taint!==false&&name!=='media_import'&&result.isError!==true)markTainted(name,typeof args?.asset_id==='string'?args.asset_id:typeof args?.url==='string'?args.url:undefined);
   return result;
  }
  private async dispatch(name:string,args:any):Promise<{isError?:boolean;content:Array<{type:string;text?:string;mimeType?:string;data?:string}>}> {

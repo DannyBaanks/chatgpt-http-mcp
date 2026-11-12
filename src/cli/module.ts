@@ -3,6 +3,7 @@
 // isymcp.ts era una sola cadena `if (cmd === ...) else if ...` de ~40 comandos. Los comandos migrados
 // viven en src/cli/commands/<nombre>.ts y exportan un CliModule; el router los busca por nombre.
 import { allowModule, taintModule } from "./commands/allow";
+import { phoneModule } from "./commands/phone";
 import { harnessModule } from "./commands/harness";
 import { tuiModule } from "./commands/tui";
 import { askModule } from "./commands/chat";
@@ -30,7 +31,7 @@ export interface CliModule {
 }
 
 export const CLI_MODULES: CliModule[] = [
-  allowModule, taintModule, harnessModule, tuiModule,
+  allowModule, taintModule, phoneModule, harnessModule, tuiModule,
   upModule, downModule, serverModule, tunnelModule,
   askModule, codexModule, conversationModule, modelsModule, commandModule, sessionModule,
   monitorModule, protocolModule,
