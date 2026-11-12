@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  deniedMessage, permissionEnabled, permissionSource, permissionsPath, runWithOperatorAuthorization, scrubbedEnv, setPermission,
+  checkGate, DEFAULT_TTL_MS, deniedMessage, fileGrant, MAX_TTL_MS, parseDuration, permissionEnabled, permissionSource, permissionsPath, readAudit,
+  runWithOperatorAuthorization, scrubbedEnv, setPermission,
 } from "../src/permissions";
 import { checkGhApi, checkGhArgs } from "../src/github/policy";
 
@@ -56,6 +57,69 @@ describe("permisos del operador", () => {
   it("PM-05: el mensaje de denegación dice cómo habilitar", () => {
     expect(deniedMessage("agent_spawn")).toContain("isymcp allow agents on");
     expect(deniedMessage("host_shell")).toContain("ISYMCP_ALLOW_HOST_SHELL");
+  });
+});
+
+describe("caducidad y bitácora", () => {
+  it("PM-11: `on` caduca a las 12 h por defecto; --for y --forever", () => {
+    const before = Date.now();
+    setPermission("agent_spawn", true);
+    const until = Date.parse(fileGrant("agent_spawn").until!);
+    expect(until - before).toBeGreaterThanOrEqual(DEFAULT_TTL_MS - 1000);
+    expect(until - before).toBeLessThanOrEqual(DEFAULT_TTL_MS + 5000);
+    setPermission("agent_spawn", true, process.env, 30 * 60_000);
+    expect(Date.parse(fileGrant("agent_spawn").until!) - Date.now()).toBeLessThanOrEqual(30 * 60_000);
+    setPermission("agent_spawn", true, process.env, null);
+    expect(fileGrant("agent_spawn")).toEqual({ on: true, until: null, expired: false });
+    setPermission("agent_spawn", false);
+    expect(fileGrant("agent_spawn")).toEqual({ on: false, until: null, expired: false });
+  });
+
+  it("PM-12: un permiso caducado (o con fecha ilegible) está cerrado y lo dice", () => {
+    writeFileSync(permissionsPath(), JSON.stringify({ agent_spawn: true, agent_spawn_until: new Date(Date.now() - 1000).toISOString() }));
+    expect(permissionEnabled("agent_spawn")).toBe(false);
+    expect(fileGrant("agent_spawn").expired).toBe(true);
+    const gate = checkGate("agent_spawn", "tui.spawn", { agent: "openisy" });
+    expect(gate.ok).toBe(false);
+    expect(gate.message).toContain("caducó");
+    writeFileSync(permissionsPath(), JSON.stringify({ agent_spawn: true, agent_spawn_until: "mañana" }));
+    expect(permissionEnabled("agent_spawn")).toBe(false);
+    setPermission("agent_spawn", false);
+  });
+
+  it("PM-13: duraciones", () => {
+    expect(parseDuration("30m")).toBe(30 * 60_000);
+    expect(parseDuration("2h")).toBe(2 * 3600_000);
+    expect(parseDuration("1d")).toBe(MAX_TTL_MS);
+    expect(parseDuration("1.5h")).toBe(5400_000);
+    for (const bad of ["", "2", "h", "-1h", "0m", "2 weeks"]) expect(parseDuration(bad)).toBeNull();
+  });
+
+  it("PM-14: cada decisión de la puerta queda en la bitácora, sin credenciales", () => {
+    const n0 = readAudit(1000).length;
+    expect(checkGate("host_shell", "shell_exec", { command: "echo hola" }).ok).toBe(false);
+    setPermission("agent_spawn", true, process.env, 60_000);
+    expect(checkGate("agent_spawn", "spawn_agent_tui", { agent: "claude", CODEX_WEB_HTTP_TOKEN: "x", api_key: "y" }).ok).toBe(true);
+    setPermission("agent_spawn", false);
+    const rows = readAudit(1000).slice(n0);
+    expect(rows.map((r) => [r.cap, r.action, r.decision, r.source])).toEqual([
+      ["host_shell", "shell_exec", "deny", null],
+      ["agent_spawn", "spawn_agent_tui", "allow", "file"],
+    ]);
+    expect(rows[0]!.command).toBe("echo hola");
+    expect(rows[1]!.agent).toBe("claude");
+    expect(JSON.stringify(rows)).not.toContain("CODEX_WEB_HTTP_TOKEN");
+    expect(JSON.stringify(rows)).not.toContain("api_key");
+    if (process.platform !== "win32") {
+      const { auditLogPath } = require("../src/permissions");
+      expect(statSync(auditLogPath()).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("PM-15: comandos largos se recortan en la bitácora", () => {
+    checkGate("host_shell", "shell_exec", { command: "x".repeat(1000) });
+    const last = readAudit(1)[0]!;
+    expect(String(last.command).length).toBe(300);
   });
 });
 

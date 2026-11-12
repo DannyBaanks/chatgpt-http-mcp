@@ -4,7 +4,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { stopProcessTree } from "../platform/process";
-import { deniedMessage, permissionEnabled, runWithOperatorAuthorization, scrubbedEnv } from "../permissions";
+import { checkGate, runWithOperatorAuthorization, scrubbedEnv } from "../permissions";
 
 //
 // Autorización de shell en el host (fail-closed), ver src/permissions.ts:
@@ -21,9 +21,6 @@ export function runWithHostShellAuthorization<T>(fn: () => T): T {
   return runWithOperatorAuthorization(fn);
 }
 
-function hostShellAuthorized(): boolean {
-  return permissionEnabled("host_shell");
-}
 
 export interface ShellExecOptions {
   command: string;
@@ -78,7 +75,8 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
   // Gate fail-closed: shell_exec corre sobre el HOST (sin bwrap), asi que solo
   // existe con opt-in explicito del operador. El resto de la superficie MCP
   // (codex_exec) si pasa por sandboxPlan; este gate no lo toca.
-  if (!hostShellAuthorized()) {
+  const gate = checkGate("host_shell", "shell_exec", { command: rawCommand, cwd: options.cwd });
+  if (!gate.ok) {
     return {
       ok: false,
       command: rawCommand,
@@ -88,7 +86,7 @@ export async function executeShellCommand(options: ShellExecOptions): Promise<Sh
       stderr: "",
       duration_ms: Date.now() - started,
       timed_out: false,
-      error: deniedMessage("host_shell"),
+      error: gate.message,
     };
   }
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000), 300_000);

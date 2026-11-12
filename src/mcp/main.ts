@@ -61,7 +61,7 @@ import { registerIsyMcpGateway, registerControlCenterMcpTools } from "./gateway"
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
 import { executeShellCommand } from "../shell/executor";
 import { spawnAgentTui, spawnAgyTui } from "../tui-launcher";
-import { deniedMessage, permissionEnabled } from "../permissions";
+import { checkGate } from "../permissions";
 import { registerTableroTools } from "../tablero/register";
 import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
 import { handleQueueLeaseMcpCall, isQueueLeaseToken } from "../remote-monitor";
@@ -806,7 +806,8 @@ server.registerTool(
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   async (input) => {
-    if (!permissionEnabled("agent_spawn")) return jsonText({ ok: false, error: "agent_spawn_disabled", message: deniedMessage("agent_spawn") });
+    const gate = checkGate("agent_spawn", "spawn_agy_tui", { agent: "agy", cwd: input.cwd, prompt: String(input.prompt ?? "") });
+    if (!gate.ok) return jsonText({ ok: false, error: "agent_spawn_disabled", message: gate.message });
     const res = await spawnAgyTui({
       prompt: String(input.prompt ?? ""),
       cwd: input.cwd ? String(input.cwd) : undefined,
@@ -841,8 +842,9 @@ server.registerTool(
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   async (input) => {
-    if (input.dry_run !== true && !permissionEnabled("agent_spawn")) {
-      return jsonText({ ok: false, error: "agent_spawn_disabled", message: deniedMessage("agent_spawn") });
+    if (input.dry_run !== true) {
+      const gate = checkGate("agent_spawn", "spawn_agent_tui", { agent: String(input.agent ?? "agy"), cwd: input.cwd, prompt: String(input.prompt ?? "") });
+      if (!gate.ok) return jsonText({ ok: false, error: "agent_spawn_disabled", message: gate.message });
     }
     const res = await spawnAgentTui({
       agent: String(input.agent ?? "agy"),
