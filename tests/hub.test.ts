@@ -40,7 +40,8 @@ describe("config del hub (CLI)", () => {
   });
 });
 
-describe("hub Zig e2e (daemon + conector + MCP hijos)", () => {
+// El daemon es Linux (epoll, signalfd, sockets Unix, /run/user/<uid>): fuera de Linux no aplica.
+describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + MCP hijos)", () => {
   let dir: string;
   let sock: string;
   let daemon: ChildProcess;
