@@ -1139,6 +1139,9 @@ pub const Daemon = struct {
         if (self.poolStarting(p)) return .wait;
         if (p.restart_at != 0) return .unavailable;
         self.warm(p);
+        // per-client con prewarm 0: sin procesos nunca habría catálogo. Se lanza uno, que queda de
+        // reserva y lo toma la primera TUI que ejecute.
+        if (!self.poolStarting(p) and p.cfg.isolation == .per_client and self.liveCount(p, false) < p.cfg.max_instances) _ = self.spawn(p);
         return if (self.poolStarting(p)) .wait else .unavailable;
     }
 
@@ -1388,7 +1391,9 @@ pub const Daemon = struct {
         };
         if (ready) return "ready";
         if (starting) return "starting";
-        return if (p.cat != null and p.last_error == null) "ready" else "failed";
+        if (p.cat != null and p.last_error == null) return "ready";
+        // Sin procesos ni errores (per-client con prewarm 0 antes del primer uso): en reposo.
+        return if (p.last_error == null) "idle" else "failed";
     }
 
     fn writePoolStatus(self: *Daemon, w: *Writer, p: *Pool) !void {

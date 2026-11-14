@@ -75,13 +75,13 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
     }
     dir = mkdtempSync(join(tmpdir(), "isymcp-hub-"));
     sock = join(dir, "run", "hub.sock");
-    writeServers({ shared: cmd(), session: { ...cmd(), isolation: "per-client", prewarm: 1, max_instances: 3 }, off: { ...cmd(), enabled: false } });
+    writeServers({ shared: cmd(), session: { ...cmd(), isolation: "per-client", prewarm: 1, max_instances: 3 }, off: { ...cmd(), enabled: false }, lazy: { ...cmd(), isolation: "per-client", prewarm: 0 } });
     daemon = spawn(BIN, ["serve", "--quiet"], { env: env(), stdio: "ignore" });
     await waitFor(() => existsSync(sock));
     const probe = await connectClient("probe");
     await waitFor(async () => {
       const all = (await call(probe, "hub_discover", {})).data.servers;
-      return all.filter((s: any) => s.name !== "off").every((s: any) => s.state === "ready");
+      return all.filter((s: any) => s.name !== "off" && s.name !== "lazy").every((s: any) => s.state === "ready");
     });
   }, 60_000);
 
@@ -107,7 +107,7 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
   it("HUB-11: discover lista servidores, catálogo y búsqueda; describe da el esquema", async () => {
     const c = clients[0];
     const all = await call(c, "hub_discover", {});
-    expect(all.data.servers.map((s: any) => [s.name, s.state])).toEqual([["shared", "ready"], ["session", "ready"], ["off", "disabled"]]);
+    expect(all.data.servers.map((s: any) => [s.name, s.state])).toEqual([["shared", "ready"], ["session", "ready"], ["off", "disabled"], ["lazy", "idle"]]);
     const cat = await call(c, "hub_discover", { server: "shared" });
     expect(cat.data.tool_count).toBe(7);
     expect(cat.data.tools.find((t: any) => t.name === "echo")).toEqual({ name: "echo", description: "Devuelve el texto.", read_only: true });
@@ -117,6 +117,13 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
     expect(q.data.matches.map((m: any) => `${m.server}.${m.tool}`)).toContain("session.get_state");
     const d = await call(c, "hub_describe", { server: "shared", tool: "echo" });
     expect(d.data.tool.inputSchema.properties.text.type).toBe("string");
+  });
+
+  it("HUB-22: per-client con prewarm 0 arranca bajo demanda (catálogo y ejecución)", async () => {
+    const c = clients[0];
+    const cat = await call(c, "hub_discover", { server: "lazy" });
+    expect(cat.data.tool_count).toBe(7);
+    expect((await exec(c, "lazy", "echo", { text: "bajo demanda" })).text).toBe("bajo demanda");
   });
 
   it("HUB-12: execute devuelve el resultado intacto (incluido _meta de procedencia); errores con sugerencias", async () => {

@@ -53,9 +53,9 @@ async function daemonPid(): Promise<number | null> {
   const pid = Number(readFileSync(pidFile, "utf8").trim());
   if (!Number.isInteger(pid) || pid <= 1) return null;
   try {
+    // El daemon es el binario Zig: argv = [<ruta>/isymcp-hub, "serve", ...].
     const cmd = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
-    const i = cmd.indexOf("hub");
-    return i >= 0 && cmd[i + 1] === "serve" ? pid : null;
+    return /(^|\/)isymcp-hub$/.test(cmd[0] ?? "") && cmd[1] === "serve" ? pid : null;
   } catch {
     return null;
   }
@@ -97,7 +97,7 @@ export const hubModule: CliModule = {
       const pid = await daemonPid();
       console.log(`  ● hub corriendo${pid ? ` (pid ${pid})` : ""}`);
       for (const s of data.servers) {
-        const mark = s.state === "ready" ? "●" : s.state === "starting" ? "◐" : s.state === "disabled" ? "○" : "✗";
+        const mark = s.state === "ready" ? "●" : s.state === "starting" ? "◐" : s.state === "disabled" || s.state === "idle" ? "○" : "✗";
         const ver = s.serverInfo ? ` ${s.serverInfo.name} ${s.serverInfo.version}` : "";
         console.log(`  ${mark} ${s.server.padEnd(16)} ${String(s.state).padEnd(9)} ${String(s.tools).padStart(4)} tools  ${s.isolation}${ver}`);
         for (const i of s.instances ?? []) {
