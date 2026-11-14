@@ -19,7 +19,9 @@ pub const VERSION = "0.2.0";
 const MAX_MESSAGE = 128 * 1024 * 1024;
 const BUF_KEEP = 1024 * 1024;
 const STDERR_TAIL = 4096;
-const INSTRUCTIONS_PER_SERVER = 2500;
+/// Tope por servidor de las instrucciones que se copian al initialize del hub. Holgado a propósito:
+/// las de REA (≈2.6 KB) terminan con la advertencia de tratar el contenido del objetivo como datos.
+const INSTRUCTIONS_PER_SERVER = 8000;
 const PROTOCOL_VERSION = "2025-06-18";
 
 const Kind = enum(u8) { listen = 1, signal = 2, conn = 3, inst_out = 4, inst_err = 5, inst_in = 6 };
@@ -35,6 +37,8 @@ const Conn = struct {
     wbuf: std.ArrayList(u8) = .empty,
     wout: bool = false,
     client: ?[]u8 = null,
+    /// La TUI cerró su lado de escritura: se responde lo pendiente y luego se cierra.
+    eof: bool = false,
 };
 
 const InstState = enum { starting, ready, failed, closed };
@@ -666,6 +670,7 @@ pub const Daemon = struct {
                 w.writer.print("{{\"jsonrpc\":\"2.0\",\"id\":{s},\"error\":{s}}}\n", .{ pend.value.orig_id, top.err.? }) catch return;
             }
             self.connWrite(conn, w.written());
+            self.finishIfEof(conn);
             return;
         }
         if (top.isRequest()) {
@@ -885,6 +890,25 @@ pub const Daemon = struct {
         self.gpa.destroy(conn);
     }
 
+    /// Tras un half-close: deja de leer y cierra cuando no quede nada por responder ni por escribir.
+    fn finishIfEof(self: *Daemon, conn: *Conn) void {
+        if (!conn.eof) return;
+        var pit = self.pending.valueIterator();
+        while (pit.next()) |p| if (p.conn_id == conn.id) {
+            self.epMod(conn.fd, if (conn.wout) @as(u32, linux.EPOLL.OUT) else 0, tag(.conn, conn.id));
+            return;
+        };
+        for (self.waiters.items) |w| if (w.conn_id == conn.id) {
+            self.epMod(conn.fd, if (conn.wout) @as(u32, linux.EPOLL.OUT) else 0, tag(.conn, conn.id));
+            return;
+        };
+        if (conn.wbuf.items.len > 0) {
+            self.epMod(conn.fd, linux.EPOLL.OUT, tag(.conn, conn.id));
+            return;
+        }
+        self.dropConn(conn);
+    }
+
     fn sendCancel(self: *Daemon, inst: *Instance, id: u64) void {
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":{{\"requestId\":{d}}}}}\n", .{id}) catch return;
@@ -904,7 +928,7 @@ pub const Daemon = struct {
         }
         if (!conn.wout) {
             conn.wout = true;
-            self.epMod(conn.fd, linux.EPOLL.IN | linux.EPOLL.OUT | linux.EPOLL.RDHUP, tag(.conn, conn.id));
+            self.epMod(conn.fd, (if (conn.eof) @as(u32, 0) else @as(u32, linux.EPOLL.IN | linux.EPOLL.RDHUP)) | linux.EPOLL.OUT, tag(.conn, conn.id));
         }
     }
 
@@ -919,6 +943,7 @@ pub const Daemon = struct {
         }
         shrinkBuf(self.gpa, &conn.wbuf);
         conn.wout = false;
+        if (conn.eof) return self.finishIfEof(conn);
         self.epMod(conn.fd, linux.EPOLL.IN | linux.EPOLL.RDHUP, tag(.conn, conn.id));
     }
 
@@ -929,11 +954,15 @@ pub const Daemon = struct {
                 error.Again => break,
                 else => return self.dropConn(conn),
             };
-            if (n == 0) return self.dropConn(conn);
+            if (n == 0) {
+                conn.eof = true;
+                break;
+            }
             conn.rbuf.appendSlice(self.gpa, buf[0..n]) catch return self.dropConn(conn);
             if (conn.rbuf.items.len > MAX_MESSAGE) return self.dropConn(conn);
         }
         const cid = conn.id;
+        defer if (self.conns.get(cid)) |still| self.finishIfEof(still);
         var start: usize = 0;
         while (std.mem.indexOfScalarPos(u8, conn.rbuf.items, start, '\n')) |nl| {
             const line = std.mem.trim(u8, conn.rbuf.items[start..nl], " \r\t");
@@ -1491,7 +1520,11 @@ pub const Daemon = struct {
                     .signal => self.onSignal(),
                     .conn => if (self.conns.get(id)) |c| {
                         if (ev.events & linux.EPOLL.OUT != 0) self.connFlush(c);
-                        if (ev.events & (linux.EPOLL.IN | linux.EPOLL.HUP | linux.EPOLL.RDHUP | linux.EPOLL.ERR) != 0) self.onConnReadable(c);
+                        if (self.conns.get(id)) |c2| {
+                            if (ev.events & linux.EPOLL.ERR != 0 or (c2.eof and ev.events & linux.EPOLL.HUP != 0)) {
+                                self.dropConn(c2);
+                            } else if (!c2.eof and ev.events & (linux.EPOLL.IN | linux.EPOLL.HUP | linux.EPOLL.RDHUP) != 0) self.onConnReadable(c2);
+                        }
                     },
                     .inst_out => if (self.insts.get(id)) |i| self.onInstStdout(i),
                     .inst_err => if (self.insts.get(id)) |i| self.onInstStderr(i),

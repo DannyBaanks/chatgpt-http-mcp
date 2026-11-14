@@ -32,6 +32,10 @@ fn resolvePaths(a: std.mem.Allocator, env: *const std.process.Environ.Map) !Path
     const cfg = nonEmpty(env, "ISYMCP_HUB_CONFIG") orelse try std.fmt.allocPrint(a, "{s}/servers.json", .{home});
     const sock = nonEmpty(env, "ISYMCP_HUB_SOCKET") orelse blk: {
         if (nonEmpty(env, "XDG_RUNTIME_DIR")) |rt| if (rt[0] == '/') break :blk try std.fmt.allocPrint(a, "{s}/isymcp/hub.sock", .{rt});
+        // Muchas TUIs lanzan sus MCP con un entorno saneado, sin XDG_RUNTIME_DIR: sin esto cada una
+        // calcularía otra ruta y levantaría un hub duplicado. /run/user/<uid> es la de systemd.
+        const fallback = try std.fmt.allocPrint(a, "/run/user/{d}", .{linux.getuid()});
+        if (sys.exists(fallback)) break :blk try std.fmt.allocPrint(a, "{s}/isymcp/hub.sock", .{fallback});
         break :blk try std.fmt.allocPrint(a, "{s}/run/hub.sock", .{home});
     };
     return .{ .home = home, .config = cfg, .socket = sock };
