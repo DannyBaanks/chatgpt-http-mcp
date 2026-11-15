@@ -4,6 +4,7 @@
 // viven en src/cli/commands/<nombre>.ts y exportan un CliModule; el router los busca por nombre.
 import { allowModule, taintModule } from "./commands/allow";
 import { phoneModule } from "./commands/phone";
+import { hubModule } from "./commands/hub";
 import { harnessModule } from "./commands/harness";
 import { tuiModule } from "./commands/tui";
 import { askModule } from "./commands/chat";
@@ -31,7 +32,7 @@ export interface CliModule {
 }
 
 export const CLI_MODULES: CliModule[] = [
-  allowModule, taintModule, phoneModule, harnessModule, tuiModule,
+  allowModule, taintModule, phoneModule, harnessModule, tuiModule, hubModule,
   upModule, downModule, serverModule, tunnelModule,
   askModule, codexModule, conversationModule, modelsModule, commandModule, sessionModule,
   monitorModule, protocolModule,

@@ -23,6 +23,18 @@ jobs:
         with:
           bun-version: 1.4.2
 
+      # El hub de MCP (hub/) es un binario Zig: sus tests e2e lo compilan y lo ejecutan de verdad.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Hub (Zig) unit tests + release build
+        timeout-minutes: 5
+        working-directory: hub
+        run: |
+          zig build test --summary all
+          zig build -Doptimize=ReleaseSafe
+
       # Los tests ejecutan bwrap y generan/analizan medios con FFmpeg de verdad;
       # estas dependencias deben estar presentes en el runner, no se simulan.
       # Ubuntu 24.04 bloquea user namespaces sin privilegios vía AppArmor;
