@@ -336,7 +336,7 @@ pub const Daemon = struct {
     }
 
     fn warm(self: *Daemon, p: *Pool) void {
-        if (!p.cfg.enabled or p.closed or self.stop) return;
+        if (!p.cfg.enabled or p.closed or self.stop or p.cfg.direct) return;
         if (p.cfg.isolation == .shared) {
             if (self.liveCount(p, false) == 0) _ = self.spawn(p);
         } else {
@@ -449,7 +449,7 @@ pub const Daemon = struct {
         return inst;
     }
 
-    fn resolveExe(a: std.mem.Allocator, cmd: []const u8, path_env: []const u8) ![:0]const u8 {
+    pub fn resolveExe(a: std.mem.Allocator, cmd: []const u8, path_env: []const u8) ![:0]const u8 {
         if (std.mem.indexOfScalar(u8, cmd, '/') != null) return a.dupeZ(u8, cmd);
         var it = std.mem.tokenizeScalar(u8, path_env, ':');
         while (it.next()) |dir| {
@@ -1109,7 +1109,7 @@ pub const Daemon = struct {
             \\MCP disponibles:
         );
         for (self.pools.items, 0..) |p, i| {
-            try w.writer.print("{s} {s}{s}", .{ if (i == 0) "" else ",", p.cfg.name, if (p.cfg.enabled) "" else " (deshabilitado)" });
+            try w.writer.print("{s} {s}{s}", .{ if (i == 0) "" else ",", p.cfg.name, if (!p.cfg.enabled) " (deshabilitado)" else if (p.cfg.direct) " (directo: MCP propio en la TUI)" else "" });
         }
         if (self.pools.items.len == 0) try w.writer.writeAll(" (ninguno configurado)");
         try w.writer.writeAll(".");
@@ -1135,7 +1135,7 @@ pub const Daemon = struct {
     /// Catálogo listo, o .wait si el MCP aún arranca, o null si no está disponible.
     fn needCatalog(self: *Daemon, p: *Pool) union(enum) { ok: *catalog.Catalog, wait, unavailable } {
         if (p.cat) |*c| return .{ .ok = c };
-        if (!p.cfg.enabled) return .unavailable;
+        if (!p.cfg.enabled or p.cfg.direct) return .unavailable;
         if (self.poolStarting(p)) return .wait;
         if (p.restart_at != 0) return .unavailable;
         self.warm(p);
@@ -1163,6 +1163,10 @@ pub const Daemon = struct {
             const limit_v: ?usize = if (args.get("limit")) |l| (if (l == .integer and l.integer > 0) @intCast(l.integer) else null) else null;
             if (argStr(args, "server")) |sname| {
                 const p = self.findPool(sname) orelse return self.unknownServer(conn, id, sname);
+                if (p.cfg.direct) {
+                    self.respondJson(conn, id, try std.fmt.allocPrint(a, "{{\"server\":{f},\"mode\":\"direct\",\"note\":{f}}}", .{ js(sname), js(try std.fmt.allocPrint(a, "{s} se expone tal cual como su propio MCP en cada TUI (isymcp-hub connect --direct {s}): sus tools aparecen directamente en la TUI, no por hub_execute.", .{ sname, sname })) }), false);
+                    return .done;
+                }
                 const c = switch (self.needCatalog(p)) {
                     .ok => |c| c,
                     .wait => return .wait,
@@ -1203,7 +1207,7 @@ pub const Daemon = struct {
                 var hits: std.ArrayList(catalog.Hit) = .empty;
                 var unavailable: std.ArrayList([]const u8) = .empty;
                 for (self.pools.items) |p| {
-                    if (!p.cfg.enabled) continue;
+                    if (!p.cfg.enabled or p.cfg.direct) continue;
                     switch (self.needCatalog(p)) {
                         .ok => |c| try catalog.search(a, &hits, p.cfg.name, c, q),
                         .wait => return .wait,
@@ -1258,6 +1262,10 @@ pub const Daemon = struct {
                 return .done;
             }
             const p = self.findPool(sname) orelse return self.unknownServer(conn, id, sname);
+            if (p.cfg.direct) {
+                self.respondToolError(conn, id, "direct_server", try std.fmt.allocPrint(a, "{s} es directo: sus tools están como MCP propio en la TUI (isymcp-hub connect --direct {s}), no por el hub.", .{ sname, sname }), null);
+                return .done;
+            }
             const c = switch (self.needCatalog(p)) {
                 .ok => |c| c,
                 .wait => return .wait,
@@ -1382,6 +1390,7 @@ pub const Daemon = struct {
 
     fn poolState(self: *Daemon, p: *Pool) []const u8 {
         if (!p.cfg.enabled) return "disabled";
+        if (p.cfg.direct) return "direct";
         var ready = false;
         var starting = false;
         var it = self.insts.valueIterator();

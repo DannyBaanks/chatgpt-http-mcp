@@ -36,6 +36,8 @@ describe("config del hub (CLI)", () => {
     expect(res.added).toEqual(["rea"]);
     expect(config.servers.rea).toMatchObject({ command: "/bin/rea", args: ["mcp"], env: { A: "1" }, isolation: "per-client", prewarm: 1 });
     expect(config.servers.ya.command).toBe("keep");
+    expect(parseHubConfig({ servers: { m: { command: "x", mode: "direct" } } }).servers.m.mode).toBe("direct");
+    expect(() => parseHubConfig({ servers: { m: { command: "x", mode: "otro" } } })).toThrow(/mode/);
     expect(res.skipped.map((s) => s.name).sort()).toEqual(["isymcp-hub", "web", "ya"]);
   });
 });
@@ -75,13 +77,13 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
     }
     dir = mkdtempSync(join(tmpdir(), "isymcp-hub-"));
     sock = join(dir, "run", "hub.sock");
-    writeServers({ shared: cmd(), session: { ...cmd(), isolation: "per-client", prewarm: 1, max_instances: 3 }, off: { ...cmd(), enabled: false }, lazy: { ...cmd(), isolation: "per-client", prewarm: 0 } });
+    writeServers({ shared: cmd(), session: { ...cmd(), isolation: "per-client", prewarm: 1, max_instances: 3 }, off: { ...cmd(), enabled: false }, lazy: { ...cmd(), isolation: "per-client", prewarm: 0 }, sesion: { ...cmd(), mode: "direct", env: { FAKE_FROM_CONFIG: "de-config" } } });
     daemon = spawn(BIN, ["serve", "--quiet"], { env: env(), stdio: "ignore" });
     await waitFor(() => existsSync(sock));
     const probe = await connectClient("probe");
     await waitFor(async () => {
       const all = (await call(probe, "hub_discover", {})).data.servers;
-      return all.filter((s: any) => s.name !== "off" && s.name !== "lazy").every((s: any) => s.state === "ready");
+      return all.filter((s: any) => !["off", "lazy", "sesion"].includes(s.name)).every((s: any) => s.state === "ready");
     });
   }, 60_000);
 
@@ -107,9 +109,9 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
   it("HUB-11: discover lista servidores, catálogo y búsqueda; describe da el esquema", async () => {
     const c = clients[0];
     const all = await call(c, "hub_discover", {});
-    expect(all.data.servers.map((s: any) => [s.name, s.state])).toEqual([["shared", "ready"], ["session", "ready"], ["off", "disabled"], ["lazy", "idle"]]);
+    expect(all.data.servers.map((s: any) => [s.name, s.state])).toEqual([["shared", "ready"], ["session", "ready"], ["off", "disabled"], ["lazy", "idle"], ["sesion", "direct"]]);
     const cat = await call(c, "hub_discover", { server: "shared" });
-    expect(cat.data.tool_count).toBe(7);
+    expect(cat.data.tool_count).toBe(8);
     expect(cat.data.tools.find((t: any) => t.name === "echo")).toEqual({ name: "echo", description: "Devuelve el texto.", read_only: true });
     expect(cat.data.server_info).toEqual({ name: "fake", version: "1.2.3" });
     expect(cat.data.instructions).toContain("MCP falso");
@@ -122,8 +124,34 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
   it("HUB-22: per-client con prewarm 0 arranca bajo demanda (catálogo y ejecución)", async () => {
     const c = clients[0];
     const cat = await call(c, "hub_discover", { server: "lazy" });
-    expect(cat.data.tool_count).toBe(7);
+    expect(cat.data.tool_count).toBe(8);
     expect((await exec(c, "lazy", "echo", { text: "bajo demanda" })).text).toBe("bajo demanda");
+  });
+
+  it("HUB-23: mode direct: el conector lo lanza tal cual con el entorno de la TUI; el hub no lo arranca", async () => {
+    const c = clients[0];
+    const d = await call(c, "hub_discover", { server: "sesion" });
+    expect(d.data.mode).toBe("direct");
+    const ex = await exec(c, "sesion", "echo", { text: "x" });
+    expect(ex.data.error.code).toBe("direct_server");
+    // El hub no tiene procesos para él.
+    expect((await status(c, "sesion")).instances).toEqual([]);
+    // Directo: sus tools tal cual, y el token de la TUI llega al MCP sin pasar por el daemon.
+    const transport = new StdioClientTransport({ command: BIN, args: ["connect", "--direct", "sesion"], env: { ...env(), FAKE_TUI_TOKEN: "secreto-de-la-tui" }, stderr: "pipe" });
+    const direct = new Client({ name: "tui-directa", version: "0" });
+    await direct.connect(transport);
+    clients.push(direct);
+    expect(direct.getServerVersion()?.name).toBe("fake");
+    expect((await direct.listTools()).tools.length).toBe(8);
+    const tok: any = await direct.callTool({ name: "env", arguments: { name: "FAKE_TUI_TOKEN" } });
+    expect(tok.content[0].text).toBe("secreto-de-la-tui");
+    const fromCfg: any = await direct.callTool({ name: "env", arguments: { name: "FAKE_FROM_CONFIG" } });
+    expect(fromCfg.content[0].text).toBe("de-config");
+    expect(readFileSync(join(dir, "hub.log"), "utf8")).not.toContain("secreto-de-la-tui");
+    // Un servidor normal no se puede lanzar en directo.
+    const r = spawnSync(BIN, ["connect", "--direct", "shared"], { env: env(), encoding: "utf8", input: "", timeout: 10_000 });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("mode");
   });
 
   it("HUB-12: execute devuelve el resultado intacto (incluido _meta de procedencia); errores con sugerencias", async () => {

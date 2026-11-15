@@ -2,6 +2,8 @@
 //!
 //!   isymcp-hub serve [--quiet]   daemon (systemd, o lo levanta el conector)
 //!   isymcp-hub connect           conector stdio: lo que se registra como MCP en cada TUI
+//!   isymcp-hub connect --direct <nombre>   lanza tal cual un MCP con mode "direct" (con el
+//!                                entorno de la TUI: tokens y datos de sesión no pasan por el daemon)
 //!   isymcp-hub version
 //!
 //! Rutas (igual que la CLI en TypeScript, src/hub/paths.ts):
@@ -12,6 +14,7 @@ const linux = std.os.linux;
 const daemon = @import("daemon.zig");
 const connect = @import("connect.zig");
 const sys = @import("sys.zig");
+const config = @import("config.zig");
 
 test {
     _ = @import("jspan.zig");
@@ -69,6 +72,61 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    if (std.mem.eql(u8, cmd, "connect") and args.len > 3 and std.mem.eql(u8, args[2], "--direct")) {
+        // MCP directo: se lanza tal cual con el entorno de la TUI (tokens y datos de sesión no salen
+        // de su árbol de procesos) más el env de servers.json; el conector se reemplaza por él.
+        const want = args[3];
+        const text = sys.readFileAlloc(arena, paths.config, 16 * 1024 * 1024) catch {
+            try sys.writeAll(2, "isymcp-hub: no se pudo leer servers.json\n");
+            std.process.exit(1);
+        };
+        const servers = config.parse(arena, text) catch {
+            try sys.writeAll(2, "isymcp-hub: servers.json no válido\n");
+            std.process.exit(1);
+        };
+        const s = for (servers) |x| {
+            if (std.mem.eql(u8, x.name, want)) break x;
+        } else {
+            var b: [512]u8 = undefined;
+            try sys.writeAll(2, std.fmt.bufPrint(&b, "isymcp-hub: no hay un servidor '{s}' en servers.json\n", .{want}) catch "isymcp-hub: servidor desconocido\n");
+            std.process.exit(1);
+        };
+        if (!s.direct) {
+            var b: [512]u8 = undefined;
+            try sys.writeAll(2, std.fmt.bufPrint(&b, "isymcp-hub: '{s}' no tiene mode \"direct\"; úsalo por el hub (isymcp-hub connect)\n", .{want}) catch "isymcp-hub: no es directo\n");
+            std.process.exit(1);
+        }
+        var envl: std.ArrayList(?[*:0]const u8) = .empty;
+        var path_env: []const u8 = "/usr/local/bin:/usr/bin:/bin";
+        for (init.environ_map.keys(), init.environ_map.values()) |k, v| {
+            var overridden = false;
+            for (s.env_keys) |ck| if (std.mem.eql(u8, ck, k)) {
+                overridden = true;
+            };
+            if (overridden) continue;
+            if (std.mem.eql(u8, k, "PATH")) path_env = v;
+            try envl.append(arena, try std.fmt.allocPrintSentinel(arena, "{s}={s}", .{ k, v }, 0));
+        }
+        for (s.env_keys, s.env_vals) |k, v| {
+            if (std.mem.eql(u8, k, "PATH")) path_env = v;
+            try envl.append(arena, try std.fmt.allocPrintSentinel(arena, "{s}={s}", .{ k, v }, 0));
+        }
+        try envl.append(arena, null);
+        var argv: std.ArrayList(?[*:0]const u8) = .empty;
+        try argv.append(arena, try arena.dupeZ(u8, s.command));
+        for (s.args) |x| try argv.append(arena, try arena.dupeZ(u8, x));
+        try argv.append(arena, null);
+        const exe = daemon.Daemon.resolveExe(arena, s.command, path_env) catch {
+            var b: [512]u8 = undefined;
+            try sys.writeAll(2, std.fmt.bufPrint(&b, "isymcp-hub: no se encuentra el comando '{s}'\n", .{s.command}) catch "isymcp-hub: comando no encontrado\n");
+            std.process.exit(127);
+        };
+        if (s.cwd) |cwd| _ = linux.chdir(try arena.dupeZ(u8, cwd));
+        _ = linux.execve(exe, @ptrCast(argv.items.ptr), @ptrCast(envl.items.ptr));
+        try sys.writeAll(2, "isymcp-hub: execve falló\n");
+        std.process.exit(127);
+    }
+
     if (std.mem.eql(u8, cmd, "connect")) {
         var exe_buf: [4096]u8 = undefined;
         const rl = linux.readlink("/proc/self/exe", &exe_buf, exe_buf.len - 1);
@@ -99,6 +157,7 @@ pub fn main(init: std.process.Init) !void {
     try sys.writeAll(2,
         \\isymcp-hub serve [--quiet]   daemon de MCP compartidos
         \\isymcp-hub connect           conector stdio para registrar en cada TUI
+        \\isymcp-hub connect --direct <nombre>   MCP con mode "direct", tal cual
         \\isymcp-hub version
         \\
     );

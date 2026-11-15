@@ -27,6 +27,7 @@ server.registerTool("burst", { description: "Progreso y respuesta sin pausa.", i
   for (let i = 1; i <= 3; i++) if (token !== undefined) await extra.sendNotification({ method: "notifications/progress", params: { progressToken: token, progress: i, total: 3 } });
   return { content: [{ type: "text", text: "done" }] };
 });
+server.registerTool("env", { description: "Lee una variable del entorno del proceso.", inputSchema: { name: z.string() } }, async ({ name }) => ({ content: [{ type: "text", text: process.env[name] ?? "" }] }));
 server.registerTool("crash", { description: "Termina el proceso.", inputSchema: {} }, async () => { setTimeout(() => process.exit(3), 10); return { content: [{ type: "text", text: "bye" }] }; });
 if (process.env.FAKE_START_DELAY_MS) await new Promise((r) => setTimeout(r, Number(process.env.FAKE_START_DELAY_MS)));
 await server.connect(new StdioServerTransport());

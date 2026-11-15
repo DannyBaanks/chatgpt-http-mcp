@@ -38,6 +38,13 @@ export interface HubServerConfig {
   enabled?: boolean;
   /** Texto corto para el listado de hub_discover. */
   description?: string;
+  /**
+   * hub (por defecto): lo arranca el daemon y se usa por hub_execute.
+   * direct: el daemon no lo arranca; cada TUI lo registra como su propio MCP, tal cual
+   * (`isymcp-hub connect --direct <nombre>`), y se lanza con el entorno de la TUI. Para MCP con
+   * tokens o datos de sesión de la TUI (mxterm, node_repl de Codex, office-bridge).
+   */
+  mode?: "hub" | "direct";
 }
 
 export interface HubConfig {
@@ -71,6 +78,7 @@ export function parseHubConfig(raw: unknown): HubConfig {
       if (v[k] !== undefined && !(Number.isInteger(v[k]) && (v[k] as number) >= 0)) throw Error(`hub_config_invalid: servers.${name}.${k}`);
     }
     if (v.max_instances === 0) throw Error(`hub_config_invalid: servers.${name}.max_instances debe ser >= 1`);
+    if (v.mode !== undefined && v.mode !== "hub" && v.mode !== "direct") throw Error(`hub_config_invalid: servers.${name}.mode`);
     out[name] = {
       command: v.command,
       args: v.args as string[] | undefined,
@@ -83,6 +91,7 @@ export function parseHubConfig(raw: unknown): HubConfig {
       call_timeout_ms: v.call_timeout_ms as number | undefined,
       enabled: v.enabled === undefined ? true : v.enabled === true,
       description: typeof v.description === "string" ? v.description : undefined,
+      ...(v.mode === "direct" ? { mode: "direct" as const } : {}),
     };
   }
   return { servers: out };

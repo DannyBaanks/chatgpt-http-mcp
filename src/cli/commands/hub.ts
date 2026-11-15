@@ -14,6 +14,8 @@ const HELP = `isymcp hub — un daemon de MCP para todas las TUIs
 
   isymcp hub serve [--quiet]      arranca el daemon (normalmente lo hace systemd o el conector)
   isymcp hub connect              conector stdio: es lo que se registra como MCP en cada TUI
+  isymcp hub connect --direct N   lanza tal cual el MCP N (mode "direct" en servers.json) con el
+                                  entorno de la TUI: para MCP con tokens o datos de sesión
   isymcp hub status [--json]      MCP detrás del hub, procesos y errores
   isymcp hub import [--from F] [--per-client a,b]
                                   copia los MCP stdio de una config con mcpServers (por defecto
@@ -97,9 +99,11 @@ export const hubModule: CliModule = {
       const pid = await daemonPid();
       console.log(`  ● hub corriendo${pid ? ` (pid ${pid})` : ""}`);
       for (const s of data.servers) {
-        const mark = s.state === "ready" ? "●" : s.state === "starting" ? "◐" : s.state === "disabled" || s.state === "idle" ? "○" : "✗";
+        const mark = s.state === "ready" ? "●" : s.state === "starting" ? "◐" : s.state === "disabled" || s.state === "idle" ? "○" : s.state === "direct" ? "→" : "✗";
         const ver = s.serverInfo ? ` ${s.serverInfo.name} ${s.serverInfo.version}` : "";
-        console.log(`  ${mark} ${s.server.padEnd(16)} ${String(s.state).padEnd(9)} ${String(s.tools).padStart(4)} tools  ${s.isolation}${ver}`);
+        console.log(s.state === "direct"
+          ? `  ${mark} ${s.server.padEnd(16)} direct      MCP propio en cada TUI: isymcp-hub connect --direct ${s.server}`
+          : `  ${mark} ${s.server.padEnd(16)} ${String(s.state).padEnd(9)} ${String(s.tools).padStart(4)} tools  ${s.isolation}${ver}`);
         for (const i of s.instances ?? []) {
           console.log(`      ${i.id} pid=${i.pid ?? "-"} ${i.state}${i.client ? ` ${i.client}` : ""}${i.ready_ms !== undefined ? ` listo en ${i.ready_ms} ms` : ""}${i.in_flight ? ` · ${i.in_flight} en vuelo` : ""}`);
         }

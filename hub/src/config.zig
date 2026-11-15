@@ -20,6 +20,9 @@ pub const ServerCfg = struct {
     call_timeout_ms: u64,
     enabled: bool,
     description: ?[]const u8,
+    /// mode "direct": el daemon no lo arranca; cada TUI lo lanza tal cual con su propio entorno
+    /// (`isymcp-hub connect --direct <nombre>`), para MCP con tokens o datos de sesión de la TUI.
+    direct: bool,
     /// JSON canónico de la entrada: si cambia, el reload recrea el servidor.
     fingerprint: []const u8,
 };
@@ -69,6 +72,7 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) ![]ServerCfg {
             .call_timeout_ms = @intCast(int(o, "call_timeout_ms") orelse DEFAULT_CALL_TIMEOUT_MS),
             .enabled = if (o.get("enabled")) |e| !(e == .bool and !e.bool) else true,
             .description = str(o, "description"),
+            .direct = if (str(o, "mode")) |m| std.mem.eql(u8, m, "direct") else false,
             .fingerprint = try std.json.Stringify.valueAlloc(a, v, .{}),
         });
     }
@@ -97,4 +101,12 @@ test "parse con valores por defecto" {
     try std.testing.expectEqual(Isolation.per_client, s[1].isolation);
     try std.testing.expect(!s[1].enabled);
     try std.testing.expectEqualStrings("V", s[1].env_vals[0]);
+    try std.testing.expect(!s[0].direct);
+}
+
+test "mode direct" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const s = try parse(arena.allocator(), "{\"servers\":{\"m\":{\"command\":\"/usr/bin/mxterm\",\"mode\":\"direct\"}}}");
+    try std.testing.expect(s[0].direct);
 }
