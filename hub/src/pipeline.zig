@@ -27,6 +27,7 @@ pub const CLI_HELP =
     \\  agentspipeline(action="discover")
     \\  agentspipeline(action="plan", repo_root="...", base_ref="HEAD", wave_name="w11", tasks=[...])
     \\  agentspipeline(action="receipt", run_id="...", task_id="...", status="completed", commit_sha="...", exit_code=0)
+    \\  agentspipeline(action="batonpass", run_id="...", task_id="...", stall_reason="...", context_summary="...", partial_log_tail="...", fallback_agent="codex")
     \\  agentspipeline(action="status", run_id="...")
     \\  agentspipeline(action="resume", run_id="...")
     \\  agentspipeline(action="verify", run_id="...", integration_authorized=true, verify_cmds=[...])
@@ -286,6 +287,38 @@ pub fn runDiscoverJson(a: std.mem.Allocator, env: *const std.process.Environ.Map
     return w.written();
 }
 
+fn defaultModelForAgent(agent: []const u8) []const u8 {
+    if (std.mem.eql(u8, agent, "codex")) return "gpt-6-luna";
+    if (std.mem.eql(u8, agent, "openisy")) return "nvidia/minimaxai/minimax-m3.1-flash";
+    if (std.mem.eql(u8, agent, "subagent")) return "inherit";
+    return "haiku";
+}
+
+fn defaultPermForAgent(agent: []const u8, read_only: bool) []const u8 {
+    if (read_only) {
+        return if (std.mem.eql(u8, agent, "codex")) "read-only" else "plan";
+    }
+    return if (std.mem.eql(u8, agent, "codex")) "workspace-write" else "acceptEdits";
+}
+
+fn buildLaunchCmd(
+    a: std.mem.Allocator,
+    agent: []const u8,
+    model: []const u8,
+    perm: []const u8,
+    wt_dir: []const u8,
+    prompt: []const u8,
+) ![]const u8 {
+    if (std.mem.eql(u8, agent, "codex")) {
+        return try std.fmt.allocPrint(a, "cd \"{s}\" && codex exec -s {s} << 'EOF'\n{s}\nEOF", .{ wt_dir, perm, prompt });
+    } else if (std.mem.eql(u8, agent, "openisy")) {
+        return try std.fmt.allocPrint(a, "cd \"{s}\" && openisy run --standalone --auto -m {s} << 'EOF'\n{s}\nEOF", .{ wt_dir, model, prompt });
+    } else if (std.mem.eql(u8, agent, "subagent")) {
+        return try std.fmt.allocPrint(a, "invoke_subagent / swarm(workspace='share', model={s}) -> {s}", .{ model, prompt });
+    }
+    return try std.fmt.allocPrint(a, "cd \"{s}\" && claude -p --permission-mode {s} --model {s} << 'EOF'\n{s}\nEOF", .{ wt_dir, perm, model, prompt });
+}
+
 pub fn runPlanJson(a: std.mem.Allocator, env: *const std.process.Environ.Map, args: std.json.ObjectMap) ![]u8 {
     const repo_root = strField(args, "repo_root") orelse ".";
     const base_ref = strField(args, "base_ref") orelse "HEAD";
@@ -339,10 +372,9 @@ pub fn runPlanJson(a: std.mem.Allocator, env: *const std.process.Environ.Map, ar
             if (std.mem.eql(u8, dep_id, tid)) return error.SelfDependency;
         }
 
-        const effective_perm = strField(obj, "permission_mode") orelse (if (read_only)
-            (if (std.mem.eql(u8, agent, "codex")) "read-only" else "plan")
-        else
-            (if (std.mem.eql(u8, agent, "codex")) "workspace-write" else "acceptEdits"));
+        const effective_perm = strField(obj, "permission_mode") orelse defaultPermForAgent(agent, read_only);
+        const fallback_agent = strField(obj, "fallback_agent") orelse (if (std.mem.eql(u8, agent, "openisy")) "codex" else if (std.mem.eql(u8, agent, "codex")) "claude" else "codex");
+        const fallback_model = strField(obj, "fallback_model") orelse (if (std.mem.eql(u8, fallback_agent, "claude")) "sonnet" else defaultModelForAgent(fallback_agent));
 
         const scope_str = if (allowed_paths.len > 0)
             try std.mem.join(a, ", ", allowed_paths)
@@ -358,31 +390,24 @@ pub fn runPlanJson(a: std.mem.Allocator, env: *const std.process.Environ.Map, ar
             .{ run_id, tid, title, wt_dir, scope_str, if (read_only) "true" else "false", raw_prompt, verify_cmd },
         );
 
-        const effective_model = model orelse (if (std.mem.eql(u8, agent, "codex"))
-            "gpt-6-luna"
-        else if (std.mem.eql(u8, agent, "openisy"))
-            "nvidia/minimaxai/minimax-m3.1-flash"
-        else
-            "haiku");
-
-        const launch_cmd = if (std.mem.eql(u8, agent, "codex"))
-            try std.fmt.allocPrint(a, "cd \"{s}\" && codex exec -s {s} << 'EOF'\n{s}\nEOF", .{ wt_dir, effective_perm, worker_prompt })
-        else if (std.mem.eql(u8, agent, "openisy"))
-            try std.fmt.allocPrint(a, "cd \"{s}\" && openisy run -m {s} << 'EOF'\n{s}\nEOF", .{ wt_dir, effective_model, worker_prompt })
-        else if (std.mem.eql(u8, agent, "subagent"))
-            try std.fmt.allocPrint(a, "invoke_subagent / swarm(workspace='share', model={s}) -> {s}", .{ model orelse "inherit", worker_prompt })
-        else
-            try std.fmt.allocPrint(a, "cd \"{s}\" && claude -p --permission-mode {s} --model {s} << 'EOF'\n{s}\nEOF", .{ wt_dir, effective_perm, effective_model, worker_prompt });
+        const effective_model = model orelse defaultModelForAgent(agent);
+        const launch_cmd = try buildLaunchCmd(a, agent, effective_model, effective_perm, wt_dir, worker_prompt);
 
         if (idx > 0) try lw.writeByte(',');
         try lw.writeAll("{\"id\":");
         try jsonStr(lw, tid);
         try lw.writeAll(",\"title\":");
         try jsonStr(lw, title);
+        try lw.writeAll(",\"prompt\":");
+        try jsonStr(lw, raw_prompt);
         try lw.writeAll(",\"agent\":");
         try jsonStr(lw, agent);
         try lw.writeAll(",\"model\":");
         try jsonStr(lw, effective_model);
+        try lw.writeAll(",\"fallback_agent\":");
+        try jsonStr(lw, fallback_agent);
+        try lw.writeAll(",\"fallback_model\":");
+        try jsonStr(lw, fallback_model);
         try lw.writeAll(",\"status\":\"pending\"");
         try lw.writeAll(",\"depends_on\":");
         try writeJsonStrArray(lw, depends_on);
@@ -403,6 +428,7 @@ pub fn runPlanJson(a: std.mem.Allocator, env: *const std.process.Environ.Map, ar
         try jsonStr(lw, launch_cmd);
         try lw.writeAll(",\"verify_cmd\":");
         try jsonStr(lw, verify_cmd);
+        try lw.writeAll(",\"handoff_count\":0,\"handoff_history\":[]");
         try lw.writeAll(",\"receipt\":null}");
     }
     try lw.writeAll("]}");
@@ -465,10 +491,16 @@ pub fn runReceiptJson(a: std.mem.Allocator, env: *const std.process.Environ.Map,
             try jsonStr(w, tid);
             try w.writeAll(",\"title\":");
             try jsonStr(w, strField(tobj, "title") orelse tid);
+            try w.writeAll(",\"prompt\":");
+            try jsonStr(w, strField(tobj, "prompt") orelse "");
             try w.writeAll(",\"agent\":");
             try jsonStr(w, strField(tobj, "agent") orelse "claude");
             try w.writeAll(",\"model\":");
             try jsonStr(w, strField(tobj, "model") orelse "haiku");
+            try w.writeAll(",\"fallback_agent\":");
+            try jsonStr(w, strField(tobj, "fallback_agent") orelse "codex");
+            try w.writeAll(",\"fallback_model\":");
+            try jsonStr(w, strField(tobj, "fallback_model") orelse "gpt-6-luna");
             try w.writeAll(",\"status\":");
             try jsonStr(w, new_status);
             try w.writeAll(",\"depends_on\":");
@@ -483,6 +515,8 @@ pub fn runReceiptJson(a: std.mem.Allocator, env: *const std.process.Environ.Map,
             try jsonStr(w, strField(tobj, "launch_cmd") orelse "");
             try w.writeAll(",\"verify_cmd\":");
             try jsonStr(w, strField(tobj, "verify_cmd") orelse "");
+            try w.print(",\"handoff_count\":{d},\"handoff_history\":", .{intField(tobj, "handoff_count", 0)});
+            if (tobj.get("handoff_history")) |hv| try std.json.Stringify.value(hv, .{}, w) else try w.writeAll("[]");
             try w.writeAll(",\"receipt\":{\"recorded_at_ms\":");
             try w.print("{d},\"status\":", .{now_ms});
             try jsonStr(w, new_status);
@@ -712,6 +746,231 @@ pub fn runVerifyJson(a: std.mem.Allocator, env: *const std.process.Environ.Map, 
     return w.written();
 }
 
+pub fn runBatonPassJson(a: std.mem.Allocator, env: *const std.process.Environ.Map, args: std.json.ObjectMap, action_name: []const u8) ![]u8 {
+    const raw_run_id = strField(args, "run_id") orelse return error.MissingRunId;
+    const raw_task_id = strField(args, "task_id") orelse return error.MissingTaskId;
+    const task_id = try sanitizeId(a, raw_task_id);
+    const stall_reason = strField(args, "stall_reason") orelse "worker_stalled_or_timeout";
+    const context_summary = strField(args, "context_summary") orelse "";
+    const partial_log_tail = strField(args, "partial_log_tail") orelse "";
+    const log_path = strField(args, "log_path") orelse "";
+    const steer_instruction = strField(args, "steer_instruction") orelse "";
+    const destructive_approved = boolField(args, "destructive_approved", false);
+
+    if (!destructive_approved and steer_instruction.len > 0) {
+        if (containsDestructivePattern(steer_instruction) != null) return error.DestructiveCommandBlocked;
+    }
+
+    const path = try runFilePath(a, env, raw_run_id);
+    const raw = try sys.readFileAlloc(a, path, 4 * 1024 * 1024);
+    const parsed = try std.json.parseFromSlice(std.json.Value, a, raw, .{});
+    if (parsed.value != .object) return error.InvalidLedger;
+    const root_obj = parsed.value.object;
+    const tasks_val = root_obj.get("tasks") orelse return error.InvalidLedger;
+    if (tasks_val != .array) return error.InvalidLedger;
+
+    const run_id = strField(root_obj, "run_id") orelse raw_run_id;
+    const now_ms = sys.realtimeMs();
+    var found = false;
+    var out_from_agent: []const u8 = "";
+    var out_from_model: []const u8 = "";
+    var out_to_agent: []const u8 = "";
+    var out_to_model: []const u8 = "";
+    var out_wt: []const u8 = "";
+    var out_launch: []const u8 = "";
+    var out_packet: []const u8 = "";
+    var out_handoff_count: i64 = 0;
+
+    var lw: Writer.Allocating = .init(a);
+    const w = &lw.writer;
+    try w.writeAll("{\"run_id\":");
+    try jsonStr(w, run_id);
+    try w.writeAll(",\"repo_root\":");
+    try jsonStr(w, strField(root_obj, "repo_root") orelse ".");
+    try w.writeAll(",\"base_ref\":");
+    try jsonStr(w, strField(root_obj, "base_ref") orelse "HEAD");
+    try w.writeAll(",\"wave_name\":");
+    try jsonStr(w, strField(root_obj, "wave_name") orelse "wave");
+    try w.print(",\"created_at_ms\":{d},\"updated_at_ms\":{d}", .{ intField(root_obj, "created_at_ms", now_ms), now_ms });
+    try w.print(",\"task_count\":{d},\"tasks\":[", .{tasks_val.array.items.len});
+
+    for (tasks_val.array.items, 0..) |item, i| {
+        if (i > 0) try w.writeByte(',');
+        if (item != .object) return error.InvalidLedger;
+        const tobj = item.object;
+        const tid = strField(tobj, "id") orelse "";
+        if (std.mem.eql(u8, tid, task_id)) {
+            found = true;
+            const cur_status = strField(tobj, "status") orelse "pending";
+            if (std.mem.eql(u8, cur_status, "completed")) return error.TaskAlreadyCompleted;
+
+            const from_agent = strField(tobj, "agent") orelse "openisy";
+            const from_model = strField(tobj, "model") orelse defaultModelForAgent(from_agent);
+            const to_agent = strField(args, "fallback_agent") orelse (strField(tobj, "fallback_agent") orelse (if (std.mem.eql(u8, from_agent, "openisy")) "codex" else "claude"));
+            const to_model = strField(args, "fallback_model") orelse (if (strField(args, "fallback_agent") == null) (strField(tobj, "fallback_model") orelse defaultModelForAgent(to_agent)) else (if (std.mem.eql(u8, to_agent, "claude")) "sonnet" else defaultModelForAgent(to_agent)));
+
+            const wt_dir = strField(tobj, "worktree_dir") orelse "";
+            const title = strField(tobj, "title") orelse tid;
+            const orig_prompt = strField(tobj, "prompt") orelse title;
+            const verify_cmd = strField(tobj, "verify_cmd") orelse "pytest -q";
+
+            var read_only = false;
+            var scope_str: []const u8 = ".";
+            if (tobj.get("scope")) |sv| {
+                if (sv == .object) {
+                    read_only = boolField(sv.object, "read_only", false);
+                    const ap = try readStringArray(a, sv.object, "allowed_paths");
+                    if (ap.len > 0) scope_str = try std.mem.join(a, ", ", ap);
+                }
+            }
+            const effective_perm = defaultPermForAgent(to_agent, read_only);
+            const prev_count = intField(tobj, "handoff_count", 0);
+            const new_count = prev_count + 1;
+
+            const baton_packet = try std.fmt.allocPrint(
+                a,
+                "BATONPASS HANDOFF #{d} | Run {s} | Task {s} ({s}) in worktree {s}.\n" ++
+                    "Previous worker: {s}/{s} stalled ({s}).\n" ++
+                    "Scope (preserved, least-privilege): allowed_paths=[{s}] read_only={s} can_integrate=false.\n" ++
+                    "Original task: {s}\n" ++
+                    "Steer instruction: {s}\n" ++
+                    "Prior context summary: {s}\n" ++
+                    "Log path: {s}\n" ++
+                    "Partial log tail:\n{s}\n" ++
+                    "First inspect `git -C \"{s}\" status --short` and `git -C \"{s}\" diff` to resume from any partial edits. " ++
+                    "Verify with: {s}. Do NOT run destructive commands or merge into main; commit only your own files with 'git commit -- <files>' and report exact commit_sha and test output.",
+                .{
+                    new_count,
+                    run_id,
+                    tid,
+                    title,
+                    wt_dir,
+                    from_agent,
+                    from_model,
+                    stall_reason,
+                    scope_str,
+                    if (read_only) "true" else "false",
+                    orig_prompt,
+                    if (steer_instruction.len > 0) steer_instruction else "(continue and finish original task)",
+                    if (context_summary.len > 0) context_summary else "(none provided; inspect worktree diff/log)",
+                    if (log_path.len > 0) log_path else "(none)",
+                    if (partial_log_tail.len > 0) partial_log_tail else "(empty)",
+                    wt_dir,
+                    wt_dir,
+                    verify_cmd,
+                },
+            );
+            const new_launch = try buildLaunchCmd(a, to_agent, to_model, effective_perm, wt_dir, baton_packet);
+
+            out_from_agent = from_agent;
+            out_from_model = from_model;
+            out_to_agent = to_agent;
+            out_to_model = to_model;
+            out_wt = wt_dir;
+            out_launch = new_launch;
+            out_packet = baton_packet;
+            out_handoff_count = new_count;
+
+            try w.writeAll("{\"id\":");
+            try jsonStr(w, tid);
+            try w.writeAll(",\"title\":");
+            try jsonStr(w, title);
+            try w.writeAll(",\"prompt\":");
+            try jsonStr(w, orig_prompt);
+            try w.writeAll(",\"agent\":");
+            try jsonStr(w, to_agent);
+            try w.writeAll(",\"model\":");
+            try jsonStr(w, to_model);
+            try w.writeAll(",\"fallback_agent\":");
+            try jsonStr(w, from_agent);
+            try w.writeAll(",\"fallback_model\":");
+            try jsonStr(w, from_model);
+            try w.writeAll(",\"status\":\"handed_off\"");
+            try w.writeAll(",\"depends_on\":");
+            if (tobj.get("depends_on")) |dv| try std.json.Stringify.value(dv, .{}, w) else try w.writeAll("[]");
+            try w.writeAll(",\"scope\":{\"allowed_paths\":");
+            if (tobj.get("scope")) |sv| {
+                if (sv == .object) {
+                    const ap = try readStringArray(a, sv.object, "allowed_paths");
+                    if (ap.len > 0) try writeJsonStrArray(w, ap) else try w.writeAll("[\".\"]");
+                } else try w.writeAll("[\".\"]");
+            } else try w.writeAll("[\".\"]");
+            try w.print(",\"read_only\":{s},\"permission_mode\":", .{if (read_only) "true" else "false"});
+            try jsonStr(w, effective_perm);
+            try w.writeAll(",\"can_integrate\":false}");
+            try w.writeAll(",\"worktree_dir\":");
+            try jsonStr(w, wt_dir);
+            try w.writeAll(",\"worktree_cmd\":");
+            try jsonStr(w, strField(tobj, "worktree_cmd") orelse "");
+            try w.writeAll(",\"launch_cmd\":");
+            try jsonStr(w, new_launch);
+            try w.writeAll(",\"verify_cmd\":");
+            try jsonStr(w, verify_cmd);
+            try w.print(",\"handoff_count\":{d},\"handoff_history\":[", .{new_count});
+            var hist_written = false;
+            if (tobj.get("handoff_history")) |hv| {
+                if (hv == .array) {
+                    for (hv.array.items) |he| {
+                        if (hist_written) try w.writeByte(',');
+                        try std.json.Stringify.value(he, .{}, w);
+                        hist_written = true;
+                    }
+                }
+            }
+            if (hist_written) try w.writeByte(',');
+            try w.writeAll("{\"from_agent\":");
+            try jsonStr(w, from_agent);
+            try w.writeAll(",\"from_model\":");
+            try jsonStr(w, from_model);
+            try w.writeAll(",\"to_agent\":");
+            try jsonStr(w, to_agent);
+            try w.writeAll(",\"to_model\":");
+            try jsonStr(w, to_model);
+            try w.writeAll(",\"stall_reason\":");
+            try jsonStr(w, stall_reason);
+            try w.print(",\"handed_off_at_ms\":{d}}}", .{now_ms});
+            try w.writeAll("]");
+            try w.writeAll(",\"receipt\":");
+            if (tobj.get("receipt")) |rv| try std.json.Stringify.value(rv, .{}, w) else try w.writeAll("null");
+            try w.writeByte('}');
+        } else {
+            try std.json.Stringify.value(item, .{}, w);
+        }
+    }
+    try w.writeAll("]}");
+    if (!found) return error.TaskNotFound;
+
+    try sys.writeFile(path, lw.written());
+
+    var out: Writer.Allocating = .init(a);
+    const ow = &out.writer;
+    try ow.writeAll("{\"action\":");
+    try jsonStr(ow, action_name);
+    try ow.writeAll(",\"run_id\":");
+    try jsonStr(ow, run_id);
+    try ow.writeAll(",\"task_id\":");
+    try jsonStr(ow, task_id);
+    try ow.writeAll(",\"from_agent\":");
+    try jsonStr(ow, out_from_agent);
+    try ow.writeAll(",\"from_model\":");
+    try jsonStr(ow, out_from_model);
+    try ow.writeAll(",\"to_agent\":");
+    try jsonStr(ow, out_to_agent);
+    try ow.writeAll(",\"to_model\":");
+    try jsonStr(ow, out_to_model);
+    try ow.print(",\"handoff_count\":{d}", .{out_handoff_count});
+    try ow.writeAll(",\"worktree_dir\":");
+    try jsonStr(ow, out_wt);
+    try ow.writeAll(",\"launch_cmd\":");
+    try jsonStr(ow, out_launch);
+    try ow.writeAll(",\"baton_packet\":");
+    try jsonStr(ow, out_packet);
+    try ow.writeAll(",\"ledger_path\":");
+    try jsonStr(ow, path);
+    try ow.writeAll(",\"integration_authorized\":false}");
+    return out.written();
+}
+
 pub fn handleToolCall(a: std.mem.Allocator, env: *const std.process.Environ.Map, args: std.json.ObjectMap) ![]u8 {
     const action = strField(args, "action") orelse "discover";
     if (std.mem.eql(u8, action, "discover")) {
@@ -720,6 +979,8 @@ pub fn handleToolCall(a: std.mem.Allocator, env: *const std.process.Environ.Map,
         return try runPlanJson(a, env, args);
     } else if (std.mem.eql(u8, action, "receipt")) {
         return try runReceiptJson(a, env, args);
+    } else if (std.mem.eql(u8, action, "batonpass") or std.mem.eql(u8, action, "steer")) {
+        return try runBatonPassJson(a, env, args, action);
     } else if (std.mem.eql(u8, action, "status") or std.mem.eql(u8, action, "resume")) {
         return try runStatusJson(a, env, args, action);
     } else if (std.mem.eql(u8, action, "verify")) {
@@ -796,4 +1057,31 @@ test "pipeline enforces 5 invariants: least-privilege, durable run_id/receipts, 
     // 5. Destructive command in planner prompt/verify is rejected
     const bad_plan = try std.json.parseFromSlice(std.json.Value, aa, "{\"tasks\":[{\"id\":\"x\",\"prompt\":\"run rm -rf /tmp/foo\"}]}", .{});
     try std.testing.expectError(error.DestructiveCommandBlocked, runPlanJson(aa, &env, bad_plan.value.object));
+
+    // 6. BatonPass / Steer hands off stalled task with context & preserved scope, blocks completed/destructive
+    const bp_plan =
+        \\{"repo_root":"/tmp/demo","base_ref":"HEAD","wave_name":"w13","run_id":"test_run_bp",
+        \\"tasks":[
+        \\  {"id":"s1","title":"Sweep slicing","agent":"openisy","model":"nvidia/minimaxai/minimax-m3.1-flash","fallback_agent":"codex","fallback_model":"gpt-6-luna","allowed_paths":["tests/test_adv_wave13_slicing_v1.py"],"read_only":false}
+        \\]}
+    ;
+    const bp_plan_parsed = try std.json.parseFromSlice(std.json.Value, aa, bp_plan, .{});
+    _ = try runPlanJson(aa, &env, bp_plan_parsed.value.object);
+
+    const bad_steer = try std.json.parseFromSlice(std.json.Value, aa, "{\"run_id\":\"test_run_bp\",\"task_id\":\"s1\",\"steer_instruction\":\"run git reset --hard\"}", .{});
+    try std.testing.expectError(error.DestructiveCommandBlocked, runBatonPassJson(aa, &env, bad_steer.value.object, "steer"));
+
+    const bp_args = try std.json.parseFromSlice(std.json.Value, aa, "{\"run_id\":\"test_run_bp\",\"task_id\":\"s1\",\"stall_reason\":\"stream_stalled_180s\",\"context_summary\":\"Read corpus files, no test file written yet\",\"partial_log_tail\":\"Read tests/conftest.py\"}", .{});
+    const bp_out = try runBatonPassJson(aa, &env, bp_args.value.object, "batonpass");
+    try std.testing.expect(std.mem.indexOf(u8, bp_out, "\"to_agent\":\"codex\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bp_out, "\"to_model\":\"gpt-6-luna\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bp_out, "\"handoff_count\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bp_out, "Read corpus files, no test file written yet") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bp_out, "tests/test_adv_wave13_slicing_v1.py") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bp_out, "\"integration_authorized\":false") != null);
+
+    // Completed task cannot be handed off
+    const done_rec = try std.json.parseFromSlice(std.json.Value, aa, "{\"run_id\":\"test_run_bp\",\"task_id\":\"s1\",\"status\":\"completed\",\"commit_sha\":\"deadbeef\",\"exit_code\":0}", .{});
+    _ = try runReceiptJson(aa, &env, done_rec.value.object);
+    try std.testing.expectError(error.TaskAlreadyCompleted, runBatonPassJson(aa, &env, bp_args.value.object, "batonpass"));
 }
