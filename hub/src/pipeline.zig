@@ -750,8 +750,14 @@ pub fn runBatonPassJson(a: std.mem.Allocator, env: *const std.process.Environ.Ma
     const raw_run_id = strField(args, "run_id") orelse return error.MissingRunId;
     const raw_task_id = strField(args, "task_id") orelse return error.MissingTaskId;
     const task_id = try sanitizeId(a, raw_task_id);
-    const stall_reason = strField(args, "stall_reason") orelse "worker_stalled_or_timeout";
-    const context_summary = strField(args, "context_summary") orelse "";
+    const previous_terminated = boolField(args, "previous_terminated", false);
+    if (!previous_terminated) return error.WorkerStillActive;
+
+    const stall_reason = strField(args, "stall_reason") orelse "worker_terminated_for_handoff";
+    const investigated = strField(args, "investigated") orelse strField(args, "context_summary") orelse "";
+    const ruled_out = strField(args, "ruled_out") orelse "";
+    const modified_files = try readStringArray(a, args, "modified_files");
+    const remaining_verify = strField(args, "remaining_verify") orelse "";
     const partial_log_tail = strField(args, "partial_log_tail") orelse "";
     const log_path = strField(args, "log_path") orelse "";
     const steer_instruction = strField(args, "steer_instruction") orelse "";
@@ -827,17 +833,21 @@ pub fn runBatonPassJson(a: std.mem.Allocator, env: *const std.process.Environ.Ma
             const prev_count = intField(tobj, "handoff_count", 0);
             const new_count = prev_count + 1;
 
+            const mod_files_str = if (modified_files.len > 0) try std.mem.join(a, ", ", modified_files) else "(check git status --short)";
             const baton_packet = try std.fmt.allocPrint(
                 a,
                 "BATONPASS HANDOFF #{d} | Run {s} | Task {s} ({s}) in worktree {s}.\n" ++
-                    "Previous worker: {s}/{s} stalled ({s}).\n" ++
+                    "Previous worker: {s}/{s} terminated & fenced ({s}).\n" ++
                     "Scope (preserved, least-privilege): allowed_paths=[{s}] read_only={s} can_integrate=false.\n" ++
                     "Original task: {s}\n" ++
                     "Steer instruction: {s}\n" ++
-                    "Prior context summary: {s}\n" ++
+                    "Technical state — Investigated: {s}\n" ++
+                    "Ruled-out hypotheses: {s}\n" ++
+                    "Modified files: {s}\n" ++
+                    "Remaining to verify: {s}\n" ++
                     "Log path: {s}\n" ++
                     "Partial log tail:\n{s}\n" ++
-                    "First inspect `git -C \"{s}\" status --short` and `git -C \"{s}\" diff` to resume from any partial edits. " ++
+                    "First inspect `git -C \"{s}\" status --short` and `git -C \"{s}\" diff` to resume cleanly without duplicating ruled-out work. " ++
                     "Verify with: {s}. Do NOT run destructive commands or merge into main; commit only your own files with 'git commit -- <files>' and report exact commit_sha and test output.",
                 .{
                     new_count,
@@ -852,7 +862,10 @@ pub fn runBatonPassJson(a: std.mem.Allocator, env: *const std.process.Environ.Ma
                     if (read_only) "true" else "false",
                     orig_prompt,
                     if (steer_instruction.len > 0) steer_instruction else "(continue and finish original task)",
-                    if (context_summary.len > 0) context_summary else "(none provided; inspect worktree diff/log)",
+                    if (investigated.len > 0) investigated else "(none provided; inspect worktree diff)",
+                    if (ruled_out.len > 0) ruled_out else "(none recorded)",
+                    mod_files_str,
+                    if (remaining_verify.len > 0) remaining_verify else verify_cmd,
                     if (log_path.len > 0) log_path else "(none)",
                     if (partial_log_tail.len > 0) partial_log_tail else "(empty)",
                     wt_dir,
@@ -1068,15 +1081,19 @@ test "pipeline enforces 5 invariants: least-privilege, durable run_id/receipts, 
     const bp_plan_parsed = try std.json.parseFromSlice(std.json.Value, aa, bp_plan, .{});
     _ = try runPlanJson(aa, &env, bp_plan_parsed.value.object);
 
-    const bad_steer = try std.json.parseFromSlice(std.json.Value, aa, "{\"run_id\":\"test_run_bp\",\"task_id\":\"s1\",\"steer_instruction\":\"run git reset --hard\"}", .{});
+    const bad_steer = try std.json.parseFromSlice(std.json.Value, aa, "{\"run_id\":\"test_run_bp\",\"task_id\":\"s1\",\"previous_terminated\":true,\"steer_instruction\":\"run git reset --hard\"}", .{});
     try std.testing.expectError(error.DestructiveCommandBlocked, runBatonPassJson(aa, &env, bad_steer.value.object, "steer"));
 
-    const bp_args = try std.json.parseFromSlice(std.json.Value, aa, "{\"run_id\":\"test_run_bp\",\"task_id\":\"s1\",\"stall_reason\":\"stream_stalled_180s\",\"context_summary\":\"Read corpus files, no test file written yet\",\"partial_log_tail\":\"Read tests/conftest.py\"}", .{});
+    // Must fail closed if previous worker is not terminated/fenced (never two writers on same worktree)
+    const unfenced_bp = try std.json.parseFromSlice(std.json.Value, aa, "{\"run_id\":\"test_run_bp\",\"task_id\":\"s1\",\"investigated\":\"Read corpus\"}", .{});
+    try std.testing.expectError(error.WorkerStillActive, runBatonPassJson(aa, &env, unfenced_bp.value.object, "batonpass"));
+
+    const bp_args = try std.json.parseFromSlice(std.json.Value, aa, "{\"run_id\":\"test_run_bp\",\"task_id\":\"s1\",\"previous_terminated\":true,\"stall_reason\":\"terminated_after_review\",\"investigated\":\"Read corpus files\",\"ruled_out\":\"Not a parser bug\",\"modified_files\":[\"tests/test_adv_wave13_slicing_v1.py\"],\"remaining_verify\":\"pytest -q tests/test_adv_wave13_slicing_v1.py\"}", .{});
     const bp_out = try runBatonPassJson(aa, &env, bp_args.value.object, "batonpass");
     try std.testing.expect(std.mem.indexOf(u8, bp_out, "\"to_agent\":\"codex\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, bp_out, "\"to_model\":\"gpt-6-luna\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, bp_out, "\"handoff_count\":1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bp_out, "Read corpus files, no test file written yet") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bp_out, "Not a parser bug") != null);
     try std.testing.expect(std.mem.indexOf(u8, bp_out, "tests/test_adv_wave13_slicing_v1.py") != null);
     try std.testing.expect(std.mem.indexOf(u8, bp_out, "\"integration_authorized\":false") != null);
 
