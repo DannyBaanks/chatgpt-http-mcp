@@ -15,11 +15,13 @@ const daemon = @import("daemon.zig");
 const connect = @import("connect.zig");
 const sys = @import("sys.zig");
 const config = @import("config.zig");
+const pipeline = @import("pipeline.zig");
 
 test {
     _ = @import("jspan.zig");
     _ = @import("catalog.zig");
     _ = @import("config.zig");
+    _ = @import("pipeline.zig");
 }
 
 const Paths = struct { home: []const u8, config: []const u8, socket: []const u8 };
@@ -149,6 +151,11 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    if (std.mem.eql(u8, cmd, "agentspipeline")) {
+        try pipeline.runCli(arena, init.environ_map, args[2..]);
+        return;
+    }
+
     if (std.mem.eql(u8, cmd, "version")) {
         try sys.writeAll(1, "isymcp-hub " ++ daemon.VERSION ++ "\n");
         return;
@@ -158,6 +165,7 @@ pub fn main(init: std.process.Init) !void {
         \\isymcp-hub serve [--quiet]   daemon de MCP compartidos
         \\isymcp-hub connect           conector stdio para registrar en cada TUI
         \\isymcp-hub connect --direct <nombre>   MCP con mode "direct", tal cual
+        \\isymcp-hub agentspipeline [--discover | status <run_id>]   orquestador dinámico multi-agente
         \\isymcp-hub version
         \\
     );
