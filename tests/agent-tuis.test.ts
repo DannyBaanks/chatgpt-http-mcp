@@ -2,7 +2,7 @@
 // identidad, ACK, tareas siguientes) para opencode, openisy, claude, codex, gemini...
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_TUIS, agentArgv, findAgentBinary, resolveAgentTui } from "../src/agent-tuis";
 import { buildAgentBootstrapProtocol } from "../src/agent-protocol";
@@ -23,6 +23,14 @@ describe("catálogo de agentes", () => {
     expect(resolveAgentTui("open-isy")?.id).toBe("openisy");
     expect(resolveAgentTui(undefined)?.id).toBe("agy");
     expect(resolveAgentTui("nope")).toBeNull();
+  });
+
+  it("AT-01b: claude se encuentra en ~/.local/bin aunque el PATH del hub no lo incluya", () => {
+    const def = resolveAgentTui("claude")!;
+    expect(def.extraPaths).toContain(join(homedir(), ".local", "bin", "claude"));
+    // con un PATH vacío solo puede salir de extraPaths: nunca de un claude del PATH
+    const found = findAgentBinary(def, "");
+    expect(found === null || found === join(homedir(), ".local", "bin", "claude")).toBe(true);
   });
 
   it("AT-02: argv del prompt inicial según el --help de cada TUI", () => {
