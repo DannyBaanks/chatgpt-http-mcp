@@ -311,6 +311,17 @@ fn buildLaunchCmd(
     prompt: []const u8,
 ) ![]const u8 {
     if (std.mem.eql(u8, agent, "codex")) {
+        // El sandbox workspace-write de codex solo deja escribir el worktree;
+        // su .git vive en el repo principal y el worker no podia commitear
+        // (index.lock de solo lectura). Se abren SOLO objects/ y la carpeta de
+        // este worktree (HEAD desacoplado, index, reflog), no refs ni ramas ajenas.
+        if (std.mem.eql(u8, perm, "workspace-write")) {
+            return try std.fmt.allocPrint(
+                a,
+                "cd \"{s}\" && codex exec -s {s} --add-dir \"$(git rev-parse --path-format=absolute --git-common-dir)/objects\" --add-dir \"$(git rev-parse --absolute-git-dir)\" << 'EOF'\n{s}\nEOF",
+                .{ wt_dir, perm, prompt },
+            );
+        }
         return try std.fmt.allocPrint(a, "cd \"{s}\" && codex exec -s {s} << 'EOF'\n{s}\nEOF", .{ wt_dir, perm, prompt });
     } else if (std.mem.eql(u8, agent, "openisy")) {
         return try std.fmt.allocPrint(a, "cd \"{s}\" && openisy run --standalone --auto -m {s} << 'EOF'\n{s}\nEOF", .{ wt_dir, model, prompt });
@@ -1588,6 +1599,9 @@ test "serial integration gate: overlaps, verified_on_sha, regression blocks, bas
     try std.testing.expect(std.mem.indexOf(u8, plan, "\"tasks\":[\"grammar\",\"docs\"]") == null);
     try std.testing.expect(std.mem.indexOf(u8, plan, "overlap_warning") != null);
     try std.testing.expect(std.mem.indexOf(u8, plan, "git rebase rescate/wip") != null);
+    // codex con workspace-write puede commitear en su worktree (objects + su gitdir, nada mas).
+    try std.testing.expect(std.mem.indexOf(u8, plan, "--add-dir \\\"$(git rev-parse --path-format=absolute --git-common-dir)/objects\\\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, plan, "--add-dir \\\"$(git rev-parse --absolute-git-dir)\\\"") != null);
     // Gate de ola por defecto = unión de los verify_cmd, sin duplicados.
     try std.testing.expect(std.mem.indexOf(u8, plan, "\"integration_gate_cmds\":[\"pytest -q tests/test_p0.py\",\"pytest -q tests/test_grammar.py\"]") != null);
 
