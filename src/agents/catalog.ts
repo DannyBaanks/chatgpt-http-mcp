@@ -80,6 +80,8 @@ const injectConsole = (extra: Partial<ConsoleProfile> = {}): ConsoleProfile => (
 export const AGENTS: AgentDef[] = [
   {
     id: "claude", label: "Claude Code", aliases: ["claude-code", "claudecode"], executables: ["claude"],
+    // El instalador nativo lo deja en ~/.local/bin, que el PATH del hub (servicio de usuario) no incluye.
+    extraPaths: [join(HOME, ".local", "bin", "claude")],
     config: { dir: (h) => join(h, ".claude") },
     // inject y no background-bash: re-armar wait-next depende de que el modelo se acuerde en cada turno;
     // Claude Code acepta el texto pegado como mensaje nuevo (o lo encola si está ocupado). Verificado en vivo.
