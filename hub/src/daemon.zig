@@ -12,6 +12,7 @@ const sys = @import("sys.zig");
 const jspan = @import("jspan.zig");
 const catalog = @import("catalog.zig");
 const config = @import("config.zig");
+const pipeline = @import("pipeline.zig");
 const Value = std.json.Value;
 const Writer = std.Io.Writer;
 
@@ -1105,6 +1106,7 @@ pub const Daemon = struct {
         try w.writer.writeAll(
             \\isymcp hub: un solo MCP que da acceso a los demás MCP de esta máquina, ya arrancados y calientes.
             \\Flujo: hub_discover (sin argumentos: lista de MCP; con server: su catálogo; con query: búsqueda) → hub_describe(server, tool) → hub_execute(server, tool, arguments).
+            \\Orquestación multi-agente: agentspipeline(action="discover"|"plan"|"receipt"|"batonpass"|"steer"|"status"|"resume"|"verify"|"integration_receipt") para planear olas dinámicas en worktrees aislados, relevar workers estancados con contexto preservado y exigir compuerta explícita de integración, serial y con gate por cherry-pick contra un baseline de fallos.
             \\Los resultados de hub_execute vienen sin modificar del MCP indicado: aplica las instrucciones de ese MCP, que siguen aquí abajo.
             \\MCP disponibles:
         );
@@ -1317,7 +1319,28 @@ pub const Daemon = struct {
             return .done;
         }
 
-        self.respondToolError(conn, id, "unknown_tool", try std.fmt.allocPrint(a, "El hub no tiene la tool '{s}'. Tools: hub_discover, hub_describe, hub_execute.", .{name}), null);
+        if (std.mem.eql(u8, name, "agentspipeline") or std.mem.eql(u8, name, "hub_agents_pipeline")) {
+            const out_json = pipeline.handleToolCall(a, self.env, args) catch |e| {
+                const msg = switch (e) {
+                    error.DestructiveCommandBlocked => "Comando destructivo bloqueado por invariante de seguridad: requiere aprobacion humana explicita (destructive_approved=true).",
+                    error.MissingTasks => "Faltan tareas no vacias en 'tasks'.",
+                    error.MissingRunId => "Falta 'run_id'.",
+                    error.MissingTaskId => "Falta 'task_id'.",
+                    error.TaskNotFound => "No se encontro 'task_id' en el ledger del run.",
+                    error.TaskAlreadyCompleted => "La tarea ya tiene recibo completed; batonpass no sobreescribe trabajo terminado.",
+                    error.WorkerStillActive => "El worker anterior sigue activo en el worktree; termínalo primero y pasa previous_terminated=true para evitar dos escritores simultáneos.",
+                    error.SelfDependency => "Una tarea no puede depender de si misma en 'depends_on'.",
+                    error.UnknownAction => "Accion desconocida. Usa: discover, plan, receipt, batonpass, steer, status, resume o verify.",
+                    else => @errorName(e),
+                };
+                self.respondToolError(conn, id, "pipeline_error", msg, null);
+                return .done;
+            };
+            self.respondJson(conn, id, out_json, false);
+            return .done;
+        }
+
+        self.respondToolError(conn, id, "unknown_tool", try std.fmt.allocPrint(a, "El hub no tiene la tool '{s}'. Tools: hub_discover, hub_describe, hub_execute, agentspipeline.", .{name}), null);
         return .done;
     }
 
@@ -1641,5 +1664,6 @@ fn stripNewlines(comptime s: []const u8) []const u8 {
 const HUB_TOOLS_SRC =
     \\{"tools":[{"name":"hub_discover","title":"Descubrir MCP y tools","description":"Lista los MCP conectados al hub (nombre, estado, número de tools). Con `server`, devuelve el catálogo de ese MCP (nombre y descripción corta de cada tool) y sus instrucciones. Con `query`, busca tools por nombre/descripción en todos los MCP. Usa después hub_describe para el esquema y hub_execute para ejecutar.","inputSchema":{"type":"object","properties":{"server":{"type":"string","description":"Nombre de un MCP del hub para ver su catálogo."},"query":{"type":"string","description":"Palabras a buscar en nombres y descripciones de tools."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Máximo de tools devueltas (por defecto 50 con server, 25 con query)."},"detail":{"type":"string","enum":["summary","status"],"description":"status añade procesos, pids y errores."}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
     \\{"name":"hub_describe","title":"Esquema de una tool","description":"Devuelve la definición completa (descripción, inputSchema, outputSchema, annotations) de una tool de un MCP del hub.","inputSchema":{"type":"object","properties":{"server":{"type":"string"},"tool":{"type":"string"}},"required":["server","tool"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
-    \\{"name":"hub_execute","title":"Ejecutar una tool de un MCP","description":"Ejecuta `tool` del MCP `server` con `arguments` (deben cumplir el inputSchema que da hub_describe) y devuelve su resultado sin modificar. Sigue las instrucciones de ese MCP (hub_discover con server) y respeta sus marcas de contenido no confiable.","inputSchema":{"type":"object","properties":{"server":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object","additionalProperties":true}},"required":["server","tool"],"additionalProperties":false},"annotations":{"readOnlyHint":false,"destructiveHint":true,"openWorldHint":true}}]}
+    \\{"name":"hub_execute","title":"Ejecutar una tool de un MCP","description":"Ejecuta `tool` del MCP `server` con `arguments` (deben cumplir el inputSchema que da hub_describe) y devuelve su resultado sin modificar. Sigue las instrucciones de ese MCP (hub_discover con server) y respeta sus marcas de contenido no confiable.","inputSchema":{"type":"object","properties":{"server":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object","additionalProperties":true}},"required":["server","tool"],"additionalProperties":false},"annotations":{"readOnlyHint":false,"destructiveHint":true,"openWorldHint":true}},
+    \\{"name":"agentspipeline","title":"Orquestación dinámica multi-agente","description":"Descubre CLIs/agentes disponibles, pregunta cómo repartir N tareas dinámicas, planea worktrees aislados con permisos acotados (least-privilege), registra recibos y dependencias en run_id persistente, hace batonpass/steer con exclusión mutua (previous_terminated=true) y criterio técnico estructurado (investigated/ruled_out/modified_files/remaining_verify), recupera olas con status/resume y exige compuerta explícita (integration_authorized=true) antes de integrar. La integración es SERIAL: verify da un cherry-pick por paso, el orquestador corre el gate de la ola sobre el commit resultante y lo registra con integration_receipt, que clasifica cada fallo contra baseline_failures (pre-existente / nuevo / regresión de este paso) y bloquea el siguiente paso ante una regresión; plan avisa de tareas paralelas que tocan las mismas rutas (path_overlaps).","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["discover","plan","receipt","batonpass","steer","status","resume","verify","integration_receipt"]},"run_id":{"type":"string"},"repo_root":{"type":"string"},"base_ref":{"type":"string"},"wave_name":{"type":"string"},"tasks":{"type":"array","items":{"type":"object"}},"task_id":{"type":"string"},"status":{"type":"string"},"commit_sha":{"type":"string"},"exit_code":{"type":"integer"},"changed_paths":{"type":"array","items":{"type":"string"}},"verify_output":{"type":"string"},"commits":{"type":"array","items":{"type":"string"}},"verify_cmds":{"type":"array","items":{"type":"string"}},"previous_terminated":{"type":"boolean"},"stall_reason":{"type":"string"},"investigated":{"type":"string"},"ruled_out":{"type":"string"},"modified_files":{"type":"array","items":{"type":"string"}},"remaining_verify":{"type":"string"},"context_summary":{"type":"string"},"partial_log_tail":{"type":"string"},"log_path":{"type":"string"},"steer_instruction":{"type":"string"},"fallback_agent":{"type":"string"},"fallback_model":{"type":"string"},"integration_authorized":{"type":"boolean"},"destructive_approved":{"type":"boolean"},"integration_ref":{"type":"string"},"baseline_failures":{"type":"array","items":{"type":"string"}},"integration_gate_cmds":{"type":"array","items":{"type":"string"}},"full_suite_cmd":{"type":"string"},"verified_on_sha":{"type":"string"},"integration_head":{"type":"string"},"head_sha":{"type":"string"},"gate_exit_code":{"type":"integer"},"failures":{"type":"array","items":{"type":"string"}},"notes":{"type":"string"},"conflict_resolved":{"type":"boolean"}},"additionalProperties":false},"annotations":{"readOnlyHint":false,"openWorldHint":false}}]}
 ;
