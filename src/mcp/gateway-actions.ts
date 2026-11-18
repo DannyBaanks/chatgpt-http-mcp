@@ -66,7 +66,8 @@ export const FAMILY_DESCRIPTIONS: Record<string, string> = {
   "protocol": "Protocolo oficial de bootstrap, persistencia y ciclo de vida para agentes interactivos.",
   "shell": "Ejecución directa de comandos shell/bash en la máquina de Danny con persistencia de directorio de trabajo (cwd).",
   "fuzz": "Suite de pruebas adversariales y fuzzing para configs de TUIs y Universal Gateway.",
-  "openisy": "Túnel bidireccional hacia OpenISy/OpenCode (HTTP v2 Daemon) para orquestar su TUI en vivo (como usuario o como agente sintético) y despachar sub-agentes multi-provider con o sin API keys externas."
+  "openisy": "Túnel bidireccional hacia OpenISy/OpenCode (HTTP v2 Daemon) para orquestar su TUI en vivo (como usuario o como agente sintético) y despachar sub-agentes multi-provider con o sin API keys externas.",
+  "openswift": "Simulador visual de pantallas SwiftUI en iPhone e iPad (OpenSwift): renderiza código o archivos .swift a capturas PNG Retina para que el modelo vea visualmente la interfaz."
 };
 
 /** Entrada del CLI isymcp que las consolas usan para responder. */
@@ -1051,6 +1052,66 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
       const { runOpenIsySubagent } = await import("../openisy-tunnel");
       const res = await runOpenIsySubagent(args);
       return { ok: true, result: res };
+    },
+  },
+  {
+    name: "openswift.screenshot",
+    family: "openswift",
+    aliases: ["openswift.render", "openswift.preview", "iphone.simulator.screenshot", "simulator.screenshot"],
+    describeAliases: ["openswift"],
+    glossary: {
+      "description": "Toma una captura de pantalla PNG del simulador de iPhone/iPad de OpenSwift a partir de un archivo .swift o código SwiftUI en línea, devolviendo la imagen visual en MCP + ruta del PNG en disco + árbol de vistas + diagnósticos.",
+      "parameters": {
+        "file": "string (opcional: ruta al archivo .swift, ej. 'examples/dashboard.swift'; alternativa a 'source')",
+        "source": "string (opcional: código SwiftUI en línea si no se especifica 'file')",
+        "device": "string (opcional, por defecto 'iphone-16-pro'): iphone-11..iphone-16-pro-max, ipad-10..ipad-pro-13, lista separada por comas o 'phones' | 'ipads' | 'all'",
+        "appearance": "enum opcional: 'dark' | 'light' | 'both' (por defecto 'dark'; 'both' genera hoja comparativa oscuro + claro lado a lado)",
+        "orientation": "enum opcional: 'portrait' | 'landscape' (por defecto 'portrait')",
+        "frame": "enum opcional: 'black' | 'natural' | 'white' | 'blue' | 'none' (por defecto 'black')",
+        "scale": "number (opcional: densidad Retina 1..3, por defecto 2)",
+        "output": "string (opcional: ruta donde guardar el PNG generado)"
+      },
+      "example": {
+        "action": "openswift.screenshot",
+        "arguments": {
+          "file": "examples/dashboard.swift",
+          "device": "iphone-16-pro",
+          "appearance": "both"
+        }
+      }
+    },
+    handler: async (args) => {
+      const { captureOpenSwiftScreenshot } = await import("../openswift/service");
+      const res = await captureOpenSwiftScreenshot({
+        file: args.file ?? args.path,
+        source: args.source ?? args.code,
+        cwd: args.cwd,
+        device: args.device,
+        appearance: args.appearance,
+        orientation: args.orientation,
+        frame: args.frame,
+        scale: args.scale,
+        output: args.output,
+        include_image: args.include_image !== false,
+      });
+      return { ok: res.ok, result: res.ok ? res : null, error: res.error };
+    },
+  },
+  {
+    name: "openswift.devices",
+    family: "openswift",
+    aliases: ["openswift.models"],
+    glossary: {
+      "description": "Lista todos los modelos de iPhone e iPad disponibles en el simulador de OpenSwift con sus dimensiones lógicas, tipo de notch/Dynamic Island, apariencias y carcasas.",
+      "parameters": {},
+      "example": {
+        "action": "openswift.devices"
+      }
+    },
+    handler: async () => {
+      const { listOpenSwiftDevices } = await import("../openswift/service");
+      const res = await listOpenSwiftDevices();
+      return { ok: res.ok, result: res.ok ? res : null, error: res.error };
     },
   },
 ];

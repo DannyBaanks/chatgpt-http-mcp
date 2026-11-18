@@ -57,6 +57,7 @@ import { serverIcon } from "./icon";
 import { registerMediaTools } from "../media/register";
 import { registerComfyTools } from "../comfyui/register";
 import { registerGitHubTools } from "../github/register";
+import { registerOpenSwiftTools } from "../openswift/register";
 import { registerIsyMcpGateway, registerControlCenterMcpTools } from "./gateway";
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
 import { executeShellCommand } from "../shell/executor";
@@ -784,6 +785,7 @@ if (!disableAux) {
   registerMediaTools(server);
   registerComfyTools(server);
   registerGitHubTools(server);
+  registerOpenSwiftTools(server);
 }
 // Solo si el usuario creo tablero.json; apagado por defecto (ver src/tablero/config.ts).
 registerTableroTools(server);
