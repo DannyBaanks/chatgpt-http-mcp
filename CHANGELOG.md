@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `isymcp dash` is now an operations center: six views (Resumen with actionable alerts, Hub, Tareas, Sesiones, Logs, Salida), per-item actions (restart one MCP, open a blocked task's conversation, approve a monitor task, revoke sessions), a `:` command palette and full command output.
+- `isymcp hub restart <mcp> [--instance id]`: restarts one hub backend (SIGTERM to its processes, verified as children of the daemon; the hub respawns them in ~1 s) instead of SIGHUP-ing every backend.
+- `isymcp status --json`: `tasks.items` (Codex task metadata) and `sessions[].expiresAt`/`cwd`.
 - `isymcp dash`: terminal admin panel (services, permissions, taint, sessions, hub MCPs) with one-key actions; destructive or permission-opening actions ask for `y`.
 - `isymcp status --json`: the same status as one `isymcp-status/1` object; unreadable fields are `null`, it never throws.
 

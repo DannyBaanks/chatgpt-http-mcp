@@ -76,16 +76,22 @@ El panel funciona en **http://127.0.0.1:8798**. Para utilizar chat, túneles o a
 > [!TIP]
 > Ejecuta `isymcp` sin argumentos para explorar el menú. Usa `isymcp dash` (o `isymcp status`) para revisar servicios e `isymcp smoke` para ejecutar comprobaciones locales.
 
-## 🖥️ Panel en la terminal: `isymcp dash`
+## 🖥️ Centro de operaciones en la terminal: `isymcp dash`
 
-`isymcp dash` abre el panel de administración dentro de la terminal, sin navegador. Muestra en una sola pantalla:
+`isymcp dash` abre el centro de operaciones de ISyMCP en la terminal, sin navegador. No solo muestra el estado: cada problema viene con su arreglo y se actúa sobre cada MCP, tarea o sesión.
 
-- **Servicios:** server (`:8791`), túnel, panel (`:8798`), monitor (`:8799`), proceso MCP, último canario y tareas.
-- **Permisos:** `shell` y `agents` (abiertos o cerrados y hasta cuándo) y el estado de *taint*.
-- **Sesiones** de ChatGPT, vivas y caducadas.
-- **Hub:** cada MCP que sirve `isymcp-hub`, con su estado, herramientas e instancias.
+| Vista | Qué ves | Qué haces |
+|---|---|---|
+| `1` **Resumen** | servicios, permisos, sesiones y una lista de **alertas** ordenadas por gravedad (server/túnel caído, canario fallido o de más de 26 h, MCP del hub caído, permisos abiertos, taint, tareas bloqueadas o esperando aprobación, sesiones caducadas) | `Enter` sobre una alerta ejecuta su arreglo o te lleva a la vista donde se arregla |
+| `2` **Hub** | cada MCP de `isymcp-hub`: estado, tools, aislamiento, procesos y llamadas en vuelo | `Enter` detalle (instancias, cliente, error) · `K` reinicia **solo ese MCP** · `L` su log |
+| `3` **Tareas** | tareas de Codex (bloqueadas, en curso, listas) y el buzón del monitor | `Enter` detalle · `O` abre la conversación de ChatGPT · `Y` aprueba una tarea del monitor |
+| `4` **Sesiones** | sesiones Codex ISyMCP: rw/ro, caducidad, carpeta (nunca el token) | `X` revoca la seleccionada · `C` revoca todas las caducadas |
+| `5` **Logs** | log del hub, del server o del túnel, en hora local | `F` cambia la fuente · `/` filtra · `H` muestra u oculta el ruido de sondeo |
+| `6` **Salida** | la salida completa de los últimos comandos que corriste desde el dash | ↑↓/PgUp para desplazarte |
 
-Desde el panel se maneja todo con una tecla: `u`/`d` subir o bajar server y túnel, `t`/`T` túnel, `p`/`P` panel, `m`/`M` monitor, `c` canario, `D` doctor, `s`/`a` permitir shell o agents una vez, `S`/`A` cerrarlos, `x` limpiar taint, `r` recargar el hub, `R` reiniciarlo, `l` log, `?` ayuda y `q` salir. Las acciones que paran servicios, abren permisos o reinician el hub (`d`, `r`, `s`, `a`, `x`, `R`) piden confirmar con `y`; `r` y `R` reinician los MCP de **todas** las TUIs conectadas al hub.
+Las teclas de servicio valen en cualquier vista: `u`/`d` subir o bajar server y túnel, `t`/`T` túnel, `p`/`P` panel, `o` abrir panel, `m`/`M` monitor, `c` canario, `D` doctor, `s`/`a` permitir shell o agents una vez, `S`/`A` cerrarlos, `x` limpiar taint, `r` recargar el hub, `R` reiniciar su servicio. `:` abre una paleta para correr cualquier comando `isymcp` (los interactivos o que no terminan se rechazan). Se navega con `1`-`6`, `Tab`, flechas o `j`/`k`; `?` ayuda, `q` salir.
+
+Todo lo que para servicios, abre permisos, revoca sesiones, aprueba tareas o reinicia procesos pide confirmar con `y`. `r` y `R` reinician los MCP de **todas** las TUIs conectadas al hub; para un solo MCP usa `K` en la vista Hub, o `isymcp hub restart <mcp>` (manda SIGTERM solo a los procesos de ese MCP que son hijos del hub y el hub los vuelve a lanzar en ~1 s).
 
 `isymcp status --json` da el mismo estado como un objeto JSON (`isymcp-status/1`): un campo que no se puede leer sale en `null` en vez de fallar. Es lo que usan el panel y otras herramientas. Las pestañas `🔌 ISyMCP` de `claude-dash` y de `agy-dash` (`Alt+I`) abren este mismo panel.
 
