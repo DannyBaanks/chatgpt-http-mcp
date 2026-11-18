@@ -55,7 +55,7 @@ export async function collectStatus(): Promise<StatusJson> {
 
   let sessions: StatusJson["sessions"] = [];
   try {
-    sessions = listUserSessions().map((s) => ({ label: s.label, fp: s.fp, writable: s.writable, expired: isExpired(s) }));
+    sessions = listUserSessions().map((s) => ({ label: s.label, fp: s.fp, writable: s.writable, expired: isExpired(s), expiresAt: s.expiresAt ?? null, cwd: s.cwd }));
   } catch { /* registro ilegible = sin sesiones listables */ }
 
   let chatgpt: string | null = null;
@@ -76,8 +76,8 @@ export async function collectStatus(): Promise<StatusJson> {
   let tasks: StatusJson["tasks"] = null;
   try {
     const { listCodexTasks } = await import("../../codex-tasks");
-    const list = listCodexTasks();
-    tasks = { total: list.length, blocked: list.filter((t) => t.state === "bloqueada").length };
+    const list = listCodexTasks(undefined, 50);
+    tasks = { total: list.length, blocked: list.filter((t) => t.state === "bloqueada").length, items: list };
   } catch { /* opcional */ }
 
   let taint: StatusJson["taint"] = { tainted: false, until: null };
