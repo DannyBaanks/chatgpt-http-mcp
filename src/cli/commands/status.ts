@@ -62,7 +62,7 @@ export async function collectStatus(): Promise<StatusJson> {
   let chatgpt: string | null = null;
   if (up) {
     try {
-      const st = await bridgeJson("/isymcp/settings");
+      const st = await bridgeJson("/isymcp/settings", "GET", 3_000);
       chatgpt = describeSeen(st.body?.seen);
     } catch { /* opcional */ }
   }

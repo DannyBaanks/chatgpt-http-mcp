@@ -251,7 +251,7 @@ export async function openPanel(pathOrHash = ""): Promise<void> {
   }
 }
 
-export async function bridgeJson(path: string, method = "GET"): Promise<{ status: number; body: Record<string, unknown> | null }> {
+export async function bridgeJson(path: string, method = "GET", timeoutMs = 120_000): Promise<{ status: number; body: Record<string, unknown> | null }> {
   const headers = method === "POST"
     ? bridgeAuthHeaders({ "content-type": "application/json" })
     : bridgeAuthHeaders();
@@ -259,7 +259,7 @@ export async function bridgeJson(path: string, method = "GET"): Promise<{ status
     method,
     headers,
     body: method === "POST" ? "{}" : undefined,
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   return { status: res.status, body: (await res.json().catch(() => null)) as Record<string, unknown> | null };
 }

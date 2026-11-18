@@ -59,4 +59,6 @@ export interface DashState {
   showLog: boolean;
   showHelp: boolean;
   logLines: string[];
+  /** false hasta que termina la primera lectura (evita pintar "hub caído" mientras carga). */
+  loaded?: boolean;
 }

@@ -166,7 +166,7 @@ function permissionLines(status: StatusJson | null): string[] {
   const gate = (label: string, value: { on: boolean; expires: string | null } | undefined) => {
     if (!value) return paint(`${label}: ?`, COLORS.gray);
     const word = value.on ? "ON" : "off";
-    const line = `${label}: ${word} · ${value.on ? shortExpiry(value.expires) : ""}`.trim();
+    const line = value.on ? `${label}: ${word} · ${shortExpiry(value.expires)}` : `${label}: ${word}`;
     return paint(line, value.on ? COLORS.red : COLORS.gray);
   };
   const taint = status.taint?.tainted
@@ -195,10 +195,12 @@ function contentLines(state: DashState, width: number): string[] {
   if (state.showHelp) return helpLines();
   if (state.showLog) return state.logLines.length ? state.logLines.map(safe) : [paint("sin líneas de log", COLORS.gray)];
 
-  const services = serviceLines(state.status, state.now);
-  const hub = hubLines(state.hub?.servers ?? null);
-  const permissions = permissionLines(state.status);
-  const sessions = sessionLines(state.status);
+  const loading = state.loaded === false && state.status === null && state.hub === null;
+  const wait = [paint("cargando…", COLORS.gray)];
+  const services = loading ? wait : serviceLines(state.status, state.now);
+  const hub = loading ? wait : hubLines(state.hub?.servers ?? null);
+  const permissions = loading ? wait : permissionLines(state.status);
+  const sessions = loading ? wait : sessionLines(state.status);
   if (width >= 110) {
     const column = Math.floor((width - 3) / 2);
     const left = [

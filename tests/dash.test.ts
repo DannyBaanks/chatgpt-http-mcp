@@ -113,3 +113,18 @@ describe("dashboard ISyMCP", () => {
     }
   });
 });
+
+describe("dash: estado de carga y permisos apagados", () => {
+  it("antes de la primera lectura pinta 'cargando…', no 'hub caído'", () => {
+    const frame = stripAnsiCodes(renderFrame(createInitialState(Date.parse(statusFixture.ts)), 120, 30));
+    expect(frame).toContain("cargando…");
+    expect(frame).not.toContain("hub caído");
+  });
+
+  it("un permiso apagado no deja separador colgando", () => {
+    const state = { ...createInitialState(Date.parse(statusFixture.ts)), status: statusFixture, hub: { servers: [] }, loaded: true };
+    const frame = stripAnsiCodes(renderFrame(state, 120, 30));
+    expect(frame).toContain("agents: off");
+    expect(frame).not.toMatch(/agents: off ·/);
+  });
+});

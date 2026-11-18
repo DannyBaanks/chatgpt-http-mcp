@@ -38,9 +38,12 @@ function parseJson<T>(out: string): T | null {
   }
 }
 
-async function spawnCaptured(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function spawnCaptured(args: string[], timeoutMs = 0): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
     const child = Bun.spawn(args, { cwd: ROOT, stdout: "pipe", stderr: "pipe" });
+    // Las lecturas periódicas llevan tope: un subproceso colgado no debe congelar el refresco.
+    const killer = timeoutMs > 0 ? setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ya salió */ } }, timeoutMs) : null;
+    if (killer) child.exited.finally(() => clearTimeout(killer));
     const [stdout, stderr, code] = await Promise.all([
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
@@ -62,11 +65,11 @@ async function spawnText(args: string[]): Promise<{ code: number; out: string }>
 
 export const defaultDashProvider: DashProvider = {
   async status(): Promise<StatusJson | null> {
-    const result = await spawnCaptured([process.execPath, CLI, "status", "--json"]);
+    const result = await spawnCaptured([process.execPath, CLI, "status", "--json"], 15_000);
     return result.code === 0 ? parseJson<StatusJson>(result.stdout) : null;
   },
   async hub(): Promise<HubJson | null> {
-    const result = await spawnCaptured([process.execPath, CLI, "hub", "status", "--json"]);
+    const result = await spawnCaptured([process.execPath, CLI, "hub", "status", "--json"], 15_000);
     return result.code === 0 ? parseJson<HubJson>(result.stdout) : null;
   },
   async run(args: string[]): Promise<{ code: number; out: string }> {
@@ -86,6 +89,7 @@ export function createInitialState(now = Date.now()): DashState {
     showLog: false,
     showHelp: false,
     logLines: [],
+    loaded: false,
   };
 }
 
@@ -289,6 +293,7 @@ export async function runDash(provider: DashProvider = defaultDashProvider, opti
       state.status = snapshot.status;
       state.hub = snapshot.hub;
       state.now = Date.now();
+      state.loaded = true;
       if (state.showLog) {
         const { height } = terminalSize();
         state.logLines = await readHubLogTail(Math.max(1, height - 5));
@@ -304,7 +309,13 @@ export async function runDash(provider: DashProvider = defaultDashProvider, opti
   const onResize = () => draw();
   const onSignal = () => finish();
 
+  // Si un error no capturado mata el proceso, `finally` no corre: restaura la terminal en 'exit'.
+  const onExit = () => {
+    if (rawMode) { try { input.setRawMode(false); } catch { /* stdin cerrado */ } }
+    if (alternateScreen) { try { process.stdout.write(`\x1b[0m${SHOW_CURSOR}${ALT_SCREEN_OFF}`); } catch { /* stdout cerrado */ } }
+  };
   try {
+    process.once("exit", onExit);
     process.once("SIGTERM", onSignal);
     process.once("SIGINT", onSignal);
     input.setEncoding("utf8");
@@ -332,6 +343,7 @@ export async function runDash(provider: DashProvider = defaultDashProvider, opti
     process.stdout.off("resize", onResize);
     process.off("SIGTERM", onSignal);
     process.off("SIGINT", onSignal);
+    process.off("exit", onExit);
     if (rawMode) {
       try { input.setRawMode(false); } catch { /* stdin may already be closed */ }
     }
