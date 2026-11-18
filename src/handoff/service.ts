@@ -585,6 +585,13 @@ export async function triggerSelfCompact(opts: {
     workspace: opts.cwd,
     compacted_dir: opts.compacted_dir,
   });
+  const elapsedSec = ((Date.now() - startedMs) / 1000).toFixed(1);
+  const red = ctx.reduction || "compacted";
+  const compactBanner = [
+    "────────────────── Conversation compacted (Nemotron 550B) ──────────────────",
+    `  ${red} · took ${elapsedSec}s · ${resolvedConvId.slice(0, 8)}_handoff.md`,
+    "──────────────────────────────────────────────────────────────────────────────",
+  ].join("\n");
 
   if (inPlace) {
     // Schedule instant in-place tmux respawn from existing vault handoff 1.5s after returning
@@ -604,6 +611,6 @@ export async function triggerSelfCompact(opts: {
     model,
     handoff_file: delivery.handoff_file,
     handoff_context: ctx,
-    message: delivery.message || `✅ Handoff entregado por ${model} y cargado vía ziggrep.`,
+    message: `${compactBanner}\n${delivery.message || `✅ Handoff entregado por ${model} y cargado vía ziggrep.`}`,
   };
 }
