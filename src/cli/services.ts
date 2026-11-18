@@ -325,7 +325,9 @@ export function tunnelState(): { ready: boolean; running: boolean | null; state:
     const alias = configuredTunnelAlias(bridgeHome(), process.env.CODEX_WEB_HTTP_TUNNEL_ALIAS);
     const proc = sh([tunnelBin(), "runtimes", "status", alias, "--json"], 30_000);
     if (proc.code !== 0) return { ready: false, running: null, state: "sin status" };
-    const d = JSON.parse(proc.out) as { ready?: unknown; running?: unknown; runtime_state?: unknown };
+    let d: { ready?: unknown; running?: unknown; runtime_state?: unknown };
+    try { d = JSON.parse(proc.out); } catch { return { ready: false, running: null, state: "ilegible" }; }
+    if (!d || typeof d !== "object") return { ready: false, running: null, state: "ilegible" };
     return {
       ready: d.ready === true,
       running: typeof d.running === "boolean" ? d.running : null,

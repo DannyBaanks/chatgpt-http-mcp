@@ -1,12 +1,11 @@
 // src/cli/commands/status.ts — `isymcp status` (y la sesión del menú).
-import { isExpired, listUserSessions } from "../../codex-sessions";
+import { bridgeHome, isExpired, listUserSessions } from "../../codex-sessions";
 import { CONNECTOR_NAME } from "../../mcp/identity";
 import { processMatches } from "../../platform/process";
 import { activeTaint } from "../../taint";
 import { fileGrant, permissionSource, type Capability } from "../../permissions";
 import type { StatusJson } from "../../dash/types";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { LOG, MONITOR_PID, MONITOR_URL, PANEL_URL, PORT, alive, bridgeJson, monitorUp, panelUp, readPid, serverUp, tunnel, tunnelState } from "../services";
 import { describeSeen } from "./settings";
@@ -48,7 +47,7 @@ export async function collectStatus(): Promise<StatusJson> {
 
   let conversation: string | null = null;
   try {
-    const sessFile = join(homedir(), ".codex-web-http", "sessions", "default.json");
+    const sessFile = join(bridgeHome(), "sessions", "default.json");
     if (existsSync(sessFile)) {
       conversation = (JSON.parse(readFileSync(sessFile, "utf8")) as { conversationUrl?: string | null }).conversationUrl ?? null;
     }
@@ -122,7 +121,7 @@ export async function status(opts: { json?: boolean } = {}): Promise<void> {
   console.log(`  mcp      ${mcp ? "up" : "down"}`);
   console.log(`  connector ${process.env.CODEX_WEB_HTTP_CONNECTOR ?? CONNECTOR_NAME}`);
   try {
-    const sessFile = join(homedir(), ".codex-web-http", "sessions", "default.json");
+    const sessFile = join(bridgeHome(), "sessions", "default.json");
     if (existsSync(sessFile)) {
       const conv = (JSON.parse(readFileSync(sessFile, "utf8")) as { conversationUrl?: string | null }).conversationUrl;
       console.log(`  conversacion ${conv ?? "(sin /c/ aun; el primer turno la guarda)"}`);
