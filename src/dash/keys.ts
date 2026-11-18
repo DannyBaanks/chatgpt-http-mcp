@@ -18,7 +18,7 @@ const commandActions: Record<string, CommandAction> = {
   o: { kind: "command", key: "o", args: ["panel"], label: "abrir panel" },
   m: { kind: "command", key: "m", args: ["monitor", "start"], label: "monitor start" },
   M: { kind: "command", key: "M", args: ["monitor", "stop"], label: "monitor stop" },
-  r: { kind: "command", key: "r", args: ["hub", "reload"], label: "hub reload" },
+  r: { kind: "command", key: "r", args: ["hub", "reload"], label: "hub reload", confirm: "Recargar hub (SIGHUP reinicia todos los MCP de todas las TUIs)" },
   c: { kind: "command", key: "c", args: ["canary"], label: "canary" },
   D: { kind: "command", key: "D", args: ["doctor"], label: "doctor" },
   s: { kind: "command", key: "s", args: ["allow", "once", "shell"], label: "allow once shell", confirm: "Permitir un uso de shell" },

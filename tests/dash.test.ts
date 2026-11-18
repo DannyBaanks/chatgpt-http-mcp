@@ -83,8 +83,8 @@ describe("dashboard ISyMCP", () => {
     expect(frame).toContain("hub caído");
   });
 
-  it("exige y para d, s, a, x y R; cualquier otra tecla cancela", () => {
-    for (const key of ["d", "s", "a", "x", "R"]) {
+  it("exige y para d, r, s, a, x y R; cualquier otra tecla cancela", () => {
+    for (const key of ["d", "r", "s", "a", "x", "R"]) {
       const action = keyToAction(key);
       expect(action?.kind).toBe("command");
       if (action?.kind === "command") {
