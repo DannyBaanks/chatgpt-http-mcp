@@ -1,9 +1,10 @@
 // tests/mcp-gateway.test.ts — Pruebas unitarias para el Universal Gateway de ISyMCP (estilo REA).
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatchIsyMcpAction, ISYMCP_GLOSSARY } from "../src/mcp/gateway";
+import { defaultOpenSwiftDir } from "../src/openswift/service";
 
 describe("ISyMCP Universal Gateway Suite", () => {
   let prevAllow: string | undefined;
@@ -146,5 +147,58 @@ describe("ISyMCP Universal Gateway Suite", () => {
     const result = res.result as any;
     expect(result.stdout).toContain("FAIL_STDOUT");
     expect(result.exit_code).toBe(42);
+  });
+
+  it("GW-13: dispatches openswift.devices and openswift.screenshot cleanly", async () => {
+    const prevOpenSwift = process.env.OPENSWIFT_DIR;
+    try {
+      if (!existsSync(join(defaultOpenSwiftDir(), "openswift", "devices.py"))) {
+        const pkg = join(home, "openswift");
+        mkdirSync(pkg, { recursive: true });
+        writeFileSync(
+          join(pkg, "devices.py"),
+          [
+            "from dataclasses import dataclass",
+            "from enum import Enum",
+            "class NotchType(Enum): DYNAMIC_ISLAND = 'dynamic_island'",
+            "@dataclass",
+            "class Device:",
+            "  id: str; name: str; idiom: str; width: int; height: int; notch_type: NotchType; has_action_button: bool; has_camera_control: bool",
+            "DEVICES = {'iphone-16-pro': Device('iphone-16-pro', 'iPhone 16 Pro', 'phone', 402, 874, NotchType.DYNAMIC_ISLAND, True, True)}",
+            "ORIENTATIONS = ('portrait', 'landscape')",
+          ].join("\n"),
+        );
+        writeFileSync(join(pkg, "render.py"), "APPEARANCES = ('dark', 'light')\nFRAMES = {'black': {}}\n");
+        writeFileSync(
+          join(pkg, "__main__.py"),
+          [
+            "import json, sys, pathlib",
+            "out = pathlib.Path(sys.argv[sys.argv.index('-o') + 1])",
+            "out.parent.mkdir(parents=True, exist_ok=True)",
+            "out.write_bytes(b'\\x89PNG\\r\\n\\x1a\\n' + b'0' * 128)",
+            "print(json.dumps({'ok': True, 'png_path': str(out), 'sha256': 'abc', 'bytes': 136, 'raster_engine': 'builtin', 'devices': ['iphone-16-pro'], 'problems': [], 'tree': {'kind': 'VStack'}}))",
+          ].join("\n"),
+        );
+        process.env.OPENSWIFT_DIR = home;
+      }
+
+      const devs = await dispatchIsyMcpAction("openswift.devices");
+      expect(devs.ok).toBe(true);
+      expect(Array.isArray((devs.result as any).devices)).toBe(true);
+
+      const shot = await dispatchIsyMcpAction("openswift.screenshot", {
+        source: 'import SwiftUI\nstruct V: View { var body: some View { Text("Hola iPhone") } }',
+        device: "iphone-16-pro",
+        scale: 1,
+      });
+      expect(shot.ok).toBe(true);
+      const res = shot.result as any;
+      expect(res.png_path).toContain(".png");
+      expect(res._mcp_image?.mimeType).toBe("image/png");
+      expect(res._mcp_image?.data.length).toBeGreaterThan(50);
+    } finally {
+      if (prevOpenSwift === undefined) delete process.env.OPENSWIFT_DIR;
+      else process.env.OPENSWIFT_DIR = prevOpenSwift;
+    }
   });
 });

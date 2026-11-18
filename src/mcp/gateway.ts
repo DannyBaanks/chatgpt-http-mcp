@@ -96,7 +96,13 @@ export async function dispatchIsyMcpAction(
 
 /** Lo que ve el modelo: el resultado si salió bien; si no, el error (y el resultado parcial si lo hay). */
 export function gatewayToolPayload(res: { ok: boolean; result: unknown; error?: string }): unknown {
-  if (res.ok) return res.result !== undefined ? res.result : { ok: true };
+  if (res.ok) {
+    if (res.result && typeof res.result === "object" && !Array.isArray(res.result) && "_mcp_image" in (res.result as Record<string, unknown>)) {
+      const { _mcp_image, ...clean } = res.result as Record<string, unknown>;
+      return clean;
+    }
+    return res.result !== undefined ? res.result : { ok: true };
+  }
   if (res.result === undefined || res.result === null) return { ok: false, error: res.error ?? "error sin detalle" };
   return res.error ? { ok: false, error: res.error, result: res.result } : res.result;
 }
@@ -110,13 +116,13 @@ export function registerIsyMcpGateway(server: McpServer): void {
     {
       description:
         "ISyMCP Universal Gateway — Interfaz unificada de ejecución estilo REA para todas las capacidades de ISyMCP en la máquina de Danny. " +
-        "Contiene el glosario interactivo de herramientas (TUI Launcher con Antigravity, GitHub, Monitor de Tareas, Multimedia, ComfyUI). " +
+        "Contiene el glosario interactivo de herramientas (TUI Launcher con Antigravity, GitHub, Monitor de Tareas, Multimedia, ComfyUI, OpenSwift Simulator). " +
         "Invoca con action='glossary' o sin argumentos para descubrir el catálogo de acciones disponibles con sus parámetros y ejemplos.",
       inputSchema: {
         action: z
           .string()
           .optional()
-          .describe("Acción a ejecutar (ej. 'glossary', 'tui.spawn', 'github.status', 'github.api', 'github.repos', 'monitor.status', 'monitor.tasks', 'monitor.respond'). Si se omite, retorna el glosario completo."),
+          .describe("Acción a ejecutar (ej. 'glossary', 'openswift.screenshot', 'tui.spawn', 'github.status', 'github.api', 'github.repos', 'monitor.status', 'monitor.tasks', 'monitor.respond'). Si se omite, retorna el glosario completo."),
         arguments: z
           .record(z.string(), z.any())
           .optional()
@@ -126,6 +132,10 @@ export function registerIsyMcpGateway(server: McpServer): void {
     },
     async (input) => {
       const res = await dispatchIsyMcpAction(input.action, input.arguments as Record<string, any>);
+      const maybeImg =
+        res.ok && res.result && typeof res.result === "object" && !Array.isArray(res.result)
+          ? (res.result as Record<string, any>)._mcp_image
+          : undefined;
       return {
         content: [
           {
@@ -133,6 +143,9 @@ export function registerIsyMcpGateway(server: McpServer): void {
             // Si falla, el motivo SIEMPRE llega al modelo (antes un result:null tapaba el error: "null").
             text: JSON.stringify(gatewayToolPayload(res), null, 2),
           },
+          ...(maybeImg && typeof maybeImg.data === "string" && typeof maybeImg.mimeType === "string"
+            ? [{ type: "image" as const, data: maybeImg.data, mimeType: maybeImg.mimeType }]
+            : []),
         ],
         isError: !res.ok,
       };
