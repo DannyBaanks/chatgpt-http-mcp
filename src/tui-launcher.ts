@@ -337,7 +337,7 @@ export async function spawnAgyTui(options: SpawnAgyOptions): Promise<SpawnAgyRes
 // de terminal adjunta a esa sesión (la ves igual que la de agy).
 
 export interface SpawnAgentOptions extends SpawnAgyOptions {
-  /** id o alias del catálogo (agy, claude, opencode, openisy, codex, gemini, copilot, droid, kimi, crush, hermes, openclaw). */
+  /** id o alias del catálogo (agy, claude, opencode, openisy, isycode, codex, gemini, copilot, droid, kimi, crush, hermes, openclaw). */
   agent?: string;
 }
 

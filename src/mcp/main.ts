@@ -828,9 +828,9 @@ server.registerTool(
   "spawn_agent_tui",
   {
     description:
-      "Abre una consola de agente en el escritorio de Danny (ventana visible + tmux) coordinada con ISyMCP: agy, claude, opencode, openisy, codex, gemini, copilot, droid, kimi, crush, hermes u openclaw. Registra la consola (console_id, PID real, ACK firmado) igual que agy. Las tareas siguientes se envían con isymcp(action='monitor.submit', arguments={console_id, description}).",
+      "Abre una consola de agente en el escritorio de Danny (ventana visible + tmux) coordinada con ISyMCP: agy, claude, opencode, openisy, isycode, codex, gemini, copilot, droid, kimi, crush, hermes u openclaw. Registra la consola (console_id, PID real, ACK firmado) igual que agy. Las tareas siguientes se envían con isymcp(action='monitor.submit', arguments={console_id, description}).",
     inputSchema: {
-      agent: z.string().describe("Agente: agy | claude | opencode | openisy | codex | gemini | copilot | droid | kimi | crush | hermes | openclaw"),
+      agent: z.string().describe("Agente: agy | claude | opencode | openisy | isycode | codex | gemini | copilot | droid | kimi | crush | hermes | openclaw"),
       prompt: z.string().describe("Instrucción o tarea que ejecutará el nuevo agente"),
       cwd: z.string().optional().describe("Directorio de trabajo (por defecto workspace actual)"),
       title: z.string().optional().describe("Título de la ventana de la terminal"),

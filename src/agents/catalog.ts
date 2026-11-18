@@ -12,7 +12,7 @@
 // Datos verificados con el --help / la config real de cada herramienta el 2026-11-11.
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { cli, crushStrategy, mcpServersStrategy, opencodeStrategy, type Strategy } from "./mcp-config";
+import { cli, crushStrategy, isycodeStrategy, mcpServersStrategy, opencodeStrategy, type Strategy } from "./mcp-config";
 
 export type ListenerStyle = "agy-task" | "background-bash" | "inject";
 /**
@@ -181,6 +181,25 @@ export const AGENTS: AgentDef[] = [
     console: { promptVia: "argv", promptArgs: (p) => ["--prompt", p], listener: "inject" },
     mcp: (path) => opencodeStrategy(path),
     tuiFormat: "opencode",
+  },
+  {
+    id: "isycode", label: "ISyCode", aliases: ["isicode"], executables: ["isycode"],
+    extraPaths: [join(HOME, ".local", "bin", "isycode")],
+    config: {
+      homeEnv: "ISYCODE_HOME",
+      dir: (h, env) => (!env.ISYCODE_HOME?.trim() && env.XDG_CONFIG_HOME?.trim())
+        ? join(env.XDG_CONFIG_HOME.trim(), "isycode")
+        : join(h, ".config", "isycode"),
+      file: (h, env) => join(
+        (!env.ISYCODE_HOME?.trim() && env.XDG_CONFIG_HOME?.trim())
+          ? join(env.XDG_CONFIG_HOME.trim(), "isycode")
+          : join(h, ".config", "isycode"),
+        "mcp.json",
+      ),
+    },
+    console: { promptVia: "argv", promptArgs: (p) => ["--prompt", p], listener: "inject" },
+    mcp: (path) => isycodeStrategy(path),
+    tuiFormat: "harness",
   },
   {
     // agy (Antigravity CLI) lee ~/.gemini/config/mcp_config.json; el Gemini CLI usa settings.json.

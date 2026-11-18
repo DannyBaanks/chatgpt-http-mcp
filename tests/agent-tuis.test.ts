@@ -16,11 +16,12 @@ describe("catálogo de agentes", () => {
   it("AT-01: ids únicos, alias resuelven, agy por defecto", () => {
     const ids = AGENT_TUIS.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const id of ["agy", "claude", "opencode", "openisy", "codex", "gemini", "copilot", "droid", "kimi", "crush", "hermes", "openclaw"]) {
+    for (const id of ["agy", "claude", "opencode", "openisy", "isycode", "codex", "gemini", "copilot", "droid", "kimi", "crush", "hermes", "openclaw"]) {
       expect(resolveAgentTui(id)?.id).toBe(id);
     }
     expect(resolveAgentTui("antigravity")?.id).toBe("agy");
     expect(resolveAgentTui("open-isy")?.id).toBe("openisy");
+    expect(resolveAgentTui("isicode")?.id).toBe("isycode");
     expect(resolveAgentTui(undefined)?.id).toBe("agy");
     expect(resolveAgentTui("nope")).toBeNull();
   });
@@ -38,6 +39,7 @@ describe("catálogo de agentes", () => {
     expect(argv("agy")).toEqual(["/bin/agy", "-i", "HAZ X", "--mode", "plan"]);
     expect(argv("opencode")).toEqual(["/bin/opencode", "--prompt", "HAZ X"]);
     expect(argv("openisy")).toEqual(["/bin/openisy", "--prompt", "HAZ X"]);
+    expect(argv("isycode")).toEqual(["/bin/isycode", "--prompt", "HAZ X"]);
     expect(argv("claude")).toEqual(["/bin/claude", "HAZ X"]);
     // Con la ruta del CLI: prompt primero y solo los comandos `monitor` de ISyMCP pre-aprobados.
     expect(agentArgv(resolveAgentTui("claude")!, "/bin/claude", "HAZ X", { cliPath: "/r/src/isymcp.ts" }))
@@ -52,7 +54,7 @@ describe("catálogo de agentes", () => {
 
   it("AT-03: listener por agente: agy su /task, el resto (claude incluido) por inyección", () => {
     expect(resolveAgentTui("agy")!.listener).toBe("agy-task");
-    for (const id of ["claude", "opencode", "openisy", "codex", "gemini", "copilot", "droid", "kimi", "crush", "hermes", "openclaw"]) {
+    for (const id of ["claude", "opencode", "openisy", "isycode", "codex", "gemini", "copilot", "droid", "kimi", "crush", "hermes", "openclaw"]) {
       expect(resolveAgentTui(id)!.listener).toBe("inject");
     }
   });

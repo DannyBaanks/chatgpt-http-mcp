@@ -58,7 +58,7 @@ export const GLOSSARY_HEADER = {
 
 /** Descripción de cada familia, en el orden en que aparece en el glosario. */
 export const FAMILY_DESCRIPTIONS: Record<string, string> = {
-  "tui": "Orquestación y despliegue de consolas interactivas de agentes (agy, claude, opencode, openisy, codex, gemini, copilot, droid, kimi, crush, hermes, openclaw) en el escritorio local.",
+  "tui": "Orquestación y despliegue de consolas interactivas de agentes (agy, claude, opencode, openisy, isycode, codex, gemini, copilot, droid, kimi, crush, hermes, openclaw) en el escritorio local.",
   "github": "Operaciones autenticadas con GitHub mediante el token PAT de Danny (DannyBaanks) almacenado en ISyMCP.",
   "monitor": "Coordinación asíncrona, colas de tareas con SQLite WAL y recibos criptográficos HMAC.",
   "media": "Análisis técnico y preparación de archivos de audio y video locales sin salir de la máquina.",
@@ -84,7 +84,7 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
       "description": "Abre una consola TUI de un agente (por defecto agy) en una ventana visible (gnome-terminal/tmux) con auto-registro de tarea, identidad de consola y enlace al bus del monitor. Usa tui.agents para ver qué agentes hay instalados.",
       "parameters": {
         "prompt": "string (obligatorio: instrucción o tarea para el nuevo agente)",
-        "agent": "string (opcional, por defecto 'agy'): agy | claude | opencode | openisy | codex | gemini | copilot | droid | kimi | crush | hermes | openclaw",
+        "agent": "string (opcional, por defecto 'agy'): agy | claude | opencode | openisy | isycode | codex | gemini | copilot | droid | kimi | crush | hermes | openclaw",
         "mode": "enum: 'plan' | 'auto' | 'accept-edits' (por defecto 'auto')",
         "title": "string (opcional: título de la ventana)",
         "terminal": "enum: 'auto' | 'gui' | 'tmux' (por defecto 'auto')",
