@@ -317,3 +317,21 @@ export function tunnel(action: string): void {
     console.log(proc.out.slice(0, 400));
   }
 }
+
+/** Estado del túnel sin imprimir nada (lo usa `isymcp status --json`). Nunca lanza. */
+export function tunnelState(): { ready: boolean; running: boolean | null; state: string } {
+  try {
+    if (!existsSync(tunnelBin())) return { ready: false, running: null, state: "no instalado" };
+    const alias = configuredTunnelAlias(bridgeHome(), process.env.CODEX_WEB_HTTP_TUNNEL_ALIAS);
+    const proc = sh([tunnelBin(), "runtimes", "status", alias, "--json"], 30_000);
+    if (proc.code !== 0) return { ready: false, running: null, state: "sin status" };
+    const d = JSON.parse(proc.out) as { ready?: unknown; running?: unknown; runtime_state?: unknown };
+    return {
+      ready: d.ready === true,
+      running: typeof d.running === "boolean" ? d.running : null,
+      state: typeof d.runtime_state === "string" && d.runtime_state ? d.runtime_state : "desconocido",
+    };
+  } catch {
+    return { ready: false, running: null, state: "error" };
+  }
+}
