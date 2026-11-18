@@ -143,7 +143,7 @@ export const hubModule: CliModule = {
       // scheduleRestart). A diferencia de `reload` (SIGHUP), no toca al resto de MCP (#315a).
       const name = rest.find((a) => !a.startsWith("--"));
       const only = flag("--instance", rest);
-      if (!name) throw Error("uso: isymcp hub restart <mcp> [--instance <id>]");
+      if (!name) { console.log("  uso: isymcp hub restart <mcp> [--instance <id>]   (MCP: isymcp hub status)"); process.exitCode = 2; return; }
       const pid = await daemonPid();
       if (!pid) { console.log("  ○ el hub no está corriendo"); process.exitCode = 1; return; }
       const data = await hubStatusData(ctx.root);
