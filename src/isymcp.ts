@@ -248,7 +248,7 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   console.log(brandHeader());
   await openMenu();
 } else if (!cmd || cmd === "status") {
-  await status();
+  await status({ json: sub === "--json" || rest.includes("--json") });
 } else if (cmd === "menu") {
   console.log(brandHeader());
   if (sub) {

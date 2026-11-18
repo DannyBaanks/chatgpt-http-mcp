@@ -22,6 +22,7 @@ test {
     _ = @import("catalog.zig");
     _ = @import("config.zig");
     _ = @import("pipeline.zig");
+    _ = @import("daemon.zig");
 }
 
 const Paths = struct { home: []const u8, config: []const u8, socket: []const u8 };
