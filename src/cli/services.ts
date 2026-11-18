@@ -251,7 +251,7 @@ export async function openPanel(pathOrHash = ""): Promise<void> {
   }
 }
 
-export async function bridgeJson(path: string, method = "GET"): Promise<{ status: number; body: Record<string, unknown> | null }> {
+export async function bridgeJson(path: string, method = "GET", timeoutMs = 120_000): Promise<{ status: number; body: Record<string, unknown> | null }> {
   const headers = method === "POST"
     ? bridgeAuthHeaders({ "content-type": "application/json" })
     : bridgeAuthHeaders();
@@ -259,7 +259,7 @@ export async function bridgeJson(path: string, method = "GET"): Promise<{ status
     method,
     headers,
     body: method === "POST" ? "{}" : undefined,
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   return { status: res.status, body: (await res.json().catch(() => null)) as Record<string, unknown> | null };
 }
@@ -315,5 +315,25 @@ export function tunnel(action: string): void {
     console.log(`tunel ready=${d.ready ?? "?"} running=${d.running ?? "?"} state=${d.runtime_state ?? "?"}`);
   } catch {
     console.log(proc.out.slice(0, 400));
+  }
+}
+
+/** Estado del túnel sin imprimir nada (lo usa `isymcp status --json`). Nunca lanza. */
+export function tunnelState(): { ready: boolean; running: boolean | null; state: string } {
+  try {
+    if (!existsSync(tunnelBin())) return { ready: false, running: null, state: "no instalado" };
+    const alias = configuredTunnelAlias(bridgeHome(), process.env.CODEX_WEB_HTTP_TUNNEL_ALIAS);
+    const proc = sh([tunnelBin(), "runtimes", "status", alias, "--json"], 30_000);
+    if (proc.code !== 0) return { ready: false, running: null, state: "sin status" };
+    let d: { ready?: unknown; running?: unknown; runtime_state?: unknown };
+    try { d = JSON.parse(proc.out); } catch { return { ready: false, running: null, state: "ilegible" }; }
+    if (!d || typeof d !== "object") return { ready: false, running: null, state: "ilegible" };
+    return {
+      ready: d.ready === true,
+      running: typeof d.running === "boolean" ? d.running : null,
+      state: typeof d.runtime_state === "string" && d.runtime_state ? d.runtime_state : "desconocido",
+    };
+  } catch {
+    return { ready: false, running: null, state: "error" };
   }
 }

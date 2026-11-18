@@ -15,7 +15,8 @@ export function help(): void {
 
   isymcp                     menu interactivo con todo (en una terminal);
                              sin terminal (pipe/script) imprime el estado
-  isymcp status              estado: server, tunel, panel, ChatGPT, canario
+  isymcp status [--json]     estado: server, tunel, panel, ChatGPT, canario (--json: un objeto JSON)
+  isymcp dash                panel de terminal ISyMCP (q para salir)
   isymcp menu [id]           menu (o una rama/accion: isymcp menu harness)
 
   isymcp panel               abre el panel :8798 (lo levanta detached si hace falta)
