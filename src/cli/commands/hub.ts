@@ -1,4 +1,4 @@
-// src/cli/commands/hub.ts — `isymcp hub serve|connect|status|import|reload|stop|install|build`
+// src/cli/commands/hub.ts — `isymcp hub serve|connect|status|import|reload|stop|install|build|restart`
 //
 // El hub de MCP: un daemon ajeno a las TUIs que arranca una vez los MCP de la máquina; cada TUI
 // registra un solo MCP (el conector) y ve 3 tools (discover/describe/execute).
@@ -20,7 +20,10 @@ const HELP = `isymcp hub — un daemon de MCP para todas las TUIs
   isymcp hub import [--from F] [--per-client a,b]
                                   copia los MCP stdio de una config con mcpServers (por defecto
                                   ~/.claude.json) a servers.json; per-client por defecto: rea
-  isymcp hub reload               relee servers.json sin cortar a las TUIs (SIGHUP)
+  isymcp hub restart N [--instance ID]
+                                  reinicia solo el MCP N (SIGTERM a sus procesos; el hub los
+                                  relanza en ~1 s). Los demás MCP y las TUIs no se cortan
+  isymcp hub reload               relee servers.json (SIGHUP; hoy reinicia TODOS los MCP, #315a)
   isymcp hub stop                 para el daemon y sus MCP
   isymcp hub build                compila el binario Zig (hub/zig-out/bin/isymcp-hub)
   isymcp hub install [--enable]   compila, enlaza ~/.codex-web-http/bin/isymcp-hub y escribe la
@@ -63,6 +66,42 @@ async function daemonPid(): Promise<number | null> {
   }
 }
 
+/** Estado del daemon vía `hub_discover detail=status` (null si no corre). No lo autoarranca. */
+async function hubStatusData(root: string): Promise<{ servers: Array<Record<string, any>> } | null> {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const transport = new StdioClientTransport({
+    command: await hubBinary(root),
+    args: ["connect"],
+    env: { ...(process.env as Record<string, string>), ISYMCP_HUB_NO_AUTOSTART: "1", ISYMCP_HUB_CONNECT_WAIT_MS: "0" },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "isymcp-hub-status", version: "0" });
+  try {
+    await client.connect(transport, { timeout: 5_000 });
+  } catch {
+    return null;
+  }
+  try {
+    const res = await client.callTool({ name: "hub_discover", arguments: { detail: "status" } });
+    return res.structuredContent as { servers: Array<Record<string, any>> };
+  } finally {
+    await client.close();
+  }
+}
+
+/** ppid según /proc (null si el proceso ya no existe). */
+function parentPid(pid: number): number | null {
+  try {
+    // /proc/<pid>/stat: "pid (comm) state ppid ..."; comm puede llevar espacios y paréntesis.
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+    return Number.isInteger(ppid) ? ppid : null;
+  } catch {
+    return null;
+  }
+}
+
 export const hubModule: CliModule = {
   names: ["hub"],
   async run(sub, rest, ctx) {
@@ -76,25 +115,12 @@ export const hubModule: CliModule = {
     }
 
     if (sub === "status") {
-      const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-      const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
-      const transport = new StdioClientTransport({
-        command: await hubBinary(ctx.root),
-        args: ["connect"],
-        env: { ...(process.env as Record<string, string>), ISYMCP_HUB_NO_AUTOSTART: "1", ISYMCP_HUB_CONNECT_WAIT_MS: "0" },
-        stderr: "pipe",
-      });
-      const client = new Client({ name: "isymcp-hub-status", version: "0" });
-      try {
-        await client.connect(transport, { timeout: 5_000 });
-      } catch {
+      const data = await hubStatusData(ctx.root);
+      if (!data) {
         console.log("  ○ el hub no está corriendo (isymcp hub serve, o systemctl --user start isymcp-hub)");
         process.exitCode = 1;
         return;
       }
-      const res = await client.callTool({ name: "hub_discover", arguments: { detail: "status" } });
-      await client.close();
-      const data = res.structuredContent as { servers: Array<Record<string, any>> };
       if (rest.includes("--json")) { console.log(JSON.stringify(data, null, 2)); return; }
       const pid = await daemonPid();
       console.log(`  ● hub corriendo${pid ? ` (pid ${pid})` : ""}`);
@@ -109,6 +135,46 @@ export const hubModule: CliModule = {
         }
         if (s.error && s.state !== "ready") console.log(`      error: ${String(s.error).slice(0, 300)}`);
       }
+      return;
+    }
+
+    if (sub === "restart") {
+      // Reinicio de UN MCP: SIGTERM a sus procesos y el daemon los vuelve a arrancar (~1 s,
+      // scheduleRestart). A diferencia de `reload` (SIGHUP), no toca al resto de MCP (#315a).
+      const name = rest.find((a) => !a.startsWith("--"));
+      const only = flag("--instance", rest);
+      if (!name) throw Error("uso: isymcp hub restart <mcp> [--instance <id>]");
+      const pid = await daemonPid();
+      if (!pid) { console.log("  ○ el hub no está corriendo"); process.exitCode = 1; return; }
+      const data = await hubStatusData(ctx.root);
+      const server = data?.servers.find((s) => s.server === name);
+      if (!server) { console.log(`  ✗ ${name}: no está en el hub`); process.exitCode = 1; return; }
+      if (server.state === "direct") {
+        console.log(`  ✗ ${name}: es direct (cada TUI lanza el suyo); no lo gestiona el hub`);
+        process.exitCode = 1;
+        return;
+      }
+      const instances = (server.instances ?? []) as Array<{ id: string; pid: number | null }>;
+      const targets = instances.filter((i) => typeof i.pid === "number" && (!only || i.id === only));
+      if (targets.length === 0) {
+        console.log(`  ○ ${name}: sin procesos vivos${only ? ` con id ${only}` : ""} (arranca en la próxima llamada)`);
+        return;
+      }
+      let killed = 0;
+      for (const inst of targets) {
+        // Solo hijos directos del daemon: un pid reciclado nunca recibe la señal.
+        if (parentPid(inst.pid!) !== pid) {
+          console.log(`  · ${inst.id} pid=${inst.pid}: no es hijo del hub (${pid}); no se toca`);
+          continue;
+        }
+        process.kill(inst.pid!, "SIGTERM");
+        killed++;
+        console.log(`  ↻ ${inst.id} pid=${inst.pid}: SIGTERM`);
+      }
+      console.log(killed
+        ? `  ${name}: ${killed} proceso(s) terminados; el hub los vuelve a arrancar en ~1 s (llamadas en vuelo de este MCP fallan)`
+        : `  ${name}: nada reiniciado`);
+      if (!killed) process.exitCode = 1;
       return;
     }
 
