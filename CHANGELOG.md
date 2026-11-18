@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- `isymcp dash`: terminal admin panel (services, permissions, taint, sessions, hub MCPs) with one-key actions; destructive or permission-opening actions ask for `y`.
+- `isymcp status --json`: the same status as one `isymcp-status/1` object; unreadable fields are `null`, it never throws.
+
+### Fixed
+
+- Hub: a backend whose spawn keeps failing retries with exponential backoff (2 s … 600 s) and is logged only when the delay changes; the error stays visible in `isymcp hub status`.
+- Tunnel status: unreadable JSON from the tunnel binary is reported as `ilegible` instead of crashing `isymcp status`.
+- The saved conversation is read from `CODEX_WEB_HTTP_HOME` when set.
+
+---
+
 ## [1.1.0] - 2026-11-08
 
 Release of the local ISyMCP Control Center and agent coordination surface.
