@@ -2,7 +2,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export interface VaultHandoffEntry {
   conv_id: string;
@@ -194,7 +194,33 @@ function findBinary(name: string, extraPaths: string[] = []): string | null {
   return null;
 }
 
-function runZiggrep(terms: string[], searchRoot: string, maxLines = 45): { tool: string; output: string } {
+function resolveScopedSearchTargets(referencedFiles: ReferencedFileStatus[], workspace: string): string[] {
+  const wsAbs = workspace ? resolve(workspace) : "";
+  const seen = new Set<string>();
+  for (const rf of referencedFiles) {
+    if (!rf.exists) continue;
+    const candidate = isAbsolute(rf.path) ? resolve(rf.path) : (wsAbs ? resolve(wsAbs, rf.path) : resolve(rf.path));
+    if (!existsSync(candidate)) continue;
+    try {
+      const st = statSync(candidate);
+      const target = st.isDirectory() ? candidate : dirname(candidate);
+      if (target && target !== wsAbs) {
+        seen.add(target);
+      }
+    } catch {
+      // ignore
+    }
+    if (seen.size >= 6) break;
+  }
+  return [...seen];
+}
+
+function runZiggrep(
+  terms: string[],
+  searchRoot: string,
+  maxLines = 45,
+  scopedTargets: string[] = [],
+): { tool: string; output: string } {
   if (!terms.length || !searchRoot || !existsSync(searchRoot)) {
     return { tool: "none", output: "" };
   }
@@ -204,25 +230,31 @@ function runZiggrep(terms: string[], searchRoot: string, maxLines = 45): { tool:
   const tool = zigBin ? "ziggrep" : (rgBin ? "rg" : "grep");
   const cmd = zigBin ?? rgBin ?? "grep";
 
-  const args: string[] = tool === "grep"
-    ? ["-rn", "-F", "--exclude=*.json", "--exclude=*.jsonl"]
-    : (tool === "ziggrep"
-      ? ["-n", "-F", "--exclude=*.json", "--exclude=*.jsonl"]
-      : ["-n", "-F", "-g", "!*.json", "-g", "!*.jsonl"]);
-  for (const t of terms) args.push("-e", t);
-  args.push(searchRoot);
+  const invoke = (targets: string[], timeoutMs: number): string => {
+    const args: string[] = tool === "grep"
+      ? ["-rn", "-F", "--exclude=*.json", "--exclude=*.jsonl", "--exclude-dir=env", "--exclude-dir=node_modules"]
+      : (tool === "ziggrep"
+        ? ["-n", "-F", "--exclude=*.json", "--exclude=*.jsonl", "--exclude-dir=env,node_modules,.venv,venv,target,evidence,experiments,experiments0000,llama.cpp,llama.cpp-flint,prism-llama.cpp,unsloth_compiled_cache"]
+        : ["-n", "-F", "-g", "!*.json", "-g", "!*.jsonl", "-g", "!env/**", "-g", "!node_modules/**"]);
+    for (const t of terms) args.push("-e", t);
+    args.push(...targets);
+    const res = spawnSync(cmd, args, {
+      encoding: "utf8",
+      timeout: timeoutMs,
+      maxBuffer: 512 * 1024,
+    });
+    return String(res.stdout || "").trim();
+  };
 
-  const res = spawnSync(cmd, args, {
-    encoding: "utf8",
-    timeout: 6000,
-    maxBuffer: 512 * 1024,
-  });
-  const raw = String(res.stdout || "").trim();
+  let raw = scopedTargets.length > 0 ? invoke(scopedTargets, 5000) : "";
+  if (!raw) {
+    raw = invoke([searchRoot], 12000);
+  }
   if (!raw) return { tool, output: "" };
-  const lines = raw.split(/\r?\n/).slice(0, maxLines).map((l) => (l.length > 200 ? `${l.slice(0, 200)}…` : l));
-  const totalLines = raw.split(/\r?\n/).length;
+  const allLines = raw.split(/\r?\n/);
+  const lines = allLines.slice(0, maxLines).map((l) => (l.length > 200 ? `${l.slice(0, 200)}…` : l));
   const clipped = lines.join("\n");
-  const suffix = totalLines > maxLines ? `\n... (+${totalLines - maxLines} coincidencias más)` : "";
+  const suffix = allLines.length > maxLines ? `\n... (+${allLines.length - maxLines} coincidencias más)` : "";
   return { tool, output: clipped + suffix };
 }
 
@@ -286,8 +318,9 @@ export async function loadAgyHandoffContext(opts: {
   const terms = [...new Set([...customTerms, ...symbols])].slice(0, 10);
 
   const referencedFiles = paths.map((p) => resolveFileStatus(p, ws));
+  const scopedTargets = resolveScopedSearchTargets(referencedFiles, ws);
   const maxMatches = typeof opts.max_matches === "number" && opts.max_matches > 0 ? Math.min(120, opts.max_matches) : 45;
-  const zg = runZiggrep(terms, ws, maxMatches);
+  const zg = runZiggrep(terms, ws, maxMatches, scopedTargets);
   const gitSnap = runGitSnapshot(ws);
 
   return {
