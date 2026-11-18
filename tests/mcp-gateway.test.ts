@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatchIsyMcpAction, ISYMCP_GLOSSARY } from "../src/mcp/gateway";
+import { waitForHandoffDelivery } from "../src/handoff/service";
 import { defaultOpenSwiftDir } from "../src/openswift/service";
 
 describe("ISyMCP Universal Gateway Suite", () => {
@@ -200,5 +201,71 @@ describe("ISyMCP Universal Gateway Suite", () => {
       if (prevOpenSwift === undefined) delete process.env.OPENSWIFT_DIR;
       else process.env.OPENSWIFT_DIR = prevOpenSwift;
     }
+  });
+
+  it("GW-14: loads NVAPI compacted handoff + verifies files + runs ziggrep via handoff.load", async () => {
+    const vault = join(home, "compacted");
+    const ws = join(home, "ws");
+    mkdirSync(vault, { recursive: true });
+    mkdirSync(join(ws, "src"), { recursive: true });
+    writeFileSync(
+      join(ws, "src", "demo.py"),
+      "def start_async_compaction():\n    return 'ok'\n",
+    );
+    writeFileSync(
+      join(vault, "ab6bd0b4_handoff.md"),
+      [
+        "# 🗜️ Handoff Compactado por NVIDIA NIM (`nvidia/nemotron-3-ultra-550b-a55b`)",
+        "- **Conversación original:** `ab6bd0b4-3bd5-4a81-a1c3-c659ecd67f02` (Dashboard Multi-Sesión Para AGY)",
+        `- **Workspace:** \`${ws}\``,
+        "- **Reducción de contexto:** `~100,000 tokens` -> `~800 tokens` (**99.2% ahorrado**)",
+        "",
+        "## 2. TRABAJO COMPLETADO",
+        "- Revisar `src/demo.py` y `start_async_compaction`.",
+      ].join("\n"),
+    );
+
+    const listed = await dispatchIsyMcpAction("handoff.list", { compacted_dir: vault });
+    expect(listed.ok).toBe(true);
+    expect((listed.result as any).count).toBe(1);
+
+    const loaded = await dispatchIsyMcpAction("handoff.load", {
+      target: "ab6bd0b4",
+      workspace: ws,
+      compacted_dir: vault,
+    });
+    expect(loaded.ok).toBe(true);
+    const r = loaded.result as any;
+    expect(r.conv_id).toBe("ab6bd0b4-3bd5-4a81-a1c3-c659ecd67f02");
+    expect(r.title).toBe("Dashboard Multi-Sesión Para AGY");
+    expect(r.referenced_files.some((f: any) => f.path === "src/demo.py" && f.exists === true)).toBe(true);
+    expect(r.ziggrep_matches).toContain("start_async_compaction");
+
+    const sc = await dispatchIsyMcpAction("handoff.self_compact", {
+      conv_id: "ab6bd0b4",
+      cwd: ws,
+      resume_prompt: "Seguir con pruebas",
+      dryRun: true,
+    });
+    expect(sc.ok).toBe(true);
+    const scr = sc.result as any;
+    expect(scr.in_place).toBe(true);
+    expect(scr.model).toBe("nvidia/nemotron-3-ultra-550b-a55b");
+    expect(scr.command.join(" ")).toContain("self-compact ab6bd0b4 --bg");
+
+    // Reactive file monitor wakes immediately once Nemotron writes <id>_handoff.md
+    const delayedDir = join(home, "delayed-vault");
+    mkdirSync(delayedDir, { recursive: true });
+    setTimeout(() => {
+      writeFileSync(join(delayedDir, "deadbeef_handoff.md"), "# Handoff listo\n");
+    }, 80);
+    const waited = await waitForHandoffDelivery({
+      short_id: "deadbeef",
+      compacted_dir: delayedDir,
+      since_ms: Date.now() - 100,
+      timeout_ms: 4000,
+    });
+    expect(waited.ok).toBe(true);
+    expect(waited.handoff_file).toContain("deadbeef_handoff.md");
   });
 });
