@@ -139,3 +139,27 @@ export function crushStrategy(configPath: () => string): JsonStrategy {
   },
 };
 }
+
+/** ISyCode: `servers.<nombre> = { command: [launcher] }` en ~/.config/isycode/mcp.json. */
+export function isycodeStrategy(configPath: () => string): JsonStrategy {
+  return {
+    kind: "json",
+    configPath,
+    readInstalled: (path, names) => {
+      const data = readJson(path);
+      return names.some((n) => Boolean(data?.servers?.[n]));
+    },
+    add: (path, launcher, name) => editJson(path, (data) => {
+      objectField(data, "servers", path)[name] = { command: [launcher] };
+      return true;
+    }),
+    remove: (path, names) => {
+      if (!existsSync(path)) return;
+      editJson(path, (data) => {
+        const hits = names.filter((n) => data?.servers?.[n]);
+        for (const n of hits) delete data.servers[n];
+        return hits.length > 0;
+      });
+    },
+  };
+}

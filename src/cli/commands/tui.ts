@@ -138,10 +138,11 @@ export const tuiModule: CliModule = {
       const title = flag("--title", rest);
       const mode = (flag("--mode", rest) as any) || "auto";
       const terminalPreference = flag("--terminal", rest) as any;
+      const includeMonitorHint = !rest.includes("--no-monitor-hint");
       const dryRun = rest.includes("--dry-run");
       const { spawnAgentTui } = await import("../../tui-launcher");
-      const res = await spawnAgentTui({ agent, prompt, cwd, title, mode, terminalPreference, dryRun });
-      if (dryRun) console.log(JSON.stringify({ ...res, command: res.command.map((a) => (a.length > 160 ? `${a.slice(0, 157)}...` : a)) }, null, 2));
+      const res = await spawnAgentTui({ agent, prompt, cwd, title, mode, terminalPreference, includeMonitorHint, dryRun });
+      if (dryRun || rest.includes("--json")) console.log(JSON.stringify({ ...res, command: res.command.map((a) => (a.length > 160 ? `${a.slice(0, 157)}...` : a)) }, null, 2));
       console.log(res.ok ? `✓ ${res.message}` : `✗ Error: ${res.error || res.message}`);
       process.exitCode = res.ok ? 0 : 1;
     } else {

@@ -173,23 +173,25 @@ describe("gateway isymcp (--server gateway)", () => {
     expect(steps.find((s) => s.id === "hermes")!.argv).toEqual([fakes.hermes.path, "mcp", "add", GATEWAY_MCP_NAME, "--command", gatewayLauncherPath()]);
   });
 
-  test("openisy, agy, kimi y crush: JSON en SU archivo real, preservando lo ajeno, y se quitan", async () => {
+  test("openisy, isycode, agy, kimi y crush: JSON en SU archivo real, preservando lo ajeno, y se quitan", async () => {
     const home = join(dir, "gw_home");
-    process.env.OPENISY_HOME = home; process.env.AGY_HOME = home; process.env.KIMI_HOME = home; process.env.CRUSH_HOME = home;
+    process.env.OPENISY_HOME = home; process.env.ISYCODE_HOME = home; process.env.AGY_HOME = home; process.env.KIMI_HOME = home; process.env.CRUSH_HOME = home;
     const openisyCfg = join(home, ".openisy", "config", "opencode.json");
+    const isycodeCfg = join(home, ".config", "isycode", "mcp.json");
     const agyCfg = join(home, ".gemini", "config", "mcp_config.json");
     const kimiCfg = join(home, ".kimi-code", "mcp.json");
     const crushCfg = join(home, ".config", "crush", "crush.json");
-    for (const f of [openisyCfg, agyCfg, kimiCfg, crushCfg]) mkdirSync(join(f, ".."), { recursive: true });
+    for (const f of [openisyCfg, isycodeCfg, agyCfg, kimiCfg, crushCfg]) mkdirSync(join(f, ".."), { recursive: true });
     const { writeFileSync } = await import("node:fs");
     writeFileSync(openisyCfg, JSON.stringify({ plugins: ["/x/l1"], providers: { a: {} } }));
+    writeFileSync(isycodeCfg, JSON.stringify({ servers: { playwright: { command: ["npx", "-y", "@playwright/mcp@0.0.83"] } } }));
     writeFileSync(agyCfg, JSON.stringify({ mcpServers: { rea: { command: "rea" } } }));
     writeFileSync(kimiCfg, JSON.stringify({ mcpServers: { rea: { command: "rea", args: ["mcp"] } } }));
     writeFileSync(crushCfg, JSON.stringify({ mcp: { playwright: { type: "stdio", command: "npx" } }, options: { x: 1 } }));
     // Los ejecutables no están en el PATH falso: presencia por carpeta de config no aplica a CLIs;
     // se crean falsos mínimos para que cuenten como instalados en esta máquina.
-    for (const name of ["openisy", "agy", "crush"]) fakeExecutable({ bin, name, body: { print: "" } });
-    const ids = ["openisy", "agy", "kimi", "crush"];
+    for (const name of ["openisy", "isycode", "agy", "crush"]) fakeExecutable({ bin, name, body: { print: "" } });
+    const ids = ["openisy", "isycode", "agy", "kimi", "crush"];
     const res = await apply("install", ids, true, "gateway");
     expect(res.every((r) => r.ran && r.ok && r.verified === true)).toBe(true);
     expect(existsSync(gatewayLauncherPath())).toBe(true);
@@ -197,6 +199,9 @@ describe("gateway isymcp (--server gateway)", () => {
     const oi = JSON.parse(readFileSync(openisyCfg, "utf8"));
     expect(oi.plugins).toEqual(["/x/l1"]);
     expect(oi.mcp[GATEWAY_MCP_NAME]).toEqual({ type: "local", command: [gatewayLauncherPath()], enabled: true });
+    const ic = JSON.parse(readFileSync(isycodeCfg, "utf8"));
+    expect(ic.servers.playwright).toEqual({ command: ["npx", "-y", "@playwright/mcp@0.0.83"] });
+    expect(ic.servers[GATEWAY_MCP_NAME]).toEqual({ command: [gatewayLauncherPath()] });
     const agy = JSON.parse(readFileSync(agyCfg, "utf8"));
     expect(agy.mcpServers.rea).toEqual({ command: "rea" });
     expect(agy.mcpServers[GATEWAY_MCP_NAME].command).toBe(gatewayLauncherPath());
@@ -210,7 +215,8 @@ describe("gateway isymcp (--server gateway)", () => {
     const removed = await apply("uninstall", ids, true, "gateway");
     expect(removed.every((r) => r.ran && r.ok && r.verified === true)).toBe(true);
     expect(JSON.parse(readFileSync(agyCfg, "utf8")).mcpServers).toEqual({ rea: { command: "rea" } });
-    for (const v of ["AGY_HOME", "OPENISY_HOME", "KIMI_HOME", "CRUSH_HOME"]) process.env[v] = join(dir, `empty_${v.toLowerCase()}`);
+    expect(JSON.parse(readFileSync(isycodeCfg, "utf8")).servers).toEqual({ playwright: { command: ["npx", "-y", "@playwright/mcp@0.0.83"] } });
+    for (const v of ["AGY_HOME", "OPENISY_HOME", "ISYCODE_HOME", "KIMI_HOME", "CRUSH_HOME"]) process.env[v] = join(dir, `empty_${v.toLowerCase()}`);
   });
 
   test("el alias isyco-web-http (instalado por tui.ts en opencode) cuenta como gateway", async () => {

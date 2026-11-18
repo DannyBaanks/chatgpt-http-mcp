@@ -9,7 +9,7 @@ import { AGENT_TUIS, resolveAgentTui } from "../src/agent-tuis";
 import { CATALOG } from "../src/harness";
 import { detectTuis, TUI_ALIASES } from "../src/tui";
 
-const HOME_VARS = ["CURSOR_HOME", "OPENCODE_HOME", "OPENISY_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CLAUDE_DESKTOP_HOME", "OPENISY_CONFIG_DIR"];
+const HOME_VARS = ["CURSOR_HOME", "OPENCODE_HOME", "OPENISY_HOME", "ISYCODE_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CLAUDE_DESKTOP_HOME", "OPENISY_CONFIG_DIR"];
 let home: string;
 const saved: Record<string, string | undefined> = {};
 beforeAll(() => {
@@ -53,7 +53,7 @@ describe("catálogo único de agentes", () => {
   });
 
   it("AC-04: harness y `tui install` usan la MISMA ruta de config para cada agente", () => {
-    for (const k of ["OPENCODE_HOME", "OPENISY_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CURSOR_HOME", "CLAUDE_DESKTOP_HOME"]) process.env[k] = home;
+    for (const k of ["OPENCODE_HOME", "OPENISY_HOME", "ISYCODE_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CURSOR_HOME", "CLAUDE_DESKTOP_HOME"]) process.env[k] = home;
     try {
       const tuis = Object.fromEntries(detectTuis(home).map((t) => [t.id, t]));
       for (const h of CATALOG) {
@@ -63,10 +63,11 @@ describe("catálogo único de agentes", () => {
       }
       // Los casos que se desincronizaron antes, explícitos:
       expect(tuis.openisy!.configPath).toBe(join(home, ".openisy", "config", "opencode.json"));
+      expect(tuis.isycode!.configPath).toBe(join(home, ".config", "isycode", "mcp.json"));
       expect(tuis.agy!.configPath).toBe(join(home, ".gemini", "config", "mcp_config.json"));
       expect(tuis.gemini!.configPath).toBe(join(home, ".gemini", "settings.json"));
     } finally {
-      for (const k of ["OPENCODE_HOME", "OPENISY_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CURSOR_HOME", "CLAUDE_DESKTOP_HOME"]) delete process.env[k];
+      for (const k of ["OPENCODE_HOME", "OPENISY_HOME", "ISYCODE_HOME", "AGY_HOME", "KIMI_HOME", "CRUSH_HOME", "CURSOR_HOME", "CLAUDE_DESKTOP_HOME"]) delete process.env[k];
     }
   });
 });

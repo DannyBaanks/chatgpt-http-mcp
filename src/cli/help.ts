@@ -73,7 +73,7 @@ export function help(): void {
   isymcp tui install [--all | <tui>]  dry-run de instalación de MCP en TUIs
   isymcp tui install [--all | <tui>] --apply  escribe configs con backup (gemini, claude, cursor, opencode, etc.)
   isymcp tui install [--all | <tui>] --restore vuelve al backup anterior
-  isymcp tui spawn "<prompt>" [--agent id] [--title t] [--mode auto] [--dry-run]  abre consola de agente (agy, claude, opencode, openisy, codex, gemini...)
+  isymcp tui spawn "<prompt>" [--agent id] [--title t] [--mode auto] [--no-monitor-hint] [--dry-run]  abre consola de agente (agy, claude, opencode, openisy, isycode, codex...)
   isymcp tui agents          agentes lanzables y cómo les llegan las tareas
   isymcp monitor ack <task> --console <con-id> [--summary s]   ACK de consola (no cierra la tarea; token en $ISYMCP_ACK_TOKEN)
   isymcp monitor respond <task> --console <con-id> --progress|--complete|--fail --summary s
