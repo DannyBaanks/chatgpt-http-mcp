@@ -67,7 +67,8 @@ export const FAMILY_DESCRIPTIONS: Record<string, string> = {
   "shell": "Ejecución directa de comandos shell/bash en la máquina de Danny con persistencia de directorio de trabajo (cwd).",
   "fuzz": "Suite de pruebas adversariales y fuzzing para configs de TUIs y Universal Gateway.",
   "openisy": "Túnel bidireccional hacia OpenISy/OpenCode (HTTP v2 Daemon) para orquestar su TUI en vivo (como usuario o como agente sintético) y despachar sub-agentes multi-provider con o sin API keys externas.",
-  "openswift": "Simulador visual de pantallas SwiftUI en iPhone e iPad (OpenSwift): renderiza código o archivos .swift a capturas PNG Retina para que el modelo vea visualmente la interfaz."
+  "openswift": "Simulador visual de pantallas SwiftUI en iPhone e iPad (OpenSwift): renderiza código o archivos .swift a capturas PNG Retina para que el modelo vea visualmente la interfaz.",
+  "handoff": "Carga unificada en 1 paso de handoffs compactados por NVIDIA Nemotron en el Baúl (`compacted/`) junto con verificación viva de archivos, estado git y búsqueda `ziggrep`."
 };
 
 /** Entrada del CLI isymcp que las consolas usan para responder. */
@@ -1111,6 +1112,115 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     handler: async () => {
       const { listOpenSwiftDevices } = await import("../openswift/service");
       const res = await listOpenSwiftDevices();
+      return { ok: res.ok, result: res.ok ? res : null, error: res.error };
+    },
+  },
+  {
+    name: "handoff.load",
+    family: "handoff",
+    aliases: ["handoff.read", "agy.handoff", "handoff"],
+    describeAliases: ["handoff"],
+    glossary: {
+      "description": "Carga en un solo paso el handoff compactado por NVIDIA Nemotron desde el Baúl junto con git status y coincidencias en vivo vía ziggrep sobre los símbolos clave.",
+      "parameters": {
+        "target": "string (opcional: prefijo de conversation_id o título; si se omite carga el más reciente del workspace)",
+        "workspace": "string (opcional: ruta del repo/workspace donde correr ziggrep y git status)",
+        "query": "string (opcional: términos adicionales separados por espacio/coma para ziggrep)",
+        "max_matches": "number (opcional, por defecto 45): máximo de líneas ziggrep"
+      },
+      "example": {
+        "action": "handoff.load",
+        "arguments": {
+          "target": "ab6bd0b4",
+          "workspace": "/path/to/workspace"
+        }
+      }
+    },
+    handler: async (args) => {
+      const { loadAgyHandoffContext } = await import("../handoff/service");
+      const res = await loadAgyHandoffContext({
+        target: args.target ? String(args.target) : undefined,
+        workspace: args.workspace ? String(args.workspace) : undefined,
+        query: args.query ? String(args.query) : undefined,
+        max_matches: typeof args.max_matches === "number" ? args.max_matches : undefined,
+        compacted_dir: args.compacted_dir ? String(args.compacted_dir) : undefined,
+      });
+      return { ok: res.ok, result: res.ok ? res : null, error: res.error };
+    },
+  },
+  {
+    name: "handoff.list",
+    family: "handoff",
+    aliases: ["handoff.vault"],
+    glossary: {
+      "description": "Lista los handoffs compactados disponibles en el Baúl de agy-dash (`compacted/`).",
+      "parameters": {},
+      "example": { "action": "handoff.list" }
+    },
+    handler: async (args) => {
+      const { listCompactedVault } = await import("../handoff/service");
+      const entries = listCompactedVault(args.compacted_dir ? String(args.compacted_dir) : undefined);
+      return { ok: true, result: { count: entries.length, entries } };
+    },
+  },
+  {
+    name: "handoff.compact",
+    family: "handoff",
+    aliases: ["compactnvidia"],
+    glossary: {
+      "description": "Dispara la compactación NVIDIA NIM (Nemotron) de la sesión AGY en 2º plano mediante `agy-dash compact`.",
+      "parameters": {
+        "target": "string (opcional, por defecto 'self'): conversation_id o 'self'",
+        "open": "boolean (opcional, por defecto true): abre nueva pestaña al terminar",
+        "background": "boolean (opcional, por defecto true): corre en segundo plano"
+      },
+      "example": {
+        "action": "handoff.compact",
+        "arguments": { "target": "self", "open": true, "background": true }
+      }
+    },
+    handler: async (args) => {
+      const { triggerNvapiCompaction } = await import("../handoff/service");
+      const res = await triggerNvapiCompaction({
+        target: args.target ? String(args.target) : "self",
+        open: args.open !== false,
+        background: args.background !== false,
+      });
+      return { ok: res.ok, result: res.ok ? res : null, error: res.error };
+    },
+  },
+  {
+    name: "handoff.self_compact",
+    family: "handoff",
+    aliases: ["agy.self_compact", "self_compact"],
+    glossary: {
+      "description": "Dispara la auto-compactación de la propia conversación del agente con NVIDIA Nemotron 550B y continúa in-place en la misma pestaña de la TUI.",
+      "parameters": {
+        "conv_id": "string (opcional, por defecto 'self'): UUID o prefijo de la conversación actual",
+        "cwd": "string (opcional): workspace de la sesión",
+        "resume_prompt": "string (opcional): siguiente paso inmediato con el que debe continuar tras compactar",
+        "model": "string (opcional): modelo NVIDIA NIM (default nvidia/nemotron-3-ultra-550b-a55b)",
+        "in_place": "boolean (opcional, por defecto true): reemplaza la misma pestaña en agy-dash"
+      },
+      "example": {
+        "action": "handoff.self_compact",
+        "arguments": {
+          "conv_id": "ab6bd0b4",
+          "cwd": "/path/to/workspace",
+          "resume_prompt": "Seguir con la suite de pruebas"
+        }
+      }
+    },
+    handler: async (args) => {
+      const { triggerSelfCompact } = await import("../handoff/service");
+      const res = await triggerSelfCompact({
+        conv_id: args.conv_id ? String(args.conv_id) : (args.target ? String(args.target) : "self"),
+        cwd: args.cwd ? String(args.cwd) : undefined,
+        resume_prompt: args.resume_prompt ? String(args.resume_prompt) : undefined,
+        model: args.model ? String(args.model) : undefined,
+        in_place: args.in_place !== false,
+        dryRun: args.dryRun === true || args.dry_run === true,
+      });
       return { ok: res.ok, result: res.ok ? res : null, error: res.error };
     },
   },
