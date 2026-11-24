@@ -88,6 +88,10 @@ export async function askChatGPT(message: string, fresh = false): Promise<boolea
 export const askModule: CliModule = {
   names: ["ask"],
   async run(sub, rest) {
+    if (sub === "--help" || sub === "-h") {
+      console.log('uso: isymcp ask "texto" [--new] [--browser native]   (o por stdin: echo hola | isymcp ask)');
+      return;
+    }
     let selected: ReturnType<typeof parseBrowserOption>;
     try { selected = parseBrowserOption([sub, ...rest].filter((a): a is string => Boolean(a))); }
     catch (error) { console.error(error instanceof Error ? error.message : "browser_selection_invalid"); process.exit(2); }

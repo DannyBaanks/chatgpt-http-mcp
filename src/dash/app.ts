@@ -11,6 +11,8 @@ const ALT_SCREEN_ON = "\x1b[?1049h";
 const ALT_SCREEN_OFF = "\x1b[?1049l";
 const HIDE_CURSOR = "\x1b[?25l";
 const SHOW_CURSOR = "\x1b[?25h";
+const SYNC_START = "\x1b[?2026h";
+const SYNC_END = "\x1b[?2026l";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -123,9 +125,14 @@ function terminalSize(): { width: number; height: number } {
   return { width: process.stdout.columns || 80, height: process.stdout.rows || 24 };
 }
 
-function writeFrame(state: DashState): void {
+function writeFrame(state: DashState, fullClear = false): void {
   const { width, height } = terminalSize();
-  process.stdout.write(`\x1b[H\x1b[2J${renderFrame(state, width, height)}`);
+  const body = renderFrame(state, width, height)
+    .split("\n")
+    .map((line) => `${line}\x1b[K`)
+    .join("\n");
+  // Redibujar en sitio sin \x1b[2J evita parpadeo; solo limpiamos entero al arrancar o redimensionar.
+  process.stdout.write(`${SYNC_START}${fullClear ? "\x1b[H\x1b[2J" : "\x1b[H"}${body}\x1b[0J${SYNC_END}`);
 }
 
 function commandSummary(action: CommandAction, result: { code: number; out: string }): string {
@@ -264,6 +271,7 @@ export async function runDash(provider: DashProvider = defaultDashProvider, opti
     state.status = snapshot.status;
     state.hub = snapshot.hub;
     state.now = Date.now();
+    state.loaded = true;
     process.stdout.write(`${renderFrame(state, process.stdout.columns || 80, process.stdout.rows || 24)}\n`);
     return;
   }
@@ -306,7 +314,7 @@ export async function runDash(provider: DashProvider = defaultDashProvider, opti
 
   const onKey = (key: string) => handleInputKey(key, state, provider, draw, finish, pending);
   const onData = splitInputKeys(onKey);
-  const onResize = () => draw();
+  const onResize = () => { if (!finished) writeFrame(state, true); };
   const onSignal = () => finish();
 
   // Si un error no capturado mata el proceso, `finally` no corre: restaura la terminal en 'exit'.
@@ -325,7 +333,7 @@ export async function runDash(provider: DashProvider = defaultDashProvider, opti
     input.resume();
     alternateScreen = true;
     process.stdout.write(`${ALT_SCREEN_ON}${HIDE_CURSOR}`);
-    draw();
+    writeFrame(state, true);
     void refresh();
     pendingRefreshTimer = setInterval(() => { void refresh(); }, 3000);
     spinnerTimer = setInterval(() => {

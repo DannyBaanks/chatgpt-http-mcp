@@ -21,6 +21,7 @@ export const MENU: MenuItem[] = [
   { id: "media-prepare", group: "USAR", label: "Preparar video de YouTube…", hint: "pega URL, elige carpeta y confirma" },
   { id: "conversation-new", group: "USAR", label: "Nueva conversación Codex…", hint: "CLI o App con perfil propio" },
   { id: "command", group: "USAR", label: "Armar comando @…", hint: "texto para pegar en chatgpt.com" },
+  { id: "sandbox-exec", group: "USAR", label: "⚡ Sandbox + shell_exec para GPT", hint: "túnel + token + prompt listo" },
   {
     id: "github",
     group: "CONFIGURAR",
@@ -193,20 +194,69 @@ export function brandHeader(): string {
   ].join("\n");
 }
 
+const SYNC_START = "\x1b[?2026h";
+const SYNC_END = "\x1b[?2026l";
+
+function menuCharWidth(ch: string): number {
+  const cp = ch.codePointAt(0) ?? 0;
+  if (/\p{Mark}/u.test(ch) || cp === 0x200d || (cp >= 0xfe00 && cp <= 0xfe0f)) return 0;
+  if (/\p{Emoji_Presentation}/u.test(ch)) return 2;
+  return cp >= 0x1100 && (cp <= 0x115f || (cp >= 0x2e80 && cp <= 0xa4cf && cp !== 0x303f) ||
+    (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0xff00 && cp <= 0xff60)) ? 2 : 1;
+}
+
+/** Recorta una línea (con ANSI) a `maxCols` columnas visibles para que nunca envuelva y rompa el cursor-up. */
+export function clipMenuLine(line: string, maxCols: number): string {
+  if (maxCols <= 0) return "";
+  let used = 0;
+  let out = "";
+  let hasAnsi = false;
+  const tokens = line.match(/\x1b\[[0-?]*[ -/]*[@-~]|[\s\S]/gu) ?? [];
+  for (const tok of tokens) {
+    if (tok.startsWith("\x1b[")) {
+      out += tok;
+      hasAnsi = true;
+      continue;
+    }
+    const w = menuCharWidth(tok);
+    if (used + w > maxCols) break;
+    out += tok;
+    used += w;
+  }
+  return hasAnsi ? `${out}${C.reset}` : out;
+}
+
 export function select(message: string, choices: MenuItem[]): Promise<number> {
   const shown = visible(choices);
+  if (shown.length === 0) return Promise.resolve(-1);
   return new Promise((resolve) => {
     const stdin = process.stdin;
     let idx = 0;
     let done = false;
     let buf = "";
-    const groupCount = shown.reduce((n, c, i) => n + (c.group && c.group !== shown[i - 1]?.group ? 1 : 0), 0);
-    const lineCount = () => shown.length + 2 + groupCount;
+    let prevRenderedLines = 0;
+
+    // Construir filas lógicas (encabezados de grupo + opciones) para poder paginar sin desbordar la terminal.
+    type Row = { kind: "group"; text: string } | { kind: "item"; index: number; choice: MenuItem };
+    const rows: Row[] = [];
+    let prevGroup: string | undefined;
+    shown.forEach((choice, i) => {
+      if (choice.group && choice.group !== prevGroup) {
+        rows.push({ kind: "group", text: `  ${choice.group}` });
+        prevGroup = choice.group;
+      }
+      rows.push({ kind: "item", index: i, choice });
+    });
+
     const cleanup = () => {
       stdin.removeListener("data", onData);
+      process.stdout.removeListener("resize", onResize);
+      process.removeListener("SIGINT", onSigInt);
+      process.removeListener("SIGTERM", onSigTerm);
+      process.removeListener("exit", onExit);
       try { if (stdin.isTTY) stdin.setRawMode(false); } catch { /* noop */ }
       try { stdin.pause(); } catch { /* noop */ }
-      process.stdout.write(C.show);
+      try { process.stdout.write(`${C.reset}${C.show}`); } catch { /* noop */ }
     };
     const finish = (value: number) => {
       if (done) return;
@@ -214,49 +264,116 @@ export function select(message: string, choices: MenuItem[]): Promise<number> {
       cleanup();
       resolve(value);
     };
-    const render = (first: boolean) => {
-      let out = first ? "" : `\x1b[${lineCount()}A`;
-      out += `${paint(message, C.bold)}\n`;
-      let previous: string | undefined;
-      shown.forEach((choice, i) => {
-        if (choice.group && choice.group !== previous) {
-          out += `${paint(`  ${choice.group}`, C.bold, C.purple)}\n`;
-          previous = choice.group;
-        }
-        const mark = i === idx ? paint("❯", C.cyan, C.bold) : " ";
-        const lab = i === idx ? paint(choice.label, C.inverse) : choice.label;
-        const hint = choice.hint ? paint(`  ${choice.hint}`, C.dim) : "";
-        out += `${mark} ${lab}${hint}\n`;
-      });
-      out += paint("↑↓ navegar · Enter elegir · Esc salir", C.dim) + "\n";
-      out += "\x1b[0J";
-      process.stdout.write(out);
+    const onExit = () => {
+      try { if (stdin.isTTY) stdin.setRawMode(false); } catch { /* noop */ }
+      try { process.stdout.write(`${C.reset}${C.show}`); } catch { /* noop */ }
     };
+    const onSigInt = () => { finish(-1); process.exit(130); };
+    const onSigTerm = () => { finish(-1); process.exit(143); };
+
+    const render = () => {
+      const cols = Math.max(20, (process.stdout.columns || 80) - 1);
+      const termRows = Math.max(8, process.stdout.rows || 24);
+      // Reservar 3 filas (título, pie, holgura para que nunca haga scroll ni choque arriba).
+      const maxBody = Math.max(3, termRows - 3);
+      const activeRow = rows.findIndex((r) => r.kind === "item" && r.index === idx);
+
+      let start = 0;
+      let end = rows.length;
+      if (rows.length > maxBody) {
+        const bodySlots = Math.max(1, maxBody - 2); // dejar sitio para indicadores ▲/▼
+        start = Math.min(Math.max(0, activeRow - Math.floor(bodySlots / 2)), Math.max(0, rows.length - bodySlots));
+        end = Math.min(rows.length, start + bodySlots);
+      }
+
+      const lines: string[] = [paint(message, C.bold)];
+      if (start > 0) lines.push(paint(`  ▲ ${start} más arriba`, C.dim));
+      for (let r = start; r < end; r++) {
+        const row = rows[r]!;
+        if (row.kind === "group") {
+          lines.push(paint(row.text, C.bold, C.purple));
+        } else {
+          const mark = row.index === idx ? paint("❯", C.cyan, C.bold) : " ";
+          const lab = row.index === idx ? paint(row.choice.label, C.inverse) : row.choice.label;
+          const hint = row.choice.hint ? paint(`  ${row.choice.hint}`, C.dim) : "";
+          lines.push(`${mark} ${lab}${hint}`);
+        }
+      }
+      if (end < rows.length) lines.push(paint(`  ▼ ${rows.length - end} más abajo`, C.dim));
+      lines.push(paint("↑↓/jk navegar · PgUp/PgDn · Enter elegir · Esc/q salir", C.dim));
+
+      const moveUp = prevRenderedLines > 0 ? `\x1b[${prevRenderedLines}A\r` : "\r";
+      const body = lines.map((l) => `${clipMenuLine(l, cols)}\x1b[K`).join("\n");
+      process.stdout.write(`${SYNC_START}${moveUp}${body}\n\x1b[0J${SYNC_END}`);
+      prevRenderedLines = lines.length;
+    };
+
+    const onResize = () => { if (!done) render(); };
+    const move = (delta: number) => {
+      idx = ((idx + delta) % shown.length + shown.length) % shown.length;
+      render();
+    };
+
     const onData = (chunk: Buffer | string) => {
       buf += chunk.toString("utf8");
-      for (;;) {
-        if (!buf.length) return;
+      while (buf.length > 0 && !done) {
         if (buf[0] === "\u0003") { finish(-1); process.exit(130); return; }
+        // Secuencias CSI: \x1b[ ... <final @-~>
         if (buf.startsWith("\x1b[")) {
+          const match = buf.match(/^\x1b\[([0-?]*[ -/]*[@-~])/);
+          if (!match) {
+            // Secuencia incompleta todavía en tránsito (o basura muy larga)
+            if (buf.length > 32) { buf = ""; }
+            return;
+          }
+          const seq = match[1]!;
+          buf = buf.slice(match[0].length);
+          const final = seq[seq.length - 1]!;
+          if (final === "A") move(-1);
+          else if (final === "B") move(1);
+          else if (final === "H" || seq === "1~" || seq === "7~") { idx = 0; render(); }
+          else if (final === "F" || seq === "4~" || seq === "8~") { idx = shown.length - 1; render(); }
+          else if (seq === "5~") { idx = Math.max(0, idx - 6); render(); }
+          else if (seq === "6~") { idx = Math.min(shown.length - 1, idx + 6); render(); }
+          // Ratón / teclas no usadas: se descartan limpiamente sin romper el menú.
+          continue;
+        }
+        // Secuencias SS3 (tmux / application cursor mode): \x1bO<char>
+        if (buf.startsWith("\x1bO")) {
           if (buf.length < 3) return;
           const code = buf[2];
           buf = buf.slice(3);
-          if (code === "A") idx = (idx - 1 + shown.length) % shown.length;
-          else if (code === "B") idx = (idx + 1) % shown.length;
-          render(false);
+          if (code === "A") move(-1);
+          else if (code === "B") move(1);
+          else if (code === "H") { idx = 0; render(); }
+          else if (code === "F") { idx = shown.length - 1; render(); }
           continue;
         }
-        if (buf[0] === "\x1b") { buf = buf.slice(1); finish(-1); return; }
-        const ch = buf[0];
+        // Escape suelto
+        if (buf[0] === "\x1b") {
+          buf = buf.slice(1);
+          finish(-1);
+          return;
+        }
+        const ch = buf[0]!;
         buf = buf.slice(1);
         if (ch === "\r" || ch === "\n") { finish(idx); return; }
         if (ch === "q" || ch === "Q") { finish(-1); return; }
+        if (ch === "k") move(-1);
+        else if (ch === "j") move(1);
+        else if (ch === "g") { idx = 0; render(); }
+        else if (ch === "G") { idx = shown.length - 1; render(); }
       }
     };
+
     try { stdin.setRawMode(true); } catch { resolve(-1); return; }
     stdin.resume();
     stdin.on("data", onData);
+    process.stdout.on("resize", onResize);
+    process.once("SIGINT", onSigInt);
+    process.once("SIGTERM", onSigTerm);
+    process.once("exit", onExit);
     process.stdout.write(C.hide);
-    render(true);
+    render();
   });
 }

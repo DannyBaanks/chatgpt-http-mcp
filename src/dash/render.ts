@@ -232,7 +232,8 @@ export function renderFrame(state: DashState, width: number, height: number): st
   const contentRoom = Math.max(0, safeHeight - fixed);
   const visibleContent = content.slice(0, contentRoom).map((line) => fit(line, safeWidth));
   const spacer = Math.max(0, safeHeight - (1 + visibleContent.length + footer.length + 1));
-  const lines = [header, ...visibleContent, ...Array.from({ length: spacer }, () => ""), ...footer.map((line) => fit(line, safeWidth)), fit(message, safeWidth)];
+  const blankLine = " ".repeat(safeWidth);
+  const lines = [header, ...visibleContent, ...Array.from({ length: spacer }, () => blankLine), ...footer.map((line) => fit(line, safeWidth)), fit(message, safeWidth)];
   return lines.slice(0, safeHeight).join("\n");
 }
 

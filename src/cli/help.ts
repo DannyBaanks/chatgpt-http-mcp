@@ -92,6 +92,10 @@ export function help(): void {
                              request-file vincula una tarea local por SHA-256)
   isymcp session list        sesiones vivas (solo fingerprint)
   isymcp session revoke <token|fp>
+  isymcp shell exec          asistente paso a paso: elige carpeta, bwrap rw/ro, shell total/acotado,
+  isymcp sandbox exec        horas y tools -> levanta todo y escupe el prompt con token (o pasa flags)
+  isymcp sandbox stop [fp] [--down]  apaga shell_exec y revoca sesiones sandbox (--down baja túnel/server)
+  isymcp sandbox status [--json]     estado del sandbox, permiso shell, túnel y sesiones activas
   isymcp canary              turno real de prueba (eco A, eco B sin A, markdown)
   isymcp canary status       ultimo resultado
   isymcp canary schedule [--apply]   programacion diaria (systemd / Task Scheduler; sin --apply: solo muestra)

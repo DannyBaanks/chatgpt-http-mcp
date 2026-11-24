@@ -19,7 +19,7 @@ describe("núcleo de la CLI", () => {
     // Todos los comandos de la CLI viven en módulos (isymcp.ts solo resuelve menú/status/menu).
     const ALL = ["allow", "harness", "tui", "up", "down", "server", "tunnel", "ask", "codex", "conversation", "models", "command", "session",
       "monitor", "protocol", "agents", "health", "metrics", "smoke", "e2e", "doctor", "tree", "canary", "logs", "panel", "ui", "control-center",
-      "exec", "sh", "fuzz", "version", "--version", "-v", "help", "--help", "-h", "native-browser", "tablero", "media", "comfy", "github"];
+      "exec", "sh", "fuzz", "version", "--version", "-v", "help", "--help", "-h", "native-browser", "tablero", "media", "comfy", "github", "sandbox", "shell"];
     for (const n of ALL) expect(findCliModule(n)?.names).toContain(n);
     expect(findCliModule("no-existe")).toBeNull();
     expect(findCliModule(undefined)).toBeNull();

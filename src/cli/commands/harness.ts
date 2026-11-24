@@ -8,6 +8,10 @@ import { ask, confirm } from "../args";
 //   --server all: ambos
 // Sin --apply NUNCA escribe: imprime el comando exacto que correria.
 export async function harnessCommand(sub: string, rest: string[]): Promise<void> {
+  if (sub === "--help" || sub === "-h" || sub === "help") {
+    console.log("uso: isymcp harness list | install|uninstall <ids|--all> [--server chatgpt|gateway|all] [--apply]");
+    return;
+  }
   const { apply, CATALOG, detect, plan, serverName } = await import("../../harness");
   const json = rest.includes("--json");
   const serverArg = (() => {

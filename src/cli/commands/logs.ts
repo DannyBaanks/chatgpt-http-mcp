@@ -34,6 +34,10 @@ export function logs(args: string[]): void {
 export const logsModule: CliModule = {
   names: ["logs"],
   async run(sub, rest) {
+    if (sub === "--help" || sub === "-h" || rest.includes("--help") || rest.includes("-h")) {
+      console.log("uso: isymcp logs [--last N] | isymcp logs export [--all] [--since ISO] [--until ISO] [--out ruta]");
+      return;
+    }
     logs([sub, ...rest].filter((part): part is string => Boolean(part)));
   },
 };
