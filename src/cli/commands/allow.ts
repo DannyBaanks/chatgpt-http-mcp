@@ -27,6 +27,10 @@ export const allowModule: CliModule = {
       }
       showTaint(T, P.CAPABILITIES.some((c) => { const s = P.permissionSource(c); return s === "env" || s === "file"; }));
     };
+    if (sub === "--help" || sub === "-h" || sub === "help") {
+      console.log("uso: isymcp allow [status|log] | isymcp allow shell|agents on [--for 2h|--forever] | isymcp allow shell|agents off | isymcp allow once shell|agents [--for 10m] [--uses N]");
+      return;
+    }
     if (!sub || sub === "status") {
       show();
     } else if (sub === "log") {
@@ -107,6 +111,10 @@ export const taintModule: CliModule = {
   async run(sub, rest) {
     const T = await import("../../taint");
     const P = await import("../../permissions");
+    if (sub === "--help" || sub === "-h" || sub === "help") {
+      console.log("uso: isymcp taint [status [--json]|clear]");
+      return;
+    }
     if (!sub || sub === "status") {
       const t = T.activeTaint();
       if (rest.includes("--json")) { console.log(JSON.stringify(t, null, 2)); return; }

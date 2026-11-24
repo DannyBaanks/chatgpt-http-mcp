@@ -145,6 +145,10 @@ const ACTIONS: Record<string, () => Promise<void> | void> = {
     const effort = await ask("effort [high]: ") || "high";
     if (text) command(text, effort);
   },
+  "sandbox-exec": async () => {
+    const { sandboxExec } = await import("./cli/commands/sandbox");
+    await sandboxExec([], { forceWizard: true });
+  },
   "media-prepare": async () => {
     const { mediaCommand } = await import("./media/cli");
     await mediaCommand("prepare", []);
@@ -248,7 +252,11 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   console.log(brandHeader());
   await openMenu();
 } else if (!cmd || cmd === "status") {
-  await status({ json: sub === "--json" || rest.includes("--json") });
+  if (sub === "--help" || sub === "-h" || rest.includes("--help") || rest.includes("-h")) {
+    console.log("uso: isymcp status [--json]   (estado de server, túnel, panel, monitor, sesiones y canario)");
+  } else {
+    await status({ json: sub === "--json" || rest.includes("--json") });
+  }
 } else if (cmd === "menu") {
   console.log(brandHeader());
   if (sub) {
@@ -259,7 +267,16 @@ if (!cmd && process.stdin.isTTY && process.stdout.isTTY) {
   } else await openMenu();
 } else if (findCliModule(cmd)) {
   // Cada comando vive en src/cli/commands/* y se registra en src/cli/module.ts.
-  await findCliModule(cmd)!.run(sub, rest, { root: ROOT, help });
+  try {
+    await findCliModule(cmd)!.run(sub, rest, { root: ROOT, help });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`✗ ${msg}`);
+    if (process.env.ISYMCP_DEBUG === "1" && err instanceof Error && err.stack) {
+      console.error(err.stack);
+    }
+    process.exitCode = /^(uso|usage):/i.test(msg.trim()) ? 2 : 1;
+  }
 } else {
   help();
   process.exit(2);

@@ -34,6 +34,10 @@ export const uiModule: CliModule = {
 export const panelModule: CliModule = {
   names: ["panel"],
   async run(sub, rest, ctx) {
+    if (sub === "--help" || sub === "-h" || sub === "help") {
+      console.log("uso: isymcp panel [open|start|stop|status|run [--port 8798]|control-center]");
+      return;
+    }
     if (sub === "control-center" || sub === "ui") {
       await openPanel("#control-center");
       return;
@@ -141,6 +145,10 @@ export const nativeBrowserModule: CliModule = {
 export const tableroModule: CliModule = {
   names: ["tablero"],
   async run(sub) {
+    if (sub === "--help" || sub === "-h" || sub === "help") {
+      console.log("uso: isymcp tablero <init|status|on|off|stop>");
+      return;
+    }
     process.exitCode = (await import("../../tablero/cli")).tableroCommand(sub ?? "status");
   },
 };
@@ -148,6 +156,10 @@ export const tableroModule: CliModule = {
 export const mediaModule: CliModule = {
   names: ["media"],
   async run(sub, rest) {
+    if (!sub || sub === "--help" || sub === "-h" || sub === "help") {
+      console.log("uso: isymcp media add <file> | list | revoke <asset_id> | prepare [url] | transcribe <id> | search <id> <q> | vmm <id> | login <sitio> | cookies");
+      return;
+    }
     try { await (await import("../../media/cli")).mediaCommand(sub, rest); }
     catch (error) {
       const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "";
@@ -161,6 +173,10 @@ export const mediaModule: CliModule = {
 export const comfyModule: CliModule = {
   names: ["comfy"],
   async run(sub, rest) {
+    if (!sub || sub === "--help" || sub === "-h" || sub === "help") {
+      console.log("uso: isymcp comfy status | workflow list | workflow add <workflow.json>");
+      return;
+    }
     try { await (await import("../../comfyui/cli")).comfyCommand(sub, rest); }
     catch (error) {
       console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);

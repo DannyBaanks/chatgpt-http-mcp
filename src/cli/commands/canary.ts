@@ -17,6 +17,10 @@ export async function canaryScheduleInteractive(sub: "schedule" | "unschedule"):
 // canary run|status|schedule|unschedule — ¿la captura sigue viva contra el
 // chatgpt.com de hoy? schedule/unschedule sin --apply solo muestran.
 export async function canaryCommand(sub: string, rest: string[]): Promise<void> {
+  if (sub === "--help" || sub === "-h" || sub === "help") {
+    console.log("uso: isymcp canary [run|status|schedule|unschedule] [--apply]");
+    return;
+  }
   const { notifyFailure, readLatestCanary, runCanary } = await import("../../canary");
   const show = (r: NonNullable<ReturnType<typeof readLatestCanary>>) => {
     console.log(`canario ${r.ok ? "OK ✓" : "FALLO ✗"} · ${r.ts} · bridge=${r.bridge}`);

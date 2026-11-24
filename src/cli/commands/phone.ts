@@ -38,6 +38,10 @@ const USAGE = `uso:
 export const phoneModule: CliModule = {
   names: ["phone"],
   async run(sub, rest) {
+    if (sub === "--help" || sub === "-h" || sub === "help") {
+      console.log(USAGE);
+      return;
+    }
     const port = Number(flag("--port", rest) ?? process.env.ISYMCP_PHONE_PORT ?? "8797");
     const D = await import("../../phone/devices");
 

@@ -227,11 +227,27 @@ export async function codexCommand(sub: string | undefined, rest: string[]): Pro
 
 export const codexModule: CliModule = { names: ["codex"], run: (sub, rest) => codexCommand(sub, rest) };
 
-export const conversationModule: CliModule = { names: ["conversation"], run: (sub, rest) => conversationCommand(sub, rest) };
+const CONVERSATION_USAGE = "uso: isymcp conversation new [--client cli] [--cwd dir] [--model alias] | list | resume <launch-id|thread-id>";
+const SESSION_USAGE = "uso: isymcp session mint --cwd <dir> [--label x] [--write] [--ttl horas] [--request-file TASK.md] | list | revoke <token|fp> | default";
+
+export const conversationModule: CliModule = {
+  names: ["conversation"],
+  async run(sub, rest) {
+    if (!sub || sub === "help" || sub === "--help" || sub === "-h") {
+      console.log(CONVERSATION_USAGE);
+      return;
+    }
+    await conversationCommand(sub, rest);
+  },
+};
 
 export const modelsModule: CliModule = {
   names: ["models"],
   async run(sub) {
+    if (sub === "--help" || sub === "-h" || sub === "help") {
+      console.log("uso: isymcp models [apply|restore]   (sin args: dry-run del perfil Web aislado)");
+      return;
+    }
     if (sub === "restore") modelsRestore();
     else if (sub === "apply") installIntoCodex(true);
     else installIntoCodex(false);
@@ -241,6 +257,10 @@ export const modelsModule: CliModule = {
 export const commandModule: CliModule = {
   names: ["command"],
   async run(sub, rest, ctx) {
+    if (sub === "--help" || sub === "-h") {
+      console.log('uso: isymcp command "<texto>" [--effort low|medium|high]');
+      return;
+    }
     if (!sub) { ctx.help(); process.exit(2); }
     const effortFlag = rest.includes("--effort") ? rest[rest.indexOf("--effort") + 1] : undefined;
     command([sub, ...rest.filter((a) => a !== "--effort" && a !== effortFlag)].join(" "), effortFlag);
@@ -250,6 +270,10 @@ export const commandModule: CliModule = {
 export const sessionModule: CliModule = {
   names: ["session"],
   async run(sub, rest) {
+    if (sub === "help" || sub === "--help" || sub === "-h" || rest.includes("--help") || rest.includes("-h")) {
+      console.log(SESSION_USAGE);
+      return;
+    }
     if (sub === "mint" || sub === "list" || sub === "revoke") {
       try {
         codexSession(sub, rest);
@@ -257,8 +281,12 @@ export const sessionModule: CliModule = {
         console.error(String(err instanceof Error ? err.message : err));
         process.exit(2);
       }
-    } else {
-      guardarSesion(sub || "default");
+      return;
     }
+    if (sub?.startsWith("-")) {
+      console.error(`✗ ${SESSION_USAGE}`);
+      process.exit(2);
+    }
+    guardarSesion(sub || "default");
   },
 };

@@ -10,6 +10,11 @@ export async function monitorCommand(sub: string | undefined, rest: string[]): P
   const port = Number(flag("--port", argsAll) ?? MONITOR_PORT);
   const ownerId = flag("--owner", argsAll) ?? (process.env.USER || "owner");
 
+  if (sub === "--help" || sub === "-h" || sub === "help") {
+    console.log("uso: isymcp monitor start|stop|status|run|tasks|approve|lease|ack|respond|alert|wait-next|consoles|console-log");
+    return;
+  }
+
   if (!sub || sub === "status") {
     const up = await monitorUp(String(port));
     const pid = readPid(MONITOR_PID);

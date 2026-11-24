@@ -99,9 +99,16 @@ export async function tunnelSetup(): Promise<void> {
   tunnel("connect");
 }
 
+const isHelp = (sub: string | undefined, rest: string[]) =>
+  sub === "--help" || sub === "-h" || sub === "help" || rest.includes("--help") || rest.includes("-h");
+
 export const upModule: CliModule = {
   names: ["up"],
   async run(sub, rest) {
+    if (isHelp(sub, rest)) {
+      console.log("uso: isymcp up [--no-connector]   (levanta server detached :8791 y conecta el túnel)");
+      return;
+    }
     const noConnector = [sub, ...rest].includes("--no-connector");
     startServer({ connector: noConnector ? null : undefined });
     await new Promise((r) => setTimeout(r, 800));
@@ -112,7 +119,11 @@ export const upModule: CliModule = {
 
 export const downModule: CliModule = {
   names: ["down"],
-  async run() {
+  async run(sub, rest) {
+    if (isHelp(sub, rest)) {
+      console.log("uso: isymcp down   (detiene el túnel y el server local)");
+      return;
+    }
     tunnel("stop");
     stopServer();
   },
@@ -121,6 +132,10 @@ export const downModule: CliModule = {
 export const serverModule: CliModule = {
   names: ["server"],
   async run(sub, rest, ctx) {
+    if (isHelp(sub, rest)) {
+      console.log("uso: isymcp server start [--no-connector] | stop");
+      return;
+    }
     if (sub === "start") startServer({ connector: rest.includes("--no-connector") ? null : undefined });
     else if (sub === "stop") stopServer();
     else { ctx.help(); process.exit(2); }
@@ -129,9 +144,13 @@ export const serverModule: CliModule = {
 
 export const tunnelModule: CliModule = {
   names: ["tunnel"],
-  async run(sub, _rest, ctx) {
+  async run(sub, rest, ctx) {
+    if (isHelp(sub, rest)) {
+      console.log("uso: isymcp tunnel setup | connect | stop | status");
+      return;
+    }
     if (sub === "setup") await tunnelSetup();
-    else if (sub) tunnel(sub);
+    else if (sub === "connect" || sub === "stop" || sub === "status") tunnel(sub);
     else { ctx.help(); process.exit(2); }
   },
 };
