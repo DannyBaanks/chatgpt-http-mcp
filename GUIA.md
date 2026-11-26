@@ -39,6 +39,8 @@ FASE 1 — Chrome NORMAL (sin automatizacion, sin --no-sandbox).
 Tener cookies en disco no demuestra que la sesión siga activa. El error detallado
 de `chatgpt_ask` distingue una sesión cerrada, un modelo ausente y un fallo de captura.
 La validación remota de GPT-6.2 requiere una sesión activa del usuario.
+El canario usa su propio hilo `[canary] ISyMCP · GPT-6.2 / High`; el hilo
+anterior y sus resultados se conservan. Los resultados nuevos identifican el modelo.
 
 ## Panel de chat, Evidencia y Actividad
 
