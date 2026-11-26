@@ -41,6 +41,7 @@ export function parseCapabilities(raw: string | undefined): AccountCapabilities 
   return {
     solAvailable: parts.has("sol"),
     gpt6Available: parts.has("gpt6"),
+    gpt62Available: parts.has("gpt62"),
     extraHighAvailable: parts.has("extrahigh"),
     proAvailable: parts.has("pro"),
     biggerContext: parts.has("bigger"),

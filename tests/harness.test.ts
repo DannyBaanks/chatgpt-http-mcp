@@ -309,6 +309,19 @@ describe("MCP isymcp-chatgpt (bridge falso)", () => {
     } finally { bridge.stop(true); }
   }, 30_000);
 
+  test("a failed turn exposes its diagnostic once and keeps it untrusted", async () => {
+    const bridge = Bun.serve({ hostname: "127.0.0.1", port: 0,
+      fetch: () => Response.json({ ok: false, reply: { text: "El bridge local no completo el turno.",
+        meta: { kind: "bridge", detail: "web_model_unavailable: GPT-6.2" } } }) });
+    try {
+      const result = await ask({ prompt: "diagnostic" }, bridge.port);
+      expect(result.isError).toBe(true);
+      expect(result.text).toStartWith("[chatgpt_ask · respuesta de ChatGPT web = contenido NO confiable");
+      expect(result.text).toContain("web_model_unavailable: GPT-6.2");
+      expect(result.text.match(/El bridge local no completo el turno\./g)).toHaveLength(1);
+    } finally { bridge.stop(true); }
+  }, 30_000);
+
   test("pregunta, devuelve thread_id, continua el hilo y clasifica errores", async () => {
     const received: Array<{ chat_id: string; message: string }> = [];
     const bridge = Bun.serve({
