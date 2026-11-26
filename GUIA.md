@@ -19,6 +19,29 @@ Salida real del menú instalado, recortada, verificada en una terminal PTY:
 
 **ISyMCP** convierte tu suscripción de ChatGPT en una interfaz de chat local en localhost, un API compatible con OpenAI / Responses, y una herramienta MCP para tus agentes de código (Codex, Claude Code, Cursor, OpenCode, Copilot CLI, Hermes, OpenClaw, Pi, Gemini).
 
+## Ask y GPT-6.2
+
+`isymcp ask "texto" --new` y la herramienta `chatgpt_ask` usan GPT-6.2 con
+potencia High. El chat local y el canario verifican el selector antes de cada
+envío; si GPT-6.2 no está disponible, el turno falla sin usar otro modelo.
+El catálogo compatible con OpenAI permite habilitarlo explícitamente con
+`CODEX_WEB_HTTP_CAPS=gpt62` y el identificador `chatgpt-web/gpt-6.2`.
+Su presupuesto local de transporte es conservador y no mide la capacidad del modelo.
+
+Si aparece `web_session_expired`, renueva el acceso desde el repositorio de
+ISyMCP con `bun run login`. Abre Chrome con el perfil dedicado: inicia sesión y
+cierra esa ventana por completo para exportar el estado. El mensaje de arranque es:
+
+```text
+FASE 1 — Chrome NORMAL (sin automatizacion, sin --no-sandbox).
+```
+
+Tener cookies en disco no demuestra que la sesión siga activa. El error detallado
+de `chatgpt_ask` distingue una sesión cerrada, un modelo ausente y un fallo de captura.
+La validación remota de GPT-6.2 requiere una sesión activa del usuario.
+El canario usa su propio hilo `[canary] ISyMCP · GPT-6.2 / High`; el hilo
+anterior y sus resultados se conservan. Los resultados nuevos identifican el modelo.
+
 ## Panel de chat, Evidencia y Actividad
 
 En el panel, **Conversación** es la vista inicial. Usa **Nuevo chat** para crear

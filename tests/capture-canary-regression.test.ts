@@ -56,13 +56,13 @@ test("missing previous identity does not make unchanged previous text new", () =
 // Run the actual capture loop on a virtual clock; no real browser or long wait.
 const loop = source.slice(source.indexOf('  let text = "";', source.indexOf("const graceUntil")), source.indexOf("  if (!text.trim()) await dumpCaptureFailure"));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const capture = new AsyncFunction("page", "Date", "deadline", "settleMs", "beforeId", "beforeText", "readLastAssistant", "lastAssistantIdentity", "readLastAssistantSnapshot", "isNewAssistantTurn", `${loop}; return text;`);
+const capture = new AsyncFunction("page", "Date", "deadline", "settleMs", "beforeId", "beforeText", "readLastAssistant", "lastAssistantIdentity", "readLastAssistantSnapshot", "isNewAssistantTurn", "stopButton", `${loop}; return text;`);
 async function captureFrames(frames: string[], deadline: number) {
   let now = 0;
   let index = 0;
   const snapshot = async () => ({ id: "new", text: frames[Math.min(index++, frames.length - 1)] });
   return capture({ waitForTimeout: async (ms: number) => { now += ms; } }, { now: () => now }, deadline, 500, "old", "OLD",
-    async () => (await snapshot()).text, async () => "new", snapshot, isNewAssistantTurn);
+    async () => (await snapshot()).text, async () => "new", snapshot, isNewAssistantTurn, { isVisible: async () => false });
 }
 test("deadline rejects a changing partial response without stable proof", async () => {
   expect(await captureFrames(["N", "NE", "NEW"], 1500)).toBe("");
@@ -135,4 +135,50 @@ import {writeFileSync} from "node:fs"; writeFileSync(process.env.NOTICE_CAPTURE,
   expect(args[3]).not.toContain("throw new Error");
   expect(stdout).toContain("Origen: isymcp / canary.bridge.startup");
   expect(stdout).toContain("Evidencia:");
+});
+
+// Model selection can finish hydrating a historical turn. The comparison
+// baseline must be read after that preflight, immediately before seeding.
+test("model preflight cannot make a historical answer look like a new reply", async () => {
+  const start = source.indexOf("  await waitConversationSettle(page);", source.indexOf("async function sendWebTurnUnlocked"));
+  const end = source.indexOf("  await composer.evaluate((el, text)", start);
+  const prepare = new AsyncFunction("page", "options", "composer", "waitConversationSettle", "readLastAssistantSnapshot", "selectConnector",
+    `${source.slice(start, end)}; return { beforeId, beforeText };`);
+  let tail = { id: "old-loading", text: "" };
+  const page = { keyboard: { press: async () => {} }, waitForTimeout: async () => {} };
+  const baseline = await prepare(page, { connector: "", beforeSubmit: async () => {
+    tail = { id: "old-hydrated", text: "Historical answer" };
+  } }, { click: async () => {} }, async () => {}, async () => tail, async () => {});
+  expect(baseline).toEqual({ beforeId: "old-hydrated", beforeText: "Historical answer" });
+  expect(isNewAssistantTurn(baseline.beforeId, baseline.beforeText, tail.id, tail.text)).toBe(false);
+});
+
+test("a hidden stop control cannot exhaust the reply capture deadline", async () => {
+  const start = source.indexOf("  let sawBusy = false;");
+  const end = source.indexOf('  let text = "";', start);
+  const waitForGeneration = new AsyncFunction("page", "Date", "deadline", "stopButton", "options", new Bun.Transpiler({ loader: "ts" }).transformSync(source.slice(start, end)) + "; return Date.now();");
+  let now = 0;
+  const completedAt = await waitForGeneration({ waitForTimeout: async (ms: number) => { now += ms; } }, { now: () => now }, 90000,
+    { count: async () => 1, isVisible: async () => false }, {});
+  expect(completedAt).toBeLessThan(90000);
+});
+
+
+test("a resumed generation cannot turn a stable 512-character prefix into a complete answer", async () => {
+  let now = 0;
+  const prefix = "x".repeat(512), complete = prefix + "y".repeat(512) + "\nFIN-CAPTURA-62";
+  const snapshot = async () => ({ id: "new", text: now < 7000 ? prefix : complete });
+  const reply = await capture({ waitForTimeout: async (ms: number) => { now += ms; } }, { now: () => now }, 15000, 500,
+    "old", "OLD", async () => (await snapshot()).text, async () => "new", snapshot, isNewAssistantTurn,
+    { isVisible: async () => now >= 1000 && now < 8000 });
+  expect(reply).toBe(complete);
+});
+
+test("deadline during generation rejects a stable partial answer", async () => {
+  let now = 0;
+  const snapshot = async () => ({ id: "new", text: "x".repeat(512) });
+  const reply = await capture({ waitForTimeout: async (ms: number) => { now += ms; } }, { now: () => now }, 6000, 500,
+    "old", "OLD", async () => (await snapshot()).text, async () => "new", snapshot, isNewAssistantTurn,
+    { isVisible: async () => true });
+  expect(reply).toBe("");
 });

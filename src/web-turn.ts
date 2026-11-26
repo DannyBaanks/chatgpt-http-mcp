@@ -6,6 +6,7 @@
 // los turnos del e2e con los de un servidor.
 //
 // Sin sesion/cookies no inventa nada: devuelve error nombrado.
+import { waitForChatGPTComposer } from "./web-ready";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { defaultBrowserExecutable } from "./platform/browser";
@@ -140,7 +141,7 @@ async function connectorSelected(page: Page, appName: string): Promise<boolean> 
  */
 async function selectConnector(page: Page, appName: string): Promise<void> {
   if (await connectorSelected(page, appName)) return;
-  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
+  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').filter({ visible: true }).first();
   const menuRows = page.locator(CONNECTOR_MENU_SELECTOR);
   const appResult = menuRows.filter({ has: page.getByText(appName, { exact: true }) });
   let lastError = "sin intentos";
@@ -324,10 +325,7 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
     return initializeOwnedBrowser(browser, async () => {
       const startUrl = options.conversationUrl?.includes("/c/") ? options.conversationUrl : "https://chatgpt.com/";
       await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
-      const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
-      await composer.waitFor({ state: "visible", timeout: 60_000 });
-      const loggedIn = (await page.locator('[data-testid="login-button"], a[href="/auth/login"]').count()) === 0;
-      if (!loggedIn) throw new Error("web_session_expired: ChatGPT no aparece logueado (cookies vencidas o bloqueadas)");
+      await waitForChatGPTComposer(page);
       return { browser, page, key };
     });
   });
@@ -542,19 +540,15 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   if (target) {
     options.onPhase?.("navigating");
     await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    await page.locator('#prompt-textarea, div[contenteditable="true"]').first().waitFor({ state: "visible", timeout: 60_000 });
+    await waitForChatGPTComposer(page);
   }
   options.onPhase?.("thinking");
   const settleMs = options.settleMs ?? 1_000;
   const deadlineMs = options.deadlineMs ?? 120_000;
-  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
+  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').filter({ visible: true }).first();
   const t0 = performance.now();
   const composerText = () => composer.innerText().catch(() => "");
   await waitConversationSettle(page);
-  const before = await readLastAssistantSnapshot(page);
-  const beforeId = before.id;
-  const beforeText = before.text;
-
   await options.beforeSubmit?.(page);
 
   const connector = options.connector ?? (process.env.CODEX_WEB_HTTP_CONNECTOR?.trim() || undefined);
@@ -568,6 +562,13 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
     await page.keyboard.press("Backspace").catch(() => {});
     await page.waitForTimeout(150);
   }
+  // Model preflight and connector selection can finish hydrating old turns.
+  // Compare against the final pre-submit snapshot, never an earlier shell.
+  await waitConversationSettle(page);
+  const before = await readLastAssistantSnapshot(page);
+  const beforeId = before.id;
+  const beforeText = before.text;
+
   await composer.evaluate((el, text) => {
     const element = el as HTMLElement;
     element.focus();
@@ -640,13 +641,13 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   const deadline = Date.now() + deadlineMs;
   const stopButton = page
     .locator('button[data-testid="stop-button"], button[aria-label*="Detener"], button[aria-label*="Stop"]')
-    .first();
+    .filter({ visible: true }).first();
   let sawBusy = false;
   let lastProgress = "";
   let lastProgressThought: string | undefined = undefined;
   const graceUntil = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    const busy = (await stopButton.count().catch(() => 0)) > 0;
+    const busy = await stopButton.isVisible().catch(() => false);
     if (busy) sawBusy = true;
     if (sawBusy && !busy) break;
     if (!sawBusy && Date.now() > graceUntil) break;
@@ -669,6 +670,13 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   let proven = false;
   let textId = "";
   while (Date.now() < deadline) {
+    // Reasoning/tool transitions can briefly hide Stop, then resume streaming.
+    // A stable prefix during that resumed generation is never a complete reply.
+    if (await stopButton.isVisible().catch(() => false)) {
+      stableSince = 0;
+      await page.waitForTimeout(settleMs);
+      continue;
+    }
     const snapshot = await readLastAssistantSnapshot(page);
     const current = snapshot.text;
     // Never Guess: solo vale si se PRUEBA que es un turno nuevo (identidad o
