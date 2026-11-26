@@ -1,4 +1,6 @@
 // src/cli/commands/settings.ts — Ajustes de ChatGPT (verificar/sincronizar) usados por el menú.
+import type { ComposerSettings } from "../../chatgpt-settings";
+import { assertWebSelection } from "../../responses/selection";
 import { ask } from "../../cli/args";
 import { visible } from "../../menu";
 import { bridgeJson, serverUp } from "../services";
@@ -19,11 +21,12 @@ export async function settingsVerify(): Promise<void> {
     return;
   }
   console.log(`ChatGPT ve: ${describeSeen(r.body?.seen)}`);
-  const seen = r.body?.seen as { model?: string; effort?: string; effortPosition?: number; effortSteps?: number } | undefined;
-  const ok = /5\.6 Sol/i.test(seen?.model ?? "") && seen?.effortPosition === 3 && seen?.effortSteps === 3;
+  const seen = r.body?.seen as ComposerSettings | undefined;
+  let ok = false;
+  try { assertWebSelection("chatgpt-web/gpt-6.2", "high", seen); ok = true; } catch { /* show observed state */ }
   console.log(ok
-    ? "✓ coincide con lo que anuncia el catalogo (GPT-5.6 Sol · High)"
-    : "✗ no es GPT-5.6 Sol · High: Codex con el modelo web fallara cerrado (el chat del panel y `ask` si funcionan). Arreglalo con “Sincronizar a mano”.");
+    ? "✓ coincide con la configuracion de ask (GPT-6.2 · High)"
+    : "El selector aun no esta en GPT-6.2 · High. El chat del panel y `ask` lo seleccionan y verifican antes de enviar; para guardar ese ajuste usa “Sincronizar a mano”.");
 }
 
 export async function settingsSync(): Promise<void> {
@@ -33,7 +36,7 @@ export async function settingsSync(): Promise<void> {
     console.error(`no se abrio: ${String(r.body?.reason ?? r.status)}`);
     return;
   }
-  console.log("Se abrio un Chrome visible con tu sesion. Elige GPT-5.6 Sol y reasoning High,");
+  console.log("Se abrio un Chrome visible con tu sesion. Elige GPT-6.2 y reasoning High,");
   console.log("y vuelve aqui. Mientras tanto los turnos esperan en cola.");
   await ask("Enter cuando termines (guarda y cierra la ventana)… ");
   const done = await bridgeJson("/isymcp/settings/finish", "POST");

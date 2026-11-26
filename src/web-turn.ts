@@ -6,6 +6,7 @@
 // los turnos del e2e con los de un servidor.
 //
 // Sin sesion/cookies no inventa nada: devuelve error nombrado.
+import { waitForChatGPTComposer } from "./web-ready";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { defaultBrowserExecutable } from "./platform/browser";
@@ -140,7 +141,7 @@ async function connectorSelected(page: Page, appName: string): Promise<boolean> 
  */
 async function selectConnector(page: Page, appName: string): Promise<void> {
   if (await connectorSelected(page, appName)) return;
-  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
+  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').filter({ visible: true }).first();
   const menuRows = page.locator(CONNECTOR_MENU_SELECTOR);
   const appResult = menuRows.filter({ has: page.getByText(appName, { exact: true }) });
   let lastError = "sin intentos";
@@ -324,10 +325,7 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
     return initializeOwnedBrowser(browser, async () => {
       const startUrl = options.conversationUrl?.includes("/c/") ? options.conversationUrl : "https://chatgpt.com/";
       await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
-      const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
-      await composer.waitFor({ state: "visible", timeout: 60_000 });
-      const loggedIn = (await page.locator('[data-testid="login-button"], a[href="/auth/login"]').count()) === 0;
-      if (!loggedIn) throw new Error("web_session_expired: ChatGPT no aparece logueado (cookies vencidas o bloqueadas)");
+      await waitForChatGPTComposer(page);
       return { browser, page, key };
     });
   });
@@ -542,12 +540,12 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   if (target) {
     options.onPhase?.("navigating");
     await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    await page.locator('#prompt-textarea, div[contenteditable="true"]').first().waitFor({ state: "visible", timeout: 60_000 });
+    await waitForChatGPTComposer(page);
   }
   options.onPhase?.("thinking");
   const settleMs = options.settleMs ?? 1_000;
   const deadlineMs = options.deadlineMs ?? 120_000;
-  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').first();
+  const composer = page.locator('#prompt-textarea, div[contenteditable="true"]').filter({ visible: true }).first();
   const t0 = performance.now();
   const composerText = () => composer.innerText().catch(() => "");
   await waitConversationSettle(page);

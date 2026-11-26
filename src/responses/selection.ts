@@ -30,6 +30,7 @@ export function isHighEffortLabel(modelLabel: string, effort: string | null): bo
 export function webModelLabel(model: string): string {
   if (model === "chatgpt-web/gpt-5.6-sol") return "GPT-5.6 Sol";
   if (model === "chatgpt-web/gpt-6") return "GPT-6";
+  if (model === "chatgpt-web/gpt-6.2") return "GPT-6.2";
   throw new WebTaskError("web_model_selection_unsupported", 400, "unsupported Web model alias");
 }
 

@@ -10,6 +10,7 @@
 //     de otro chat, NO se persiste y el turno se marca como error de captura);
 //   - todo corre dentro de withWebLock: cambiar de chat nunca puede tocar la
 //     pestana mientras otro turno esta activo.
+import { selectComposerSettings } from "./chatgpt-settings";
 import { randomBytes } from "node:crypto";
 import type { AppConfig } from "./config";
 import { isExpired, listUserSessions, mintTurnToken, revokeTurnToken, type CodexSession } from "./codex-sessions";
@@ -203,6 +204,7 @@ async function turnInsideLock(
         // Para el reviver: si Chrome se cae, relanza en ESTA conversacion.
         conversationUrl: chat.conversation_url ?? undefined,
         navigate: firstTurn ? { to: "new" } : { to: "conversation", url: chat.conversation_url! },
+        beforeSubmit: async (page) => { await selectComposerSettings(page, "GPT-6.2", "high"); },
         onPhase,
         onProgress,
         // Sondeo mas fino para que el texto en vivo se vea fluido.
