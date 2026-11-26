@@ -40,6 +40,8 @@ const Conn = struct {
     wbuf: std.ArrayList(u8) = .empty,
     wout: bool = false,
     client: ?[]u8 = null,
+    /// El cliente negoció protocolVersion >= 2025-06-18 (donde existe structuredContent).
+    supports_structured: bool = true,
     /// La TUI cerró su lado de escritura: se responde lo pendiente y luego se cierra.
     eof: bool = false,
 };
@@ -1090,8 +1092,18 @@ pub const Daemon = struct {
         self.connWrite(conn, w.written());
     }
 
-    /// Resultado de tool con el mismo JSON en texto y en structuredContent.
+    /// Resultado de tool en `content` (sin duplicar en `structuredContent`).
     fn respondJson(self: *Daemon, conn: *Conn, id: []const u8, value_json: []const u8, is_error: bool) void {
+        var w: Writer.Allocating = .init(self.msg_arena.allocator());
+        w.writer.print("{{\"jsonrpc\":\"2.0\",\"id\":{s},\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":", .{id}) catch return;
+        std.json.Stringify.encodeJsonString(value_json, .{}, &w.writer) catch return;
+        w.writer.print("}}]{s}}}}}\n", .{if (is_error) ",\"isError\":true" else ""}) catch return;
+        self.connWrite(conn, w.written());
+    }
+
+    /// Compatibilidad para `hub_discover detail=status` en clientes 2025-06-18+ (p. ej. `isymcp hub status`).
+    fn respondJsonStructured(self: *Daemon, conn: *Conn, id: []const u8, value_json: []const u8, is_error: bool) void {
+        if (!conn.supports_structured) return self.respondJson(conn, id, value_json, is_error);
         var w: Writer.Allocating = .init(self.msg_arena.allocator());
         w.writer.print("{{\"jsonrpc\":\"2.0\",\"id\":{s},\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":", .{id}) catch return;
         std.json.Stringify.encodeJsonString(value_json, .{}, &w.writer) catch return;
@@ -1123,6 +1135,7 @@ pub const Daemon = struct {
                 };
             }
         } else |_| {};
+        conn.supports_structured = std.mem.order(u8, proto, "2025-06-18") != .lt;
         var w: Writer.Allocating = .init(a);
         w.writer.print("{{\"protocolVersion\":{f},\"capabilities\":{{\"tools\":{{}}}},\"serverInfo\":{{\"name\":\"isymcp-hub\",\"version\":\"{s}\"}},\"instructions\":", .{ js(proto), VERSION }) catch return;
         const ins = self.hubInstructions(a) catch return;
@@ -1237,16 +1250,27 @@ pub const Daemon = struct {
                 return .done;
             }
             if (argStr(args, "query")) |q| {
+                const include_idle = if (args.get("include_idle")) |v| (v == .bool and v.bool) else false;
                 var hits: std.ArrayList(catalog.Hit) = .empty;
                 var unavailable: std.ArrayList([]const u8) = .empty;
+                var idle: std.ArrayList([]const u8) = .empty;
+                var any_waiting = false;
                 for (self.pools.items) |p| {
                     if (!p.cfg.enabled or p.cfg.direct) continue;
+                    // Servidores per-client con prewarm=0 aún sin catálogo: no despertarlos en búsquedas
+                    // normales (respetan prewarm=0); con include_idle=true se arrancan todos en paralelo.
+                    const is_lazy_idle = p.cat == null and p.cfg.isolation == .per_client and p.cfg.prewarm == 0 and !self.poolStarting(p) and p.restart_at == 0 and p.last_error == null;
+                    if (is_lazy_idle and !include_idle) {
+                        try idle.append(a, p.cfg.name);
+                        continue;
+                    }
                     switch (self.needCatalog(p)) {
-                        .ok => |c| try catalog.search(a, &hits, p.cfg.name, c, q),
-                        .wait => return .wait,
+                        .ok => |c| if (!any_waiting) try catalog.search(a, &hits, p.cfg.name, c, q),
+                        .wait => any_waiting = true,
                         .unavailable => try unavailable.append(a, p.cfg.name),
                     }
                 }
+                if (any_waiting) return .wait;
                 catalog.sortHits(hits.items);
                 const limit = limit_v orelse 25;
                 var w: Writer.Allocating = .init(a);
@@ -1256,6 +1280,11 @@ pub const Daemon = struct {
                     try ww.print("{s}{{\"server\":{f},\"tool\":{f},\"description\":{f},\"score\":{d}}}", .{ if (k == 0) "" else ",", js(h.server), js(h.entry.name), js(h.entry.short), h.score });
                 }
                 try ww.writeAll("]");
+                if (idle.items.len > 0) {
+                    try ww.writeAll(",\"idle\":[");
+                    for (idle.items, 0..) |u, k| try ww.print("{s}{f}", .{ if (k == 0) "" else ",", js(u) });
+                    try ww.writeAll("]");
+                }
                 if (unavailable.items.len > 0) {
                     try ww.writeAll(",\"unavailable\":[");
                     for (unavailable.items, 0..) |u, k| try ww.print("{s}{f}", .{ if (k == 0) "" else ",", js(u) });
@@ -1283,7 +1312,11 @@ pub const Daemon = struct {
                 }
             }
             try ww.writeAll("],\"next\":\"hub_discover con server=<nombre> para ver su catálogo, o query=<palabras> para buscar.\"}");
-            self.respondJson(conn, id, w.written(), false);
+            if (detail_status) {
+                self.respondJsonStructured(conn, id, w.written(), false);
+            } else {
+                self.respondJson(conn, id, w.written(), false);
+            }
             return .done;
         }
 
@@ -1315,7 +1348,12 @@ pub const Daemon = struct {
                 return .done;
             };
             if (std.mem.eql(u8, name, "hub_describe")) {
-                self.respondJson(conn, id, try std.fmt.allocPrint(a, "{{\"server\":{f},\"tool\":{s}}}", .{ js(sname), entry.json }), false);
+                const include_output = if (args.get("include_output_schema")) |v| (v == .bool and v.bool) else false;
+                if (include_output or !entry.has_output_schema) {
+                    self.respondJson(conn, id, try std.fmt.allocPrint(a, "{{\"server\":{f},\"tool\":{s}}}", .{ js(sname), entry.json }), false);
+                } else {
+                    self.respondJson(conn, id, try std.fmt.allocPrint(a, "{{\"server\":{f},\"tool\":{s},\"output_schema_omitted\":true}}", .{ js(sname), entry.json_input }), false);
+                }
                 return .done;
             }
             const tool_args: Value = args.get("arguments") orelse .{ .object = .empty };
@@ -1693,8 +1731,8 @@ fn stripNewlines(comptime s: []const u8) []const u8 {
 }
 
 const HUB_TOOLS_SRC =
-    \\{"tools":[{"name":"hub_discover","title":"Descubrir MCP y tools","description":"Lista los MCP conectados al hub (nombre, estado, número de tools). Con `server`, devuelve el catálogo de ese MCP (nombre y descripción corta de cada tool) y sus instrucciones. Con `query`, busca tools por nombre/descripción en todos los MCP. Usa después hub_describe para el esquema y hub_execute para ejecutar.","inputSchema":{"type":"object","properties":{"server":{"type":"string","description":"Nombre de un MCP del hub para ver su catálogo."},"query":{"type":"string","description":"Palabras a buscar en nombres y descripciones de tools."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Máximo de tools devueltas (por defecto 50 con server, 25 con query)."},"detail":{"type":"string","enum":["summary","status"],"description":"status añade procesos, pids y errores."}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
-    \\{"name":"hub_describe","title":"Esquema de una tool","description":"Devuelve la definición completa (descripción, inputSchema, outputSchema, annotations) de una tool de un MCP del hub.","inputSchema":{"type":"object","properties":{"server":{"type":"string"},"tool":{"type":"string"}},"required":["server","tool"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
+    \\{"tools":[{"name":"hub_discover","title":"Descubrir MCP y tools","description":"Lista los MCP conectados al hub (nombre, estado, número de tools). Con `server`, devuelve el catálogo de ese MCP (nombre y descripción corta de cada tool) y sus instrucciones. Con `query`, busca tools por nombre/descripción en los MCP cargados (pasa include_idle=true para arrancar también los idle en paralelo). Usa después hub_describe para el esquema y hub_execute para ejecutar.","inputSchema":{"type":"object","properties":{"server":{"type":"string","description":"Nombre de un MCP del hub para ver su catálogo."},"query":{"type":"string","description":"Palabras a buscar en nombres y descripciones de tools."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Máximo de tools devueltas (por defecto 50 con server, 25 con query)."},"detail":{"type":"string","enum":["summary","status"],"description":"status añade procesos, pids y errores."},"include_idle":{"type":"boolean","description":"Con query, arranca también MCP idle (prewarm=0) en paralelo para buscar en ellos (por defecto false: busca en los cargados y lista los idle aparte)."}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
+    \\{"name":"hub_describe","title":"Esquema de una tool","description":"Devuelve la definición de una tool de un MCP del hub (descripción, inputSchema y annotations por defecto; pasa include_output_schema=true para incluir outputSchema).","inputSchema":{"type":"object","properties":{"server":{"type":"string"},"tool":{"type":"string"},"include_output_schema":{"type":"boolean","description":"Incluye outputSchema en la respuesta (por defecto false para ahorrar contexto)."}},"required":["server","tool"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
     \\{"name":"hub_execute","title":"Ejecutar una tool de un MCP","description":"Ejecuta `tool` del MCP `server` con `arguments` (deben cumplir el inputSchema que da hub_describe) y devuelve su resultado sin modificar. Sigue las instrucciones de ese MCP (hub_discover con server) y respeta sus marcas de contenido no confiable.","inputSchema":{"type":"object","properties":{"server":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object","additionalProperties":true}},"required":["server","tool"],"additionalProperties":false},"annotations":{"readOnlyHint":false,"destructiveHint":true,"openWorldHint":true}},
     \\{"name":"agentspipeline","title":"Orquestación dinámica multi-agente","description":"Descubre CLIs/agentes disponibles, pregunta cómo repartir N tareas dinámicas, planea worktrees aislados con permisos acotados (least-privilege), registra recibos y dependencias en run_id persistente, hace batonpass/steer con exclusión mutua (previous_terminated=true) y criterio técnico estructurado (investigated/ruled_out/modified_files/remaining_verify), recupera olas con status/resume y exige compuerta explícita (integration_authorized=true) antes de integrar. La integración es SERIAL: verify da un cherry-pick por paso, el orquestador corre el gate de la ola sobre el commit resultante y lo registra con integration_receipt, que clasifica cada fallo contra baseline_failures (pre-existente / nuevo / regresión de este paso) y bloquea el siguiente paso ante una regresión; plan avisa de tareas paralelas que tocan las mismas rutas (path_overlaps).","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["discover","plan","receipt","batonpass","steer","status","resume","verify","integration_receipt"]},"run_id":{"type":"string"},"repo_root":{"type":"string"},"base_ref":{"type":"string"},"wave_name":{"type":"string"},"tasks":{"type":"array","items":{"type":"object"}},"task_id":{"type":"string"},"status":{"type":"string"},"commit_sha":{"type":"string"},"exit_code":{"type":"integer"},"changed_paths":{"type":"array","items":{"type":"string"}},"verify_output":{"type":"string"},"commits":{"type":"array","items":{"type":"string"}},"verify_cmds":{"type":"array","items":{"type":"string"}},"previous_terminated":{"type":"boolean"},"stall_reason":{"type":"string"},"investigated":{"type":"string"},"ruled_out":{"type":"string"},"modified_files":{"type":"array","items":{"type":"string"}},"remaining_verify":{"type":"string"},"context_summary":{"type":"string"},"partial_log_tail":{"type":"string"},"log_path":{"type":"string"},"steer_instruction":{"type":"string"},"fallback_agent":{"type":"string"},"fallback_model":{"type":"string"},"integration_authorized":{"type":"boolean"},"destructive_approved":{"type":"boolean"},"integration_ref":{"type":"string"},"baseline_failures":{"type":"array","items":{"type":"string"}},"integration_gate_cmds":{"type":"array","items":{"type":"string"}},"full_suite_cmd":{"type":"string"},"verified_on_sha":{"type":"string"},"integration_head":{"type":"string"},"head_sha":{"type":"string"},"gate_exit_code":{"type":"integer"},"failures":{"type":"array","items":{"type":"string"}},"notes":{"type":"string"},"conflict_resolved":{"type":"boolean"}},"additionalProperties":false},"annotations":{"readOnlyHint":false,"openWorldHint":false}}]}
 ;

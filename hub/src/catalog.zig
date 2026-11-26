@@ -13,6 +13,9 @@ pub const Entry = struct {
     haystack: []const u8,
     /// Definición completa de la tool, JSON.
     json: []const u8,
+    /// Definición sin `outputSchema` (comparte buffer con `json` si no tenía `outputSchema`).
+    json_input: []const u8,
+    has_output_schema: bool,
 };
 
 pub const Catalog = struct {
@@ -54,6 +57,8 @@ pub const Catalog = struct {
             };
             const hay = try std.ascii.allocLowerString(a, try std.mem.concat(a, u8, &.{ title, " ", desc }));
             const json = try std.json.Stringify.valueAlloc(a, t, .{});
+            const has_output = t.object.get("outputSchema") != null;
+            const json_input = if (has_output) try stringifyWithoutOutputSchema(a, t.object) else json;
             try list.append(a, .{
                 .name = try a.dupe(u8, name),
                 .short = try firstSentence(a, desc, 200),
@@ -61,12 +66,28 @@ pub const Catalog = struct {
                 .destructive = de,
                 .haystack = hay,
                 .json = json,
+                .json_input = json_input,
+                .has_output_schema = has_output,
             });
         }
         cat.entries = try list.toOwnedSlice(a);
         return cat;
     }
 };
+
+fn stringifyWithoutOutputSchema(a: std.mem.Allocator, obj: std.json.ObjectMap) ![]const u8 {
+    var w: std.Io.Writer.Allocating = .init(a);
+    var s: std.json.Stringify = .{ .writer = &w.writer };
+    try s.beginObject();
+    var it = obj.iterator();
+    while (it.next()) |kv| {
+        if (std.mem.eql(u8, kv.key_ptr.*, "outputSchema")) continue;
+        try s.objectField(kv.key_ptr.*);
+        try s.write(kv.value_ptr.*);
+    }
+    try s.endObject();
+    return w.written();
+}
 
 /// Primera frase (o los primeros `max` bytes) con espacios aplanados; "…" si se recortó.
 pub fn firstSentence(a: std.mem.Allocator, text: []const u8, max: usize) ![]const u8 {
@@ -190,4 +211,25 @@ test "búsqueda: nombre pesa más; sugerencias por parecido" {
     try std.testing.expectEqualStrings("open_binary", hits.items[0].entry.name);
     const s = try suggest(a, "open_binry", &.{ "open_binary", "close_binary", "xrefs" }, 5);
     try std.testing.expectEqualStrings("open_binary", s[0]);
+}
+
+test "Catalog.build separa json_input sin outputSchema y reutiliza slice si no existe" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const parsed = try std.json.parseFromSliceLeaky(Value, a,
+        \\[{"name":"plain","description":"No output","inputSchema":{"type":"object"}},{"name":"heavy","description":"With output","inputSchema":{"type":"object","properties":{"x":{"type":"string"}}},"outputSchema":{"type":"object","properties":{"big":{"type":"string"}}}}]
+    , .{});
+    var cat = try Catalog.build(std.testing.allocator, parsed.array.items);
+    defer cat.deinit();
+
+    const plain = cat.find("plain").?;
+    try std.testing.expect(!plain.has_output_schema);
+    try std.testing.expectEqual(plain.json.ptr, plain.json_input.ptr);
+
+    const heavy = cat.find("heavy").?;
+    try std.testing.expect(heavy.has_output_schema);
+    try std.testing.expect(std.mem.indexOf(u8, heavy.json, "\"outputSchema\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, heavy.json_input, "\"outputSchema\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, heavy.json_input, "\"inputSchema\"") != null);
 }

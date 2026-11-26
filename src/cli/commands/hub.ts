@@ -94,7 +94,8 @@ export const hubModule: CliModule = {
       }
       const res = await client.callTool({ name: "hub_discover", arguments: { detail: "status" } });
       await client.close();
-      const data = res.structuredContent as { servers: Array<Record<string, any>> };
+      const text = (res.content as Array<{ text?: string }> | undefined)?.[0]?.text ?? "{}";
+      const data = (res.structuredContent ?? JSON.parse(text)) as { servers: Array<Record<string, any>> };
       if (rest.includes("--json")) { console.log(JSON.stringify(data, null, 2)); return; }
       const pid = await daemonPid();
       console.log(`  ● hub corriendo${pid ? ` (pid ${pid})` : ""}`);

@@ -59,7 +59,12 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
   };
   const call = async (c: Client, name: string, args: Record<string, unknown>) => {
     const r = await c.callTool({ name, arguments: args });
-    return { r, text: (r.content as Array<{ text: string }>)[0]?.text ?? "", data: r.structuredContent as any };
+    const text = (r.content as Array<{ text: string }>)[0]?.text ?? "";
+    let parsed: any = r.structuredContent;
+    if (parsed === undefined && text) {
+      try { parsed = JSON.parse(text); } catch { /* texto plano de hub_execute */ }
+    }
+    return { r, text, data: parsed };
   };
   const exec = (c: Client, server: string, tool: string, args: Record<string, unknown> = {}) => call(c, "hub_execute", { server, tool, arguments: args });
   const status = async (c: Client, server: string) => (await call(c, "hub_discover", { detail: "status" })).data.servers.find((s: any) => s.server === server);
@@ -106,19 +111,29 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
     expect(c.getServerVersion()?.name).toBe("isymcp-hub");
   });
 
-  it("HUB-11: discover lista servidores, catálogo y búsqueda; describe da el esquema", async () => {
+  it("HUB-11: discover lista servidores, catálogo y búsqueda sin duplicar structuredContent; describe da el esquema", async () => {
     const c = clients[0];
     const all = await call(c, "hub_discover", {});
+    expect(all.r.structuredContent).toBeUndefined();
     expect(all.data.servers.map((s: any) => [s.name, s.state])).toEqual([["shared", "ready"], ["session", "ready"], ["off", "disabled"], ["lazy", "idle"], ["sesion", "direct"]]);
     const cat = await call(c, "hub_discover", { server: "shared" });
+    expect(cat.r.structuredContent).toBeUndefined();
     expect(cat.data.tool_count).toBe(8);
     expect(cat.data.tools.find((t: any) => t.name === "echo")).toEqual({ name: "echo", description: "Devuelve el texto.", read_only: true });
     expect(cat.data.server_info).toEqual({ name: "fake", version: "1.2.3" });
     expect(cat.data.instructions).toContain("MCP falso");
+    // Búsqueda por defecto no despierta servidores idle (prewarm=0) y los informa aparte.
     const q = await call(c, "hub_discover", { query: "state" });
+    expect(q.r.structuredContent).toBeUndefined();
     expect(q.data.matches.map((m: any) => `${m.server}.${m.tool}`)).toContain("session.get_state");
+    expect(q.data.idle).toEqual(["lazy"]);
+    expect((await status(c, "lazy")).state).toBe("idle");
     const d = await call(c, "hub_describe", { server: "shared", tool: "echo" });
+    expect(d.r.structuredContent).toBeUndefined();
     expect(d.data.tool.inputSchema.properties.text.type).toBe("string");
+    // detail=status mantiene structuredContent en clientes 2025-06-18+ (compatibilidad CLI).
+    const st = await call(c, "hub_discover", { detail: "status" });
+    expect(st.r.structuredContent).toBeDefined();
   });
 
   it("HUB-22: per-client con prewarm 0 arranca bajo demanda (catálogo y ejecución)", async () => {
@@ -126,6 +141,10 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
     const cat = await call(c, "hub_discover", { server: "lazy" });
     expect(cat.data.tool_count).toBe(8);
     expect((await exec(c, "lazy", "echo", { text: "bajo demanda" })).text).toBe("bajo demanda");
+    // Una vez cargado su catálogo, lazy ya entra en búsquedas sin include_idle.
+    const q = await call(c, "hub_discover", { query: "state" });
+    expect(q.data.matches.map((m: any) => `${m.server}.${m.tool}`)).toContain("lazy.get_state");
+    expect(q.data.idle).toBeUndefined();
   });
 
   it("HUB-23: mode direct: el conector lo lanza tal cual con el entorno de la TUI; el hub no lo arranca", async () => {
@@ -228,12 +247,66 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
   });
 
   it("HUB-18: reload (SIGHUP) añade y quita servidores sin cortar a la TUI conectada", async () => {
-    writeServers({ shared: cmd(), nuevo: cmd() });
+    writeServers({
+      shared: cmd(),
+      nuevo: { ...cmd(), env: { FAKE_TYPED_TOOL: "1" } },
+      lazy_a: { ...cmd(), isolation: "per-client", prewarm: 0, env: { FAKE_START_DELAY_MS: "500" } },
+      lazy_b: { ...cmd(), isolation: "per-client", prewarm: 0, env: { FAKE_START_DELAY_MS: "500" } },
+    });
     daemon.kill("SIGHUP");
     const c = clients[0];
     await waitFor(async () => (await call(c, "hub_discover", {})).data.servers.some((s: any) => s.name === "nuevo" && s.state === "ready"));
-    expect((await call(c, "hub_discover", {})).data.servers.map((s: any) => s.name)).toEqual(["shared", "nuevo"]);
+    expect((await call(c, "hub_discover", {})).data.servers.map((s: any) => s.name)).toEqual(["shared", "nuevo", "lazy_a", "lazy_b"]);
     expect((await exec(c, "nuevo", "echo", { text: "ok" })).text).toBe("ok");
+  }, 20_000);
+
+  it("HUB-24: hub_describe omite outputSchema por defecto y lo incluye con include_output_schema=true", async () => {
+    const c = clients[0];
+    const compact = await call(c, "hub_describe", { server: "nuevo", tool: "typed_trace" });
+    expect(compact.r.structuredContent).toBeUndefined();
+    expect(compact.data.tool.inputSchema.properties.path.type).toBe("string");
+    expect(compact.data.tool.outputSchema).toBeUndefined();
+    expect(compact.data.output_schema_omitted).toBe(true);
+
+    const full = await call(c, "hub_describe", { server: "nuevo", tool: "typed_trace", include_output_schema: true });
+    expect(full.r.structuredContent).toBeUndefined();
+    expect(full.data.tool.outputSchema).toBeDefined();
+    expect(full.data.output_schema_omitted).toBeUndefined();
+    expect(full.text.length).toBeGreaterThan(compact.text.length);
+  });
+
+  it("HUB-25: hub_discover(query) con include_idle=true arranca los idle en paralelo y cliente 2024-11-05 nunca recibe structuredContent", async () => {
+    const c = clients[0];
+    // Sin include_idle: inmediato, ambos lazy siguen idle.
+    const t0 = Date.now();
+    const fast = await call(c, "hub_discover", { query: "echo" });
+    expect(Date.now() - t0).toBeLessThan(300);
+    expect(fast.data.idle).toEqual(["lazy_a", "lazy_b"]);
+
+    // Con include_idle=true: ambos arrancan en paralelo (cada uno duerme 500 ms; en serie pasarían de 1000 ms + boot).
+    const t1 = Date.now();
+    const par = await call(c, "hub_discover", { query: "echo", include_idle: true });
+    const elapsed = Date.now() - t1;
+    expect(par.data.idle).toBeUndefined();
+    const servers = par.data.matches.map((m: any) => m.server);
+    expect(servers).toContain("lazy_a");
+    expect(servers).toContain("lazy_b");
+    // En paralelo debe quedar bien por debajo de la suma en serie (en serie sería >= 1000 ms + 2*boot).
+    expect(elapsed).toBeLessThan(2500);
+
+    // Cliente MCP 2024-11-05 crudo: ni siquiera detail=status incluye structuredContent.
+    const s = createConnection(sock);
+    await new Promise((r) => s.once("connect", r));
+    const lines: any[] = [];
+    let buf = "";
+    s.on("data", (d) => { buf += d.toString(); let i; while ((i = buf.indexOf("\n")) >= 0) { lines.push(JSON.parse(buf.slice(0, i))); buf = buf.slice(i + 1); } });
+    s.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "old", version: "0" } } })}\n`);
+    s.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "hub_discover", arguments: { detail: "status" } } })}\n`);
+    await waitFor(() => lines.some((l) => l.id === 2));
+    const resp = lines.find((l) => l.id === 2);
+    expect(resp.result.structuredContent).toBeUndefined();
+    expect(JSON.parse(resp.result.content[0].text).servers.length).toBeGreaterThan(0);
+    s.destroy();
   }, 20_000);
 
   it("HUB-20: si la TUI cierra su lado de escritura, el hub responde lo pendiente antes de cerrar", async () => {
