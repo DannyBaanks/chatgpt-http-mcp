@@ -549,10 +549,6 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   const t0 = performance.now();
   const composerText = () => composer.innerText().catch(() => "");
   await waitConversationSettle(page);
-  const before = await readLastAssistantSnapshot(page);
-  const beforeId = before.id;
-  const beforeText = before.text;
-
   await options.beforeSubmit?.(page);
 
   const connector = options.connector ?? (process.env.CODEX_WEB_HTTP_CONNECTOR?.trim() || undefined);
@@ -566,6 +562,13 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
     await page.keyboard.press("Backspace").catch(() => {});
     await page.waitForTimeout(150);
   }
+  // Model preflight and connector selection can finish hydrating old turns.
+  // Compare against the final pre-submit snapshot, never an earlier shell.
+  await waitConversationSettle(page);
+  const before = await readLastAssistantSnapshot(page);
+  const beforeId = before.id;
+  const beforeText = before.text;
+
   await composer.evaluate((el, text) => {
     const element = el as HTMLElement;
     element.focus();
@@ -638,13 +641,13 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   const deadline = Date.now() + deadlineMs;
   const stopButton = page
     .locator('button[data-testid="stop-button"], button[aria-label*="Detener"], button[aria-label*="Stop"]')
-    .first();
+    .filter({ visible: true }).first();
   let sawBusy = false;
   let lastProgress = "";
   let lastProgressThought: string | undefined = undefined;
   const graceUntil = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    const busy = (await stopButton.count().catch(() => 0)) > 0;
+    const busy = await stopButton.isVisible().catch(() => false);
     if (busy) sawBusy = true;
     if (sawBusy && !busy) break;
     if (!sawBusy && Date.now() > graceUntil) break;

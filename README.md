@@ -44,6 +44,22 @@ Los recibos muestran eventos de ejecución observados, como la herramienta invoc
 
 </details>
 
+## ChatGPT GPT-6.2
+
+`isymcp ask "texto" --new` y la herramienta MCP `chatgpt_ask` ahora usan
+**GPT-6.2 / High**. El bridge selecciona el modelo exacto y verifica la potencia
+antes de enviar; el chat local y el canario recorren la misma comprobación.
+Si el modelo no está disponible, devuelve un error sin cambiar a otra versión.
+
+Para clientes compatibles con OpenAI, la ruta es `chatgpt-web/gpt-6.2`, habilitada
+con `CODEX_WEB_HTTP_CAPS=gpt62`. El presupuesto del adaptador es conservador;
+no representa una medición del contexto máximo del modelo. Las rutas anteriores
+siguen disponibles mediante sus capacidades explícitas.
+
+La sesión de ChatGPT debe estar activa. Una sesión cerrada se informa como
+`web_session_expired`; `chatgpt_ask` conserva el detalle del error para facilitar
+el diagnóstico. [Renovar la sesión y usar Ask](GUIA.md#ask-y-gpt-62).
+
 ## 🖥️ Un panel para ver qué está pasando
 
 El panel local reúne **Conversación**, **Evidencia** y **Actividad**. Puedes comprobar las herramientas de una sesión, identificar fallos y consultar el estado del puente sin saltar entre terminales.
