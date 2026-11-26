@@ -670,6 +670,13 @@ async function sendWebTurnUnlocked(prompt: string, options: WebTurnOptions = {})
   let proven = false;
   let textId = "";
   while (Date.now() < deadline) {
+    // Reasoning/tool transitions can briefly hide Stop, then resume streaming.
+    // A stable prefix during that resumed generation is never a complete reply.
+    if (await stopButton.isVisible().catch(() => false)) {
+      stableSince = 0;
+      await page.waitForTimeout(settleMs);
+      continue;
+    }
     const snapshot = await readLastAssistantSnapshot(page);
     const current = snapshot.text;
     // Never Guess: solo vale si se PRUEBA que es un turno nuevo (identidad o
