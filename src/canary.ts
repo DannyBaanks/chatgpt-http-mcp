@@ -21,7 +21,9 @@ import { createChat, listChats } from "./chats";
 import { bridgeAuthHeaders } from "./local-guard";
 import { securePrivatePath } from "./platform/private-path";
 
-export const CANARY_TITLE = "[canary] ISyMCP";
+export const CANARY_MODEL = "chatgpt-web/gpt-6.2";
+// Preserve legacy runs/chats; each model gets its own reusable conversation.
+export const CANARY_TITLE = "[canary] ISyMCP · GPT-6.2 / High";
 
 export interface CanaryCheck {
   name: "eco-a" | "eco-b" | "markdown";
@@ -31,6 +33,8 @@ export interface CanaryCheck {
 }
 
 export interface CanaryResult {
+  /** Absent on historical results produced before model-specific canaries. */
+  model?: string;
   ts: string;
   ok: boolean;
   bridge: "existing" | "temporary" | "unavailable";
@@ -155,7 +159,7 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
       () => false);
     if (!opts.turn && !(await up(base))) {
       if (opts.spawnBridge === false) {
-        const result: CanaryResult = { ts, ok: false, bridge: "unavailable", checks: [], error: `bridge apagado en ${base}` };
+        const result: CanaryResult = { ts, model: CANARY_MODEL, ok: false, bridge: "unavailable", checks: [], error: `bridge apagado en ${base}` };
         saveResult(result);
         return result;
       }
@@ -207,7 +211,7 @@ export async function runCanary(opts: { port?: string; turn?: Turn; spawnBridge?
       await tempStderr;
     }
   }
-  const result: CanaryResult = { ts, ok: !error && checks.length === 3 && checks.every((c) => c.ok), bridge, checks, ...(error ? { error } : {}) };
+  const result: CanaryResult = { ts, model: CANARY_MODEL, ok: !error && checks.length === 3 && checks.every((c) => c.ok), bridge, checks, ...(error ? { error } : {}) };
   saveResult(result);
   return result;
 }

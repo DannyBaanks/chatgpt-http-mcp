@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { loadConfig, parseCapabilities } from "../src/config";
 import { availableRoutes, resolveLimits } from "../src/web-models";
 import { assertWebSelection, webModelLabel } from "../src/responses/selection";
-import { createChat } from "../src/chats";
+import { canaryChatId } from "../src/canary";
+import { createChat, loadChat } from "../src/chats";
 import { runChatTurn } from "../src/chat-turn";
 
 const home = mkdtempSync(join(tmpdir(), "isymcp-gpt62-"));
@@ -36,4 +37,13 @@ test("local ask installs model preflight before sending and retains its failure 
   expect(preflight).toBe(true);
   expect(result.ok).toBe(false);
   expect(result.reply.meta?.detail).toContain("web_model_unavailable");
+});
+
+
+test("6.2 canary has its own persistent thread and preserves the legacy canary", () => {
+  const legacy = createChat("[canary] ISyMCP");
+  const current = canaryChatId();
+  expect(current).not.toBe(legacy.id);
+  expect(canaryChatId()).toBe(current);
+  expect(loadChat(legacy.id)?.title).toBe("[canary] ISyMCP");
 });
