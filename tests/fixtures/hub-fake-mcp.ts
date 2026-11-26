@@ -29,5 +29,24 @@ server.registerTool("burst", { description: "Progreso y respuesta sin pausa.", i
 });
 server.registerTool("env", { description: "Lee una variable del entorno del proceso.", inputSchema: { name: z.string() } }, async ({ name }) => ({ content: [{ type: "text", text: process.env[name] ?? "" }] }));
 server.registerTool("crash", { description: "Termina el proceso.", inputSchema: {} }, async () => { setTimeout(() => process.exit(3), 10); return { content: [{ type: "text", text: "bye" }] }; });
+if (process.env.FAKE_TYPED_TOOL === "1") {
+  server.registerTool(
+    "typed_trace",
+    {
+      description: "Tool con outputSchema amplio para probar hub_describe compacto.",
+      inputSchema: { path: z.string(), max_steps: z.number().optional() },
+      outputSchema: {
+        halted: z.boolean(),
+        output: z.string(),
+        steps: z.array(z.object({ pc: z.number(), opcode: z.string(), a: z.number(), d: z.number(), detail: z.string() })),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ path }) => {
+      const structured = { halted: true, output: path, steps: [] };
+      return { content: [{ type: "text", text: JSON.stringify(structured) }], structuredContent: structured };
+    },
+  );
+}
 if (process.env.FAKE_START_DELAY_MS) await new Promise((r) => setTimeout(r, Number(process.env.FAKE_START_DELAY_MS)));
 await server.connect(new StdioServerTransport());
