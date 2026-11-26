@@ -56,13 +56,13 @@ test("missing previous identity does not make unchanged previous text new", () =
 // Run the actual capture loop on a virtual clock; no real browser or long wait.
 const loop = source.slice(source.indexOf('  let text = "";', source.indexOf("const graceUntil")), source.indexOf("  if (!text.trim()) await dumpCaptureFailure"));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const capture = new AsyncFunction("page", "Date", "deadline", "settleMs", "beforeId", "beforeText", "readLastAssistant", "lastAssistantIdentity", "readLastAssistantSnapshot", "isNewAssistantTurn", `${loop}; return text;`);
+const capture = new AsyncFunction("page", "Date", "deadline", "settleMs", "beforeId", "beforeText", "readLastAssistant", "lastAssistantIdentity", "readLastAssistantSnapshot", "isNewAssistantTurn", "stopButton", `${loop}; return text;`);
 async function captureFrames(frames: string[], deadline: number) {
   let now = 0;
   let index = 0;
   const snapshot = async () => ({ id: "new", text: frames[Math.min(index++, frames.length - 1)] });
   return capture({ waitForTimeout: async (ms: number) => { now += ms; } }, { now: () => now }, deadline, 500, "old", "OLD",
-    async () => (await snapshot()).text, async () => "new", snapshot, isNewAssistantTurn);
+    async () => (await snapshot()).text, async () => "new", snapshot, isNewAssistantTurn, { isVisible: async () => false });
 }
 test("deadline rejects a changing partial response without stable proof", async () => {
   expect(await captureFrames(["N", "NE", "NEW"], 1500)).toBe("");
@@ -161,4 +161,24 @@ test("a hidden stop control cannot exhaust the reply capture deadline", async ()
   const completedAt = await waitForGeneration({ waitForTimeout: async (ms: number) => { now += ms; } }, { now: () => now }, 90000,
     { count: async () => 1, isVisible: async () => false }, {});
   expect(completedAt).toBeLessThan(90000);
+});
+
+
+test("a resumed generation cannot turn a stable 512-character prefix into a complete answer", async () => {
+  let now = 0;
+  const prefix = "x".repeat(512), complete = prefix + "y".repeat(512) + "\nFIN-CAPTURA-62";
+  const snapshot = async () => ({ id: "new", text: now < 7000 ? prefix : complete });
+  const reply = await capture({ waitForTimeout: async (ms: number) => { now += ms; } }, { now: () => now }, 15000, 500,
+    "old", "OLD", async () => (await snapshot()).text, async () => "new", snapshot, isNewAssistantTurn,
+    { isVisible: async () => now >= 1000 && now < 8000 });
+  expect(reply).toBe(complete);
+});
+
+test("deadline during generation rejects a stable partial answer", async () => {
+  let now = 0;
+  const snapshot = async () => ({ id: "new", text: "x".repeat(512) });
+  const reply = await capture({ waitForTimeout: async (ms: number) => { now += ms; } }, { now: () => now }, 6000, 500,
+    "old", "OLD", async () => (await snapshot()).text, async () => "new", snapshot, isNewAssistantTurn,
+    { isVisible: async () => true });
+  expect(reply).toBe("");
 });
