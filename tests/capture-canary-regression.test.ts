@@ -136,3 +136,29 @@ import {writeFileSync} from "node:fs"; writeFileSync(process.env.NOTICE_CAPTURE,
   expect(stdout).toContain("Origen: isymcp / canary.bridge.startup");
   expect(stdout).toContain("Evidencia:");
 });
+
+// Model selection can finish hydrating a historical turn. The comparison
+// baseline must be read after that preflight, immediately before seeding.
+test("model preflight cannot make a historical answer look like a new reply", async () => {
+  const start = source.indexOf("  await waitConversationSettle(page);", source.indexOf("async function sendWebTurnUnlocked"));
+  const end = source.indexOf("  await composer.evaluate((el, text)", start);
+  const prepare = new AsyncFunction("page", "options", "composer", "waitConversationSettle", "readLastAssistantSnapshot", "selectConnector",
+    `${source.slice(start, end)}; return { beforeId, beforeText };`);
+  let tail = { id: "old-loading", text: "" };
+  const page = { keyboard: { press: async () => {} }, waitForTimeout: async () => {} };
+  const baseline = await prepare(page, { connector: "", beforeSubmit: async () => {
+    tail = { id: "old-hydrated", text: "Historical answer" };
+  } }, { click: async () => {} }, async () => {}, async () => tail, async () => {});
+  expect(baseline).toEqual({ beforeId: "old-hydrated", beforeText: "Historical answer" });
+  expect(isNewAssistantTurn(baseline.beforeId, baseline.beforeText, tail.id, tail.text)).toBe(false);
+});
+
+test("a hidden stop control cannot exhaust the reply capture deadline", async () => {
+  const start = source.indexOf("  let sawBusy = false;");
+  const end = source.indexOf('  let text = "";', start);
+  const waitForGeneration = new AsyncFunction("page", "Date", "deadline", "stopButton", "options", new Bun.Transpiler({ loader: "ts" }).transformSync(source.slice(start, end)) + "; return Date.now();");
+  let now = 0;
+  const completedAt = await waitForGeneration({ waitForTimeout: async (ms: number) => { now += ms; } }, { now: () => now }, 90000,
+    { count: async () => 1, isVisible: async () => false }, {});
+  expect(completedAt).toBeLessThan(90000);
+});
