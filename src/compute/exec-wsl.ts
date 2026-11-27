@@ -115,19 +115,45 @@ async function killLinuxProcessGroup(wslDistro: string | undefined, pidFile: str
   }
 }
 
+/**
+ * Interpreta la salida de `wsl.exe -l -q` (UTF-16LE con BOM opcional y CRLF) como
+ * lista de nombres de distro. Pura: testeable en cualquier OS.
+ */
+export function parseWslDistroList(raw: Uint8Array | string): string[] {
+  const text = typeof raw === "string" ? raw : new TextDecoder("utf-16le").decode(raw);
+  return text
+    .replaceAll("﻿", "")
+    .replaceAll("\0", "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/** isAvailable() se consulta por job: cachear evita un wsl.exe extra en cada submit. */
+const AVAILABILITY_TTL_MS = 60_000;
+let availabilityCache: { value: boolean; at: number } | null = null;
+
 export const wslComputeExecutor: PlatformComputeExecutor = {
   target: "wsl",
 
   async isAvailable(): Promise<boolean> {
     if (process.platform !== "win32") return false;
-    try {
-      const proc = Bun.spawnSync([WSL_EXE, "--status"], {
-        stdin: "ignore", stdout: "ignore", stderr: "ignore", timeout: 5000,
-      });
-      return proc.exitCode === 0;
-    } catch {
-      return false;
+    if (availabilityCache && Date.now() - availabilityCache.at < AVAILABILITY_TTL_MS) {
+      return availabilityCache.value;
     }
+    let value = false;
+    try {
+      // `wsl --status` sale 0 aunque NO haya ninguna distro (runners de CI): hay que
+      // exigir al menos una registrada. `-l -q` no arranca la VM (sin coste de cold start).
+      const proc = Bun.spawnSync([WSL_EXE, "-l", "-q"], {
+        stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: 5000,
+      });
+      value = proc.exitCode === 0 && parseWslDistroList(proc.stdout).length > 0;
+    } catch {
+      value = false;
+    }
+    availabilityCache = { value, at: Date.now() };
+    return value;
   },
 
   async spawn(req: ComputeExecRequest): Promise<ComputeRunningHandle> {

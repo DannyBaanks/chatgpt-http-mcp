@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { processMatchesTable } from "../src/platform/process";
 import { parseNvidiaSmiOutput, probeGpuTelemetry, readGpuTelemetry } from "../src/compute/gpu-telemetry";
 import { mapWinPriorityClass, winComputeExecutor } from "../src/compute/exec-win";
-import { windowsPathToWsl, wslComputeExecutor } from "../src/compute/exec-wsl";
+import { parseWslDistroList, windowsPathToWsl, wslComputeExecutor } from "../src/compute/exec-wsl";
 import type { ComputeExecRequest } from "../src/compute/types";
 
 const ON_WINDOWS = process.platform === "win32";
@@ -46,6 +46,13 @@ test("windowsPathToWsl deja intactas las rutas ya POSIX", () => {
   expect(windowsPathToWsl("/var/tmp/work")).toBe("/var/tmp/work");
   expect(windowsPathToWsl("/mnt/c/ya-traducida")).toBe("/mnt/c/ya-traducida");
   expect(windowsPathToWsl("ruta/relativa")).toBe("ruta/relativa");
+});
+
+test("parseWslDistroList decodifica UTF-16LE con BOM/CRLF y vacio = sin distros", () => {
+  const utf16 = (s: string) => new Uint8Array(Buffer.from(s, "utf16le"));
+  expect(parseWslDistroList(utf16(String.fromCharCode(0xfeff) + "Ubuntu\r\ndocker-desktop\r\n"))).toEqual(["Ubuntu", "docker-desktop"]);
+  expect(parseWslDistroList(utf16(""))).toEqual([]);
+  expect(parseWslDistroList(utf16("\r\n  \r\n"))).toEqual([]);
 });
 
 // ---------------------------------------------------------------------------
