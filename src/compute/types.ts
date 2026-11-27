@@ -81,7 +81,56 @@ export interface ComputeJobSubmitInput {
   env?: Record<string, string>;
   timeout_ms?: number;
   files?: ComputeInputFile[];
+  upload_id?: string;
+  consume_upload?: boolean;
+  oracle?: boolean;
   label?: string;
+}
+
+export interface ComputeUploadInput {
+  upload_id?: string;
+  path: string;
+  offset?: number;
+  chunk_b64: string;
+  eof?: boolean;
+  sha256?: string;
+}
+
+export interface ComputeUploadResult {
+  upload_id: string;
+  path: string;
+  offset: number;
+  next_offset: number;
+  size: number;
+  eof: boolean;
+  sha256: string | null;
+  total_bytes: number;
+  expires_at: string;
+}
+
+export interface OracleArtifactEntry {
+  path: string;
+  size: number;
+  sha256: string;
+}
+
+export interface OracleReceipt {
+  schema: "win-oracle-receipt@1";
+  job_id: string;
+  exit_code: number | null;
+  signal: string | null;
+  timed_out: boolean;
+  killed: boolean;
+  duration_ms: number;
+  stdout_size: number;
+  stdout_sha256: string;
+  stderr_size: number;
+  stderr_sha256: string;
+  artifacts: OracleArtifactEntry[];
+  os_version: string;
+  arch: string;
+  target: Exclude<ComputeTarget, "auto">;
+  finished_at: string;
 }
 
 export interface ComputeJobRecord {
@@ -93,6 +142,7 @@ export interface ComputeJobRecord {
   wsl_distro?: string;
   gpu: boolean;
   priority: ComputePriority;
+  oracle?: boolean;
   argv?: string[];
   command?: string;
   cwd: string;

@@ -113,6 +113,20 @@ export function registerComputeMcpTools(server: McpServer): void {
           .array(z.object({ path: z.string(), content_b64: z.string() }))
           .optional()
           .describe("Archivos pequeños de entrada a colocar en `work/` antes de arrancar"),
+        upload_id: z
+          .string()
+          .optional()
+          .describe("ID de staging subido previamente vía `compute_upload` para montar en `work/`"),
+        consume_upload: z
+          .boolean()
+          .optional()
+          .default(true)
+          .describe("Si true (default), elimina el staging tras montarlo en `work/`"),
+        oracle: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Si true, escribe `work/oracle-receipt.json` con hashes SHA-256 de stdout/stderr y artefactos"),
         wait_ms: z
           .number()
           .min(0)
@@ -144,6 +158,9 @@ export function registerComputeMcpTools(server: McpServer): void {
           timeout_ms: args.timeout_ms,
           label: args.label,
           files: args.files,
+          upload_id: args.upload_id,
+          consume_upload: args.consume_upload,
+          oracle: args.oracle === true,
         });
         const waitMs = Math.max(0, Math.min(60_000, Number(args.wait_ms ?? 0) || 0));
         if (waitMs <= 0) return okJson(sub);
@@ -262,6 +279,40 @@ export function registerComputeMcpTools(server: McpServer): void {
           offset: args.offset ?? 0,
         });
         markTainted("compute_fetch", `${peer}:${args.job_id}:${args.path}`);
+        return okJson(res);
+      } catch (e) {
+        return errJson((e as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    "compute_upload",
+    {
+      description:
+        "Sube un bloque (<=128 KB en base64) a staging aislado en el peer remoto con verificación SHA-256 al finalizar (`eof: true`). Devuelve `upload_id` montable en `compute_run`.",
+      inputSchema: {
+        peer: z.string().optional().describe("Nombre o office_id del peer (opcional si solo hay uno emparejado)"),
+        upload_id: z.string().optional().describe("ID de staging existente (omitir en el primer chunk para crear uno nuevo)"),
+        path: z.string().describe("Ruta relativa dentro de `work/` (sin `..` ni rutas absolutas)"),
+        offset: z.number().optional().default(0).describe("Offset en bytes (0 para iniciar/sobrescribir, o igual al tamaño actual)"),
+        chunk_b64: z.string().describe("Bloque en base64 (<=128 KB decodificados)"),
+        eof: z.boolean().optional().default(false).describe("True en el último chunk del archivo"),
+        sha256: z.string().optional().describe("SHA-256 hex esperado del archivo completo (verificado cuando eof=true)"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (args) => {
+      try {
+        const peer = resolveDefaultPeer(args.peer);
+        const res = await call(peer, "job_upload", {
+          upload_id: args.upload_id,
+          path: args.path,
+          offset: args.offset ?? 0,
+          chunk_b64: args.chunk_b64,
+          eof: args.eof === true,
+          sha256: args.sha256,
+        });
         return okJson(res);
       } catch (e) {
         return errJson((e as Error).message);
