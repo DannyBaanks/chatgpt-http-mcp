@@ -7,6 +7,7 @@ import path from "node:path";
 import { bridgeHome } from "../codex-sessions";
 import { hostCapacity, LinkError, type LinkPeer } from "../link/crypto";
 import type { ComputeRpcHandler } from "../link/server";
+import { stopProcessTree } from "../platform/process";
 import { getComputeExecutor, readHostGpuTelemetry, resolveComputeTarget } from "./executor";
 import type {
   ComputeJobRecord,
@@ -19,11 +20,41 @@ const MAX_FETCH_CHUNK = 128 * 1024; // cabe con holgura en MAX_BODY (256 KB) tra
 const MAX_LOG_CHUNK = 64 * 1024;
 const MAX_INPUT_FILES = 32;
 const MAX_INPUT_FILE_BYTES = 180 * 1024;
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutos
+const MAX_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 horas
+const DEFAULT_MAX_LOG_BYTES = 32 * 1024 * 1024; // 32 MiB por stream
+const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
+const DEFAULT_MAX_RETAINED_JOBS = 200;
+
+function isTerminalStatus(status: ComputeJobRecord["status"]): boolean {
+  return status === "done" || status === "failed" || status === "killed" || status === "timed_out";
+}
+
+function killOrphanPid(pid: number): void {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  stopProcessTree(pid);
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* ya detenido */
+      }
+    }
+  }
+}
 
 export interface ComputeQueueOptions {
   jobsDir?: string;
   maxGpuSlots?: number;
   maxCpuSlots?: number;
+  defaultTimeoutMs?: number;
+  maxTimeoutMs?: number;
+  maxLogBytes?: number;
+  retentionMs?: number;
+  maxRetainedJobs?: number;
 }
 
 export function defaultComputeJobsDir(env: Record<string, string | undefined> = process.env): string {
@@ -100,6 +131,11 @@ export class ComputeQueue {
   readonly jobsDir: string;
   readonly maxGpuSlots: number;
   readonly maxCpuSlots: number;
+  readonly defaultTimeoutMs: number;
+  readonly maxTimeoutMs: number;
+  readonly maxLogBytes: number;
+  readonly retentionMs: number;
+  readonly maxRetainedJobs: number;
 
   private gpuPaused = false;
   private runningGpu = 0;
@@ -108,13 +144,20 @@ export class ComputeQueue {
   private jobs = new Map<string, ComputeJobRecord>();
   private running = new Map<string, ComputeRunningHandle>();
   private pendingEnv = new Map<string, Record<string, string> | undefined>();
+  private shaCache = new Map<string, string>();
 
   constructor(opts: ComputeQueueOptions = {}) {
     this.jobsDir = opts.jobsDir ?? defaultComputeJobsDir();
     this.maxGpuSlots = Math.max(1, opts.maxGpuSlots ?? 1);
     this.maxCpuSlots = Math.max(1, opts.maxCpuSlots ?? Math.max(1, os.cpus().length - 2));
+    this.maxTimeoutMs = Math.max(1000, opts.maxTimeoutMs ?? MAX_TIMEOUT_MS);
+    this.defaultTimeoutMs = Math.min(this.maxTimeoutMs, Math.max(1000, opts.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS));
+    this.maxLogBytes = Math.max(1024, opts.maxLogBytes ?? DEFAULT_MAX_LOG_BYTES);
+    this.retentionMs = Math.max(1000, opts.retentionMs ?? DEFAULT_RETENTION_MS);
+    this.maxRetainedJobs = Math.max(1, opts.maxRetainedJobs ?? DEFAULT_MAX_RETAINED_JOBS);
     fs.mkdirSync(this.jobsDir, { recursive: true, mode: 0o700 });
     this.loadExisting();
+    this.pruneOldJobs();
   }
 
   private jobDir(jobId: string): string {
@@ -143,6 +186,10 @@ export class ComputeQueue {
         const rec = JSON.parse(fs.readFileSync(p, "utf8")) as ComputeJobRecord;
         if (rec && rec.job_id) {
           if (rec.status === "running" || rec.status === "queued") {
+            if (rec.status === "running" && typeof rec.pid === "number" && rec.pid > 0) {
+              killOrphanPid(rec.pid);
+            }
+            rec.pid = null;
             rec.status = "failed";
             rec.error = "interrupted_by_restart";
             rec.finished_at = new Date().toISOString();
@@ -154,6 +201,46 @@ export class ComputeQueue {
         /* ignore corrupt meta */
       }
     }
+  }
+
+  pruneOldJobs(nowMs = Date.now()): number {
+    const terminal = [...this.jobs.values()]
+      .filter((j) => isTerminalStatus(j.status))
+      .sort((a, b) => {
+        const ta = Date.parse(a.finished_at ?? a.created_at) || 0;
+        const tb = Date.parse(b.finished_at ?? b.created_at) || 0;
+        return ta - tb; // más viejos primero
+      });
+
+    let removed = 0;
+    const toRemove = new Set<string>();
+    for (const j of terminal) {
+      const ts = Date.parse(j.finished_at ?? j.created_at) || 0;
+      if (ts > 0 && nowMs - ts > this.retentionMs) {
+        toRemove.add(j.job_id);
+      }
+    }
+    const remaining = terminal.filter((j) => !toRemove.has(j.job_id));
+    if (remaining.length > this.maxRetainedJobs) {
+      const excess = remaining.length - this.maxRetainedJobs;
+      for (let i = 0; i < excess; i++) {
+        toRemove.add(remaining[i]!.job_id);
+      }
+    }
+
+    for (const jobId of toRemove) {
+      this.jobs.delete(jobId);
+      for (const k of this.shaCache.keys()) {
+        if (k.startsWith(`${jobId}:`)) this.shaCache.delete(k);
+      }
+      try {
+        fs.rmSync(this.jobDir(jobId), { recursive: true, force: true });
+        removed++;
+      } catch {
+        /* best effort */
+      }
+    }
+    return removed;
   }
 
   setGpuPaused(paused: boolean): void {
@@ -202,31 +289,43 @@ export class ComputeQueue {
     const jobId = `job-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
     const dir = this.jobDir(jobId);
     const workDir = path.join(dir, "work");
-    fs.mkdirSync(workDir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "stdout.log"), "", "utf8");
-    fs.writeFileSync(path.join(dir, "stderr.log"), "", "utf8");
+    let cwd: string;
+    try {
+      fs.mkdirSync(workDir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "stdout.log"), "", "utf8");
+      fs.writeFileSync(path.join(dir, "stderr.log"), "", "utf8");
 
-    if (Array.isArray(input.files) && input.files.length > 0) {
-      if (input.files.length > MAX_INPUT_FILES) {
-        throw new LinkError("too_many_files", `máximo ${MAX_INPUT_FILES} archivos de entrada por job`);
-      }
-      for (const f of input.files) {
-        const dest = safeSubPath(workDir, f.path);
-        const buf = Buffer.from(String(f.content_b64 || ""), "base64");
-        if (buf.length > MAX_INPUT_FILE_BYTES) {
-          throw new LinkError("file_too_big", `archivo de entrada excede ${MAX_INPUT_FILE_BYTES} bytes: ${f.path}`, 413);
+      if (Array.isArray(input.files) && input.files.length > 0) {
+        if (input.files.length > MAX_INPUT_FILES) {
+          throw new LinkError("too_many_files", `máximo ${MAX_INPUT_FILES} archivos de entrada por job`);
         }
-        fs.mkdirSync(path.dirname(dest), { recursive: true });
-        fs.writeFileSync(dest, buf);
+        for (const f of input.files) {
+          const dest = safeSubPath(workDir, f.path);
+          const buf = Buffer.from(String(f.content_b64 || ""), "base64");
+          if (buf.length > MAX_INPUT_FILE_BYTES) {
+            throw new LinkError("file_too_big", `archivo de entrada excede ${MAX_INPUT_FILE_BYTES} bytes: ${f.path}`, 413);
+          }
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, buf);
+        }
       }
+
+      cwd =
+        typeof input.cwd === "string" && input.cwd.trim()
+          ? path.isAbsolute(input.cwd.trim())
+            ? input.cwd.trim()
+            : safeSubPath(workDir, input.cwd.trim())
+          : workDir;
+    } catch (err) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      throw err;
     }
 
-    const cwd =
-      typeof input.cwd === "string" && input.cwd.trim()
-        ? path.isAbsolute(input.cwd.trim())
-          ? input.cwd.trim()
-          : safeSubPath(workDir, input.cwd.trim())
-        : workDir;
+    const rawTimeout = Number(input.timeout_ms);
+    const timeoutMs =
+      Number.isFinite(rawTimeout) && rawTimeout > 0
+        ? Math.min(this.maxTimeoutMs, Math.max(1000, Math.floor(rawTimeout)))
+        : this.defaultTimeoutMs;
 
     const rec: ComputeJobRecord = {
       job_id: jobId,
@@ -248,7 +347,7 @@ export class ComputeQueue {
       created_at: new Date().toISOString(),
       started_at: null,
       finished_at: null,
-      timeout_ms: Number.isFinite(input.timeout_ms) && Number(input.timeout_ms) > 0 ? Number(input.timeout_ms) : undefined,
+      timeout_ms: timeoutMs,
     };
 
     this.jobs.set(jobId, rec);
@@ -314,6 +413,7 @@ export class ComputeQueue {
         priority: rec.priority,
         env,
         timeout_ms: rec.timeout_ms,
+        max_log_bytes: this.maxLogBytes,
         stdout_path: path.join(dir, "stdout.log"),
         stderr_path: path.join(dir, "stderr.log"),
       });
@@ -340,6 +440,7 @@ export class ComputeQueue {
       rec.finished_at = new Date().toISOString();
       this.saveMeta(rec);
     } finally {
+      this.pruneOldJobs();
       releaseSlot();
     }
   }
@@ -387,6 +488,7 @@ export class ComputeQueue {
     const qIdx = this.queue.indexOf(jobId);
     if (qIdx >= 0) {
       this.queue.splice(qIdx, 1);
+      this.pendingEnv.delete(jobId);
       rec.status = "killed";
       rec.finished_at = new Date().toISOString();
       this.saveMeta(rec);
@@ -406,13 +508,14 @@ export class ComputeQueue {
     relPath: string,
     opts: { offset?: number; limit?: number } = {},
   ) {
-    this.ownJob(jobId, peerOfficeId);
+    const rec = this.ownJob(jobId, peerOfficeId);
     const workDir = path.join(this.jobDir(jobId), "work");
     const full = safeSubPath(workDir, relPath);
     if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
       throw new LinkError("not_found", `artefacto no encontrado: ${relPath}`, 404);
     }
-    const size = fs.statSync(full).size;
+    const st = fs.statSync(full);
+    const size = st.size;
     const offset = Math.max(0, Math.min(Number(opts.offset ?? 0) || 0, size));
     const limit = Math.max(1, Math.min(Number(opts.limit ?? MAX_FETCH_CHUNK) || MAX_FETCH_CHUNK, MAX_FETCH_CHUNK));
     const len = Math.max(0, Math.min(limit, size - offset));
@@ -426,6 +529,17 @@ export class ComputeQueue {
       }
     }
     const nextOffset = offset + len;
+    let sha256: string | null = null;
+    if (isTerminalStatus(rec.status)) {
+      const cacheKey = `${jobId}:${relPath}:${size}:${st.mtimeMs}`;
+      const cached = this.shaCache.get(cacheKey);
+      if (cached) {
+        sha256 = cached;
+      } else {
+        sha256 = sha256File(full);
+        this.shaCache.set(cacheKey, sha256);
+      }
+    }
     return {
       job_id: jobId,
       path: relPath,
@@ -433,7 +547,7 @@ export class ComputeQueue {
       next_offset: nextOffset,
       size,
       eof: nextOffset >= size,
-      sha256: sha256File(full),
+      sha256,
       chunk_b64: buf.toString("base64"),
     };
   }

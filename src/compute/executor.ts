@@ -1,6 +1,6 @@
 // src/compute/executor.ts — Despachador multiplataforma de ejecutores y telemetría GPU.
 // Carga dinámicamente `exec-win.ts`, `exec-wsl.ts` y `gpu-telemetry.ts` cuando están presentes
-// (integrados desde la rama compañera de Windows Xeon) sin acoplar ni romper compilación en Linux.
+// (integrados desde la rama compañera de Windows Xeon) registrando errores reales de importación.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { posixComputeExecutor } from "./executor-posix";
@@ -10,10 +10,15 @@ const registry = new Map<Exclude<ComputeTarget, "auto">, PlatformComputeExecutor
   ["posix", posixComputeExecutor],
 ]);
 
+const loadErrors = new Map<string, string>();
 let optionalLoaded = false;
 
 export function registerComputeExecutor(exec: PlatformComputeExecutor): void {
   registry.set(exec.target, exec);
+}
+
+export function getExecutorLoadErrors(): Record<string, string> {
+  return Object.fromEntries(loadErrors.entries());
 }
 
 async function ensureOptionalPlatformModules(): Promise<void> {
@@ -27,9 +32,17 @@ async function ensureOptionalPlatformModules(): Promise<void> {
     try {
       const mod = (await import(full)) as Record<string, unknown>;
       const exec = mod[exportName] as PlatformComputeExecutor | undefined;
-      if (exec && typeof exec.spawn === "function") registry.set(exec.target, exec);
-    } catch {
-      /* módulo opcional no disponible en esta plataforma */
+      if (exec && typeof exec.spawn === "function") {
+        registry.set(exec.target, exec);
+      } else {
+        const msg = `${file} cargado pero no exporta ${exportName}.spawn`;
+        loadErrors.set(file, msg);
+        console.warn(`[isymcp:compute] ${msg}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      loadErrors.set(file, msg);
+      console.warn(`[isymcp:compute] error al cargar módulo opcional ${file}: ${msg}`);
     }
   };
 
@@ -61,8 +74,17 @@ export async function readHostGpuTelemetry(): Promise<GpuTelemetrySnapshot> {
       if (typeof mod.readGpuTelemetry === "function") {
         return await mod.readGpuTelemetry();
       }
-    } catch {
-      /* degradación segura abajo */
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      loadErrors.set("gpu-telemetry.ts", msg);
+      console.warn(`[isymcp:compute] error en gpu-telemetry.ts: ${msg}`);
+      return {
+        available: false,
+        provider: "none",
+        collected_at: new Date().toISOString(),
+        gpus: [],
+        error: msg,
+      };
     }
   }
   return {

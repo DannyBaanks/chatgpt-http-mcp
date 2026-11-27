@@ -1305,7 +1305,9 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     handler: async (args) => {
       const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
       const hive = new HiveManager({ hiveRoot: args.hive_root ? String(args.hive_root) : defaultHiveRoot() });
-      return { ok: true, result: hive.registry() };
+      const reg = hive.registry();
+      markTainted("hive.agents", hive.root());
+      return { ok: true, result: reg };
     },
   },
   {
@@ -1319,7 +1321,9 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     handler: async (args) => {
       const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
       const hive = new HiveManager({ hiveRoot: args.hive_root ? String(args.hive_root) : defaultHiveRoot() });
-      return { ok: true, result: hive.tasks() };
+      const tasks = hive.tasks();
+      markTainted("hive.tasks", hive.root());
+      return { ok: true, result: tasks };
     },
   },
   {
@@ -1333,7 +1337,9 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     handler: async (args) => {
       const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
       const hive = new HiveManager({ hiveRoot: args.hive_root ? String(args.hive_root) : defaultHiveRoot() });
-      return { ok: true, result: { board: hive.board() } };
+      const board = hive.board();
+      markTainted("hive.board", hive.root());
+      return { ok: true, result: { board } };
     },
   },
   {
@@ -1352,10 +1358,12 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
       "example": { "action": "hive.send", "arguments": { "to": "god", "subject": "Estado", "body": "Listo" } }
     },
     handler: async (args) => {
-      const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
       const to = String(args.to ?? "").trim();
       const subject = String(args.subject ?? "").trim();
       if (!to || !subject) return { ok: false, result: null, error: "hive.send requiere `to` y `subject`" };
+      const gate = checkGate("agent_spawn", "hive.send", { to, subject });
+      if (!gate.ok) return { ok: false, result: null, error: gate.message };
+      const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
       const hive = new HiveManager({ hiveRoot: args.hive_root ? String(args.hive_root) : defaultHiveRoot() });
       const msg = hive.send(
         { to, subject, body: String(args.body ?? ""), act: (args.act ? String(args.act) : "request") as any },
@@ -1370,14 +1378,14 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     family: "link",
     glossary: {
       "description": "Lista la identidad local y los peers emparejados con su autoridad (`office` / `compute`).",
-      "parameters": { "link_dir": "string (opcional)" },
+      "parameters": {},
       "example": { "action": "link.peers" }
     },
-    handler: async (args) => {
+    handler: async () => {
       const { defaultLinkDir, loadIdentity, loadPeers } = await import("../link/store");
       const { prettyFingerprint } = await import("../link/crypto");
       const { peerAuthority } = await import("../link/authority");
-      const dir = args.link_dir ? String(args.link_dir) : defaultLinkDir();
+      const dir = defaultLinkDir();
       const id = loadIdentity(dir);
       const peers = Object.values(loadPeers(dir)).map((p) => ({
         office_id: p.office_id,
@@ -1394,7 +1402,7 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     family: "link",
     glossary: {
       "description": "Consulta estado y capacidad de un peer emparejado sobre el canal sellado.",
-      "parameters": { "peer": "string (obligatorio: nombre o id, ej. 'xeon')", "link_dir": "string (opcional)" },
+      "parameters": { "peer": "string (obligatorio: nombre o id, ej. 'xeon')" },
       "example": { "action": "link.status", "arguments": { "peer": "xeon" } }
     },
     handler: async (args) => {
@@ -1402,7 +1410,8 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
       const peer = String(args.peer ?? args.office ?? "").trim();
       if (!peer) return { ok: false, result: null, error: "link.status requiere `peer`" };
       try {
-        const res = await call(peer, "status", {}, { dir: args.link_dir ? String(args.link_dir) : undefined });
+        const res = await call(peer, "status", {});
+        markTainted("link.status", peer);
         return { ok: true, result: res };
       } catch (e) {
         return { ok: false, result: null, error: (e as Error).message };
@@ -1423,15 +1432,19 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
       "example": { "action": "link.submit", "arguments": { "peer": "xeon", "compose": "Audita logs" } }
     },
     handler: async (args) => {
-      const { delegate } = await import("../link/client");
       const peer = String(args.peer ?? args.office ?? "").trim();
       const compose = String(args.compose ?? "").trim();
       if (!peer || !compose) return { ok: false, result: null, error: "link.submit requiere `peer` y `compose`" };
+      const gate = checkGate("agent_spawn", "link.submit", {
+        peer,
+        title: args.title ? String(args.title) : "",
+      });
+      if (!gate.ok) return { ok: false, result: null, error: gate.message };
+      const { delegate } = await import("../link/client");
       try {
         const res = await delegate(peer, compose, {
           title: args.title ? String(args.title) : undefined,
           priority: args.priority !== undefined ? Number(args.priority) : undefined,
-          dir: args.link_dir ? String(args.link_dir) : undefined,
         });
         return { ok: true, result: res };
       } catch (e) {
@@ -1445,7 +1458,7 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
     family: "compute",
     glossary: {
       "description": "Consulta telemetría CPU, RAM, GPU (RTX 4060 vía nvidia-smi) y slots libres/ocupados de un peer.",
-      "parameters": { "peer": "string (obligatorio)", "link_dir": "string (opcional)" },
+      "parameters": { "peer": "string (obligatorio)" },
       "example": { "action": "compute.telemetry", "arguments": { "peer": "xeon" } }
     },
     handler: async (args) => {
@@ -1453,7 +1466,7 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
       const peer = String(args.peer ?? "").trim();
       if (!peer) return { ok: false, result: null, error: "compute.telemetry requiere `peer`" };
       try {
-        const res = await call(peer, "host_telemetry", {}, { dir: args.link_dir ? String(args.link_dir) : undefined });
+        const res = await call(peer, "host_telemetry", {});
         return { ok: true, result: res };
       } catch (e) {
         return { ok: false, result: null, error: (e as Error).message };
@@ -1506,7 +1519,6 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
             label: args.label ? String(args.label) : undefined,
             files: Array.isArray(args.files) ? args.files : undefined,
           },
-          { dir: args.link_dir ? String(args.link_dir) : undefined },
         );
         return { ok: true, result: res };
       } catch (e) {
@@ -1541,8 +1553,8 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
             stdout_offset: Number(args.stdout_offset ?? 0),
             stderr_offset: Number(args.stderr_offset ?? 0),
           },
-          { dir: args.link_dir ? String(args.link_dir) : undefined },
         );
+        markTainted("compute.status", `${peer}:${jobId}`);
         return { ok: true, result: res };
       } catch (e) {
         return { ok: false, result: null, error: (e as Error).message };
@@ -1566,8 +1578,8 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
           peer,
           "job_list",
           { limit: Number(args.limit ?? 50) },
-          { dir: args.link_dir ? String(args.link_dir) : undefined },
         );
+        markTainted("compute.list", peer);
         return { ok: true, result: res };
       } catch (e) {
         return { ok: false, result: null, error: (e as Error).message };
@@ -1588,7 +1600,7 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
       const jobId = String(args.job_id ?? "").trim();
       if (!peer || !jobId) return { ok: false, result: null, error: "compute.cancel requiere `peer` y `job_id`" };
       try {
-        const res = await call(peer, "job_cancel", { job_id: jobId }, { dir: args.link_dir ? String(args.link_dir) : undefined });
+        const res = await call(peer, "job_cancel", { job_id: jobId });
         return { ok: true, result: res };
       } catch (e) {
         return { ok: false, result: null, error: (e as Error).message };
@@ -1621,8 +1633,8 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
           peer,
           "job_fetch",
           { job_id: jobId, path: relPath, offset: Number(args.offset ?? 0) },
-          { dir: args.link_dir ? String(args.link_dir) : undefined },
         );
+        markTainted("compute.fetch", `${peer}:${jobId}:${relPath}`);
         return { ok: true, result: res };
       } catch (e) {
         return { ok: false, result: null, error: (e as Error).message };

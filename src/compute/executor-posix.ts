@@ -1,13 +1,38 @@
-// src/compute/exec-posix.ts — Ejecutor nativo POSIX (Linux/macOS) con nice, timeout y tree-kill.
+// src/compute/executor-posix.ts — Ejecutor nativo POSIX (Linux/macOS) con entorno mínimo, nice, tope de logs, timeout y tree-kill.
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
+import type { Readable } from "node:stream";
 import { stopProcessTree } from "../platform/process";
+import { buildSafeJobEnv } from "./env";
 import type { ComputeExecRequest, ComputePriority, ComputeRunningHandle, PlatformComputeExecutor } from "./types";
+
+const DEFAULT_MAX_LOG_BYTES = 32 * 1024 * 1024;
 
 function niceDelta(priority: ComputePriority): number {
   if (priority === "idle") return 15;
   if (priority === "below_normal") return 10;
   return 0;
+}
+
+function pipeWithLimit(src: Readable | null, dst: ReturnType<typeof createWriteStream>, maxBytes: number): void {
+  if (!src) return;
+  let written = 0;
+  let truncated = false;
+  src.on("data", (chunk: Buffer) => {
+    if (truncated) return;
+    if (written + chunk.length <= maxBytes) {
+      written += chunk.length;
+      dst.write(chunk);
+      return;
+    }
+    const remain = Math.max(0, maxBytes - written);
+    if (remain > 0) {
+      dst.write(chunk.subarray(0, remain));
+      written += remain;
+    }
+    truncated = true;
+    dst.write(`\n[isymcp] output truncated at ${maxBytes} bytes\n`);
+  });
 }
 
 export const posixComputeExecutor: PlatformComputeExecutor = {
@@ -18,6 +43,10 @@ export const posixComputeExecutor: PlatformComputeExecutor = {
   async spawn(req: ComputeExecRequest): Promise<ComputeRunningHandle> {
     const outStream = createWriteStream(req.stdout_path, { flags: "a" });
     const errStream = createWriteStream(req.stderr_path, { flags: "a" });
+    const maxLogBytes =
+      typeof req.max_log_bytes === "number" && Number.isFinite(req.max_log_bytes) && req.max_log_bytes > 0
+        ? Math.floor(req.max_log_bytes)
+        : DEFAULT_MAX_LOG_BYTES;
 
     let bin: string;
     let args: string[];
@@ -48,13 +77,13 @@ export const posixComputeExecutor: PlatformComputeExecutor = {
 
     const child = spawn(bin, args, {
       cwd: req.cwd,
-      env: { ...process.env, ...(req.env ?? {}) },
+      env: buildSafeJobEnv(req.env),
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
-    child.stdout?.pipe(outStream, { end: false });
-    child.stderr?.pipe(errStream, { end: false });
+    pipeWithLimit(child.stdout, outStream, maxLogBytes);
+    pipeWithLimit(child.stderr, errStream, maxLogBytes);
 
     const pid = child.pid ?? 0;
     let killed = false;

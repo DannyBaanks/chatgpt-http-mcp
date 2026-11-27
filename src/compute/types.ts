@@ -37,6 +37,8 @@ export interface ComputeExecRequest {
   priority: ComputePriority;
   env?: Record<string, string>;
   timeout_ms?: number;
+  /** Tope en bytes para stdout.log y stderr.log (cada uno). Default 32 MiB. */
+  max_log_bytes?: number;
   /** Rutas donde el ejecutor debe volcar stdout y stderr en tiempo real. */
   stdout_path: string;
   stderr_path: string;
