@@ -76,7 +76,9 @@ describe("bridge-errors: bitácora y túnel", () => {
     const { env } = isolatedEnv();
     recordError("codex_exec", "fail-closed: bwrap not found Bearer abcdefghijklmnop", { session: "gpt-sandbox[abc]" }, env);
     const path = errorsLogPath(env);
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+    }
     const raw = readFileSync(path, "utf8");
     expect(raw).not.toContain("abcdefghijklmnop");
     const recent = recentErrors(5, env);
