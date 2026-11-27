@@ -35,6 +35,7 @@ ISyMCP reúne en una interfaz local las piezas que normalmente viven separadas: 
 | 🛡️ | **Ejecución con permisos** | Elige el workspace, delimita lectura/escritura y revisa la ejecución real. |
 | 🤝 | **Varios agentes, un mismo entorno** | Integra flujos con Codex, Claude Code, Cursor, OpenCode y otras herramientas compatibles. |
 | 🎬 | **Multimedia local** | Inspecciona video y audio registrados: fotogramas, espectrogramas y mediciones. |
+| ⚡ | **Cómputo remoto y Hive headless** | Despacha procesos asíncronos CPU/GPU/WSL2 a otra máquina emparejada (cifrado E2E, sin Electron) y coordina agentes en disco. |
 | 📊 | **Diagnóstico y observabilidad** | Salud, métricas, canarios y pruebas para detectar fallos en el puente. |
 
 <details>
@@ -104,6 +105,30 @@ El panel funciona en **http://127.0.0.1:8798**. Para utilizar chat, túneles o a
 Desde el panel se maneja todo con una tecla: `u`/`d` subir o bajar server y túnel, `t`/`T` túnel, `p`/`P` panel, `m`/`M` monitor, `c` canario, `D` doctor, `s`/`a` permitir shell o agents una vez, `S`/`A` cerrarlos, `x` limpiar taint, `r` recargar el hub, `R` reiniciarlo, `l` log, `?` ayuda y `q` salir. Las acciones que paran servicios, abren permisos o reinician el hub (`d`, `r`, `s`, `a`, `x`, `R`) piden confirmar con `y`; `r` y `R` reinician los MCP de **todas** las TUIs conectadas al hub.
 
 `isymcp status --json` da el mismo estado como un objeto JSON (`isymcp-status/1`): un campo que no se puede leer sale en `null` en vez de fallar. Es lo que usan el panel y otras herramientas. Las pestañas `🔌 ISyMCP` de `claude-dash` y de `agy-dash` (`Alt+I`) abren este mismo panel.
+
+## ⚡ Cómputo remoto asíncrono, Link E2E y Hive headless
+
+ISyMCP incluye un carril ligero **sin Electron** para coordinar agentes en disco (**Hive**), enlazar máquinas por LAN o Tailscale (**Link**, protocolo `munder-link@1` con Ed25519 + X25519 + AES-256-GCM) y enviar procesos asíncronos de CPU o GPU a un equipo remoto (por ejemplo, de una laptop Linux a una estación Windows/WSL2 con GPU NVIDIA):
+
+- **Fail-closed por defecto:** emparejar con SAS de 6 dígitos solo concede autoridad `office`. Ejecutar procesos remotos (`compute`) permanece bloqueado hasta que el operador lo habilita explícitamente en la máquina destino (`isymcp link compute allow <peer>`).
+- **Aislamiento y seguridad:** los jobs remotos arrancan con un entorno mínimo de allowlist (nunca heredan tokens ni secretos del servidor), quedan aislados por peer, tienen tope de tiempo y tamaño de log, limpian procesos huérfanos al reiniciar y pasan por las puertas `host_shell` / `agent_spawn` + *taint* en MCP.
+- **Multiplataforma:** soporta `target: "posix"`, `target: "win"` (nativo Windows con clases de prioridad y tree-kill) y `target: "wsl"` (WSL2 + CUDA con aislamiento por PGID), además de telemetría `nvidia-smi` y descarga de artefactos por bloques con SHA-256.
+- **Herramienta MCP directa (`isymcp-compute`):** el servidor stdio `src/mcp/compute.ts` expone `compute_peers`, `compute_telemetry`, `compute_run` (con `wait_ms` opcional), `compute_status`, `compute_list`, `compute_cancel`, `compute_fetch`, `hive_status`, `hive_send` y `link_delegate` para registrarlo en `isymcp-hub`, además de las acciones `compute.*`, `link.*` y `hive.*` en el Universal Gateway.
+
+```bash
+# En la máquina worker (Windows o Linux; en Windows existe scripts/windows/install-link-worker.ps1)
+isymcp link serve --port 47831
+
+# En la máquina cliente: emparejar con código SAS de 6 dígitos
+isymcp link pair <ip-lan-o-tailscale>:47831 --accept
+# En el worker: aceptar el SAS y habilitar cómputo explícitamente
+isymcp link accept <codigo-6-digitos>
+isymcp link compute allow <office_id>
+
+# Consultar GPU/slots y despachar un job asíncrono (Windows nativo, WSL2/CUDA o POSIX)
+isymcp compute telemetry <peer>
+isymcp compute run <peer> --target wsl --gpu -- nvidia-smi
+```
 
 ## 🔗 Tu flujo, tus herramientas
 
