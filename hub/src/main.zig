@@ -65,6 +65,7 @@ pub fn main(init: std.process.Init) !void {
             .socket_path = paths.socket,
             .config_path = paths.config,
             .log_path = if (nonEmpty(init.environ_map, "ISYMCP_HUB_LOG")) |l| (if (std.mem.eql(u8, l, "-")) null else l) else try std.fmt.allocPrint(arena, "{s}/hub.log", .{paths.home}),
+            .cache_path = if (nonEmpty(init.environ_map, "ISYMCP_HUB_CACHE")) |c| (if (std.mem.eql(u8, c, "-")) null else c) else try std.fmt.allocPrint(arena, "{s}/catalog-cache.json", .{paths.home}),
             .quiet = quiet,
         });
         d.listen() catch |e| {
