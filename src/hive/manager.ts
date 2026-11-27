@@ -22,9 +22,9 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { bridgeHome } from "../codex-sessions";
 import { localIpcPath } from "../platform/ipc";
@@ -33,6 +33,9 @@ import {
   GPT_PRINCIPAL,
   type AgentMeta,
   type HiveMessage,
+  type HiveRosterEntry,
+  type HiveSpawnInput,
+  type HiveSpawnResult,
   type HiveTask,
   type HiveTaskStatusEvent,
   type MessageAct,
@@ -41,6 +44,18 @@ import {
   type RouterHealth,
   type SpawnInjection,
 } from "./types";
+
+/** Cross-platform PID liveness check (Windows + POSIX). Treats EPERM as alive. */
+export function isPidAlive(pid: number | undefined): boolean {
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    return code === "EPERM";
+  }
+}
 
 const HOP_CAP = 12;
 const MINE_IGNORE_LINES = ["settings.json", "cursor.json", "inbox/", "outbox/", ".codex/"];
@@ -338,8 +353,10 @@ export class HiveManager {
     const systemPrompt = this.injectedPrompt({ ...meta, cwd }, dir, root);
     const env: Record<string, string> = {
       AGENT_ID: meta.id,
+      HIVE_AGENT_ID: meta.id,
       AGENT_NAME: meta.name,
       HIVE_ROOT: root,
+      ISYMCP_HIVE_ROOT: root,
       AGENT_DIR: dir,
       ...(sock ? { HIVE_SOCK: sock } : {}),
     };
@@ -806,6 +823,170 @@ export class HiveManager {
 
   inbox(id: string): HiveMessage[] {
     return this.listMessages(join(this.agentDir(id), "inbox"));
+  }
+
+  /** Registers/updates a live agent session with PID, harness, host, and wake mode. */
+  registerLive(input: Omit<AgentMeta, "cwd"> & { cwd?: string }): HiveRosterEntry {
+    const cwd = expandTilde(input.cwd || process.cwd());
+    const pid = typeof input.pid === "number" && Number.isInteger(input.pid) && input.pid > 0 ? input.pid : process.pid;
+    this.ensureAgent({
+      ...input,
+      cwd,
+      pid,
+      host: input.host ?? hostname(),
+      wake: input.wake ?? "wait",
+    });
+    const reg = this.registry();
+    const agent = reg.agents[input.id]!;
+    return {
+      ...agent,
+      alive: isPidAlive(agent.pid),
+    };
+  }
+
+  /** Returns non-archived agents with live cross-platform PID liveness checks. */
+  liveRoster(): HiveRosterEntry[] {
+    const reg = this.registry();
+    return Object.values(reg.agents)
+      .filter((a) => !a.archived)
+      .map((a) => ({
+        ...a,
+        alive: isPidAlive(a.pid),
+      }));
+  }
+
+  /** Reads pending inbox messages, optionally archiving them to `inbox/.done/`. */
+  readInbox(id: string, markRead = true): HiveMessage[] {
+    const dir = join(this.agentDir(id), "inbox");
+    const messages = this.listMessages(dir);
+    if (!markRead || messages.length === 0) return messages;
+
+    const doneDir = join(dir, ".done");
+    mkdirSync(doneDir, { recursive: true });
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".json")).sort()) {
+      try {
+        renameSync(join(dir, file), join(doneDir, file));
+      } catch {
+        /* ignore race */
+      }
+    }
+    return messages;
+  }
+
+  /**
+   * Waits reactively for a new message in `agentId`'s inbox without polling.
+   * Checks `inbox/` first so messages arriving just before `waitForMessages` are never missed.
+   */
+  waitForMessages(
+    agentId: string,
+    timeoutMs = 30_000,
+    markRead = true,
+  ): Promise<{ timed_out: boolean; messages: HiveMessage[] }> {
+    const immediate = this.readInbox(agentId, markRead);
+    if (immediate.length > 0) {
+      return Promise.resolve({ timed_out: false, messages: immediate });
+    }
+
+    const waitMs = Math.max(100, Math.min(300_000, Math.floor(timeoutMs)));
+    return new Promise((resolvePromise) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const unsub = this.addRoutedObserver((_msg, targets) => {
+        if (settled || !targets.includes(agentId)) return;
+        const msgs = this.readInbox(agentId, markRead);
+        if (msgs.length === 0) return;
+        settled = true;
+        if (timer !== null) clearTimeout(timer);
+        unsub();
+        resolvePromise({ timed_out: false, messages: msgs });
+      });
+
+      timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        unsub();
+        const late = this.readInbox(agentId, markRead);
+        resolvePromise({ timed_out: late.length === 0, messages: late });
+      }, waitMs);
+    });
+  }
+
+  /** Spawns a local agent process with HIVE_AGENT_ID + ISYMCP_HIVE_ROOT injected and records its PID. */
+  spawnAgent(input: HiveSpawnInput): HiveSpawnResult {
+    const root = this.root();
+    if (!root) {
+      throw new Error("hive_root_unavailable");
+    }
+    const agentId = input.agent_id?.trim() || `${input.harness}_${randomBytes(4).toString("hex")}`;
+    const cwd = expandTilde(input.cwd || process.cwd());
+    const injection = this.ensureAgent({
+      id: agentId,
+      name: input.name,
+      harness: input.harness,
+      provider: input.harness,
+      role: input.role ?? "worker",
+      capabilities: input.capabilities,
+      cwd,
+      host: hostname(),
+      wake: input.wake ?? "wait",
+    });
+
+    const cmd = input.command && input.command.length > 0
+      ? input.command
+      : this.defaultHarnessCommand(input.harness, input.prompt, injection.systemPrompt);
+
+    const childEnv: Record<string, string> = {
+      ...process.env,
+      ...injection.env,
+      ...(input.parent_agent_id ? { HIVE_PARENT_AGENT_ID: input.parent_agent_id } : {}),
+    };
+
+    const child = spawn(cmd[0]!, cmd.slice(1), {
+      cwd,
+      env: childEnv,
+      detached: true,
+      stdio: "ignore",
+      shell: process.platform === "win32" && !isAbsolute(cmd[0]!),
+    });
+    child.unref();
+
+    const pid = child.pid ?? 0;
+    this.registerLive({
+      id: agentId,
+      name: input.name,
+      harness: input.harness,
+      provider: input.harness,
+      role: input.role ?? "worker",
+      capabilities: input.capabilities,
+      cwd,
+      pid,
+      host: hostname(),
+      wake: input.wake ?? "wait",
+    });
+
+    return {
+      agent_id: agentId,
+      name: input.name,
+      harness: input.harness,
+      pid,
+      cwd,
+      alive: isPidAlive(pid),
+    };
+  }
+
+  private defaultHarnessCommand(harness: string, prompt: string, systemPrompt: string): string[] {
+    switch (harness) {
+      case "claude":
+        return ["claude", "-p", prompt, "--append-system-prompt", systemPrompt];
+      case "codex":
+        return ["codex", "exec", prompt];
+      case "opencode":
+        return ["opencode", "run", prompt];
+      case "agy":
+        return ["agy", prompt];
+      default:
+        return [harness, prompt];
+    }
   }
 
   outbox(id: string): HiveMessage[] {
