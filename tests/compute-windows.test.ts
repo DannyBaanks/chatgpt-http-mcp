@@ -36,14 +36,14 @@ function jobRequest(overrides: Partial<ComputeExecRequest> = {}): ComputeExecReq
 // windowsPathToWsl — puro, corre en cualquier OS
 // ---------------------------------------------------------------------------
 test("windowsPathToWsl traduce rutas de unidad Windows", () => {
-  expect(windowsPathToWsl("C:\\Users\\danny\\work")).toBe("/mnt/c/Users/danny/work");
+  expect(windowsPathToWsl("C:\\Projects\\demo\\work")).toBe("/mnt/c/Projects/demo/work");
   expect(windowsPathToWsl("C:\\")).toBe("/mnt/c");
   expect(windowsPathToWsl("d:/Data/ISyCo")).toBe("/mnt/d/Data/ISyCo");
   expect(windowsPathToWsl("C:\\espacio con\\nombre")).toBe("/mnt/c/espacio con/nombre");
 });
 
 test("windowsPathToWsl deja intactas las rutas ya POSIX", () => {
-  expect(windowsPathToWsl("/home/danny/work")).toBe("/home/danny/work");
+  expect(windowsPathToWsl("/var/tmp/work")).toBe("/var/tmp/work");
   expect(windowsPathToWsl("/mnt/c/ya-traducida")).toBe("/mnt/c/ya-traducida");
   expect(windowsPathToWsl("ruta/relativa")).toBe("ruta/relativa");
 });
@@ -111,12 +111,12 @@ test("readGpuTelemetry cachea por TTL y respeta forceRefresh", async () => {
   }
 }, 15_000);
 
-test("readGpuTelemetry ve la RTX 4060 real de este host", async () => {
+test("readGpuTelemetry detecta GPU NVIDIA real si el host tiene nvidia-smi", async () => {
   const snap = await readGpuTelemetry({ cacheTtlMs: 0, forceRefresh: true });
   if (!snap.available) return; // host sin GPU: la degradacion ya se probo arriba
   expect(snap.provider).toBe("nvidia-smi");
   expect(snap.gpus.length).toBeGreaterThan(0);
-  expect(snap.gpus[0].name).toContain("RTX 4060");
+  expect(snap.gpus[0].name.trim().length).toBeGreaterThan(0);
   expect(snap.gpus[0].vram_total_mb).toBeGreaterThan(0);
 }, 15_000);
 
