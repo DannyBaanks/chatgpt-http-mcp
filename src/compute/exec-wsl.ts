@@ -121,10 +121,14 @@ export const wslComputeExecutor: PlatformComputeExecutor = {
   async isAvailable(): Promise<boolean> {
     if (process.platform !== "win32") return false;
     try {
-      const proc = Bun.spawnSync([WSL_EXE, "--status"], {
-        stdin: "ignore", stdout: "ignore", stderr: "ignore", timeout: 5000,
+      // `wsl --status` sale 0 aunque no haya ninguna distro (runner windows-latest).
+      // `--list --quiet` enumera distros sin arrancar la VM; su salida es UTF-16LE.
+      const proc = Bun.spawnSync([WSL_EXE, "--list", "--quiet"], {
+        stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: 5000,
       });
-      return proc.exitCode === 0;
+      if (proc.exitCode !== 0) return false;
+      const names = Buffer.from(proc.stdout ?? new Uint8Array()).toString("utf8").replace(/\0/g, "").trim();
+      return names.length > 0;
     } catch {
       return false;
     }

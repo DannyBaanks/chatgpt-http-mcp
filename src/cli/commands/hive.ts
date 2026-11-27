@@ -10,7 +10,7 @@ function flagValue(args: string[], flag: string): string | undefined {
 }
 
 function hiveHelp(): void {
-  console.log(`isymcp hive — Coordinación multi-agente headless (cero Electron)
+  console.log(`isymcp hive — Coordinación multi-agente headless (sin GUI)
 
 Uso:
   isymcp hive init [--root <dir>]

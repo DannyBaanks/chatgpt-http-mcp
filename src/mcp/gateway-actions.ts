@@ -71,7 +71,7 @@ export const FAMILY_DESCRIPTIONS: Record<string, string> = {
   "openisy": "Túnel bidireccional hacia OpenISy/OpenCode (HTTP v2 Daemon) para orquestar su TUI en vivo (como usuario o como agente sintético) y despachar sub-agentes multi-provider con o sin API keys externas.",
   "openswift": "Simulador visual de pantallas SwiftUI en iPhone e iPad (OpenSwift): renderiza código o archivos .swift a capturas PNG Retina para que el modelo vea visualmente la interfaz.",
   "handoff": "Carga unificada en 1 paso de handoffs compactados por NVIDIA Nemotron en el Baúl (`compacted/`) junto con verificación viva de archivos, estado git y búsqueda `ziggrep`.",
-  "hive": "Coordinación multi-agente headless en disco (extraída de isyco-worlds, cero Electron): registry, board.md, tasks.json, inboxes/outboxes y router.",
+  "hive": "Coordinación multi-agente headless en disco (extraída de isyco-worlds, sin GUI): registry, board.md, tasks.json, inboxes/outboxes y router.",
   "link": "Enlace cifrado E2E entre máquinas (munder-link@1 sobre LAN/Tailscale): peers, estado de oficina y delegación Hive.",
   "compute": "Ejecución remota asíncrona de procesos CPU/WSL2/GPU (ej. PC Xeon Windows con RTX 4060) sobre ISyMCP Link con slots de recursos, streaming de logs y descarga verificada por SHA-256."
 };
