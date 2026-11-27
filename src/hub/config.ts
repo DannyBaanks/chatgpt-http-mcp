@@ -98,7 +98,7 @@ export function parseHubConfig(raw: unknown): HubConfig {
       ...(v.mode === "direct" ? { mode: "direct" as const } : {}),
     };
   }
-  return { ...(autoReconnect !== undefined ? { auto_reconnect: autoReconnect } : {}), servers: out };
+  return { ...(typeof autoReconnect === "boolean" ? { auto_reconnect: autoReconnect } : {}), servers: out };
 }
 
 export function loadHubConfig(path = hubConfigPath()): HubConfig {
