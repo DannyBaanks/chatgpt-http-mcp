@@ -131,6 +131,14 @@ pub fn unlink(path: []const u8) void {
     _ = linux.unlink(z);
 }
 
+pub fn rename(old_path: []const u8, new_path: []const u8) !void {
+    var ozb: [4096]u8 = undefined;
+    var nzb: [4096]u8 = undefined;
+    const oz = try pathZ(&ozb, old_path);
+    const nz = try pathZ(&nzb, new_path);
+    _ = try check(linux.rename(oz, nz));
+}
+
 /// Abre (creando) en modo append 0600; devuelve -1 si no se puede.
 pub fn openAppend(path: []const u8) i32 {
     var zb: [4096]u8 = undefined;
