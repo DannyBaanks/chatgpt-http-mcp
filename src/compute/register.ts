@@ -551,14 +551,14 @@ export function registerComputeMcpTools(server: McpServer): void {
     "hive_spawn",
     {
       description:
-        "Lanza un nuevo agente (local o en un peer remoto) pre-registrado en el Hive para conversar con él (requiere permiso `agent_spawn`).",
+        "Lanza un nuevo agente (local si se omite `peer`, o en un peer remoto si se especifica `peer`) pre-registrado en el Hive con `HIVE_AGENT_ID` para conversar con él (requiere permiso `agent_spawn`).",
       inputSchema: {
-        peer: z.string().optional().describe("Peer remoto donde lanzar el agente (omitir para requerir peer explícito)"),
+        peer: z.string().optional().describe("Opcional: peer remoto donde lanzar el agente; si se omite, lanza localmente"),
         harness: z.enum(["claude", "agy", "codex", "opencode"]).describe("Harness del agente a lanzar"),
         name: z.string().min(1).describe("Nombre/agent_id del nuevo agente"),
         role: z.string().optional().describe("Rol corto del agente"),
         cwd: z.string().optional().describe("Directorio de trabajo"),
-        prompt: z.string().optional().describe("Instrucción inicial"),
+        prompt: z.string().optional().default("").describe("Instrucción inicial"),
         parent_agent_id: z.string().optional().describe("agent_id del agente padre que lo lanza"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -571,16 +571,29 @@ export function registerComputeMcpTools(server: McpServer): void {
       });
       if (!gate.ok) return errJson(gate.message);
       try {
-        const peer = resolveDefaultPeer(args.peer);
-        const res = await remoteHiveSpawn(peer, {
-          harness: args.harness,
+        if (args.peer && args.peer.trim()) {
+          const peer = resolveDefaultPeer(args.peer);
+          const res = await remoteHiveSpawn(peer, {
+            harness: args.harness,
+            name: args.name,
+            role: args.role,
+            cwd: args.cwd,
+            prompt: args.prompt ?? "",
+            parent_agent_id: args.parent_agent_id,
+          });
+          return okJson(res);
+        }
+        const hive = new HiveManager({ hiveRoot: defaultHiveRoot() });
+        const spawned = hive.spawnAgent({
+          agent_id: args.name,
           name: args.name,
+          harness: args.harness,
           role: args.role,
           cwd: args.cwd,
-          prompt: args.prompt,
+          prompt: args.prompt ?? "",
           parent_agent_id: args.parent_agent_id,
         });
-        return okJson(res);
+        return okJson({ spawned: true, local: true, agent: spawned });
       } catch (e) {
         return errJson((e as Error).message);
       }
