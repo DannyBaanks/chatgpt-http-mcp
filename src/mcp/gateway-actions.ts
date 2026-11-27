@@ -16,6 +16,7 @@ import { callGitHubApi } from "../github/client";
 import { openBridgeMonitorStack } from "../remote-monitor";
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
 import { executeShellCommand } from "../shell/executor";
+import { diagnose, errorCatalog, recentErrors } from "../bridge-errors";
 
 export interface GlossaryEntry {
   description: string;
@@ -58,6 +59,7 @@ export const GLOSSARY_HEADER = {
 
 /** Descripción de cada familia, en el orden en que aparece en el glosario. */
 export const FAMILY_DESCRIPTIONS: Record<string, string> = {
+  "errors": "Diagnóstico de fallos del bridge: catálogo de códigos (causa, remedio, quién lo arregla), explicación de un mensaje de error y últimos fallos reales de la máquina (tools, permisos denegados, salud del túnel).",
   "tui": "Orquestación y despliegue de consolas interactivas de agentes (agy, claude, opencode, openisy, isycode, codex, gemini, copilot, droid, kimi, crush, hermes, openclaw) en el escritorio local.",
   "github": "Operaciones autenticadas con GitHub mediante el token PAT de Danny (DannyBaanks) almacenado en ISyMCP.",
   "monitor": "Coordinación asíncrona, colas de tareas con SQLite WAL y recibos criptográficos HMAC.",
@@ -77,6 +79,43 @@ function isymcpCliEntry(): string {
 }
 
 export const GATEWAY_ACTIONS: GatewayAction[] = [
+  {
+    name: "errors.catalog",
+    family: "errors",
+    aliases: ["errors", "error_catalog"],
+    glossary: {
+      "description": "Catálogo completo de códigos de fallo de ISyMCP: capa (transport/token/permission/sandbox/arguments/process/internal), quién lo arregla (model = tú reintentas distinto; operator = Danny en su terminal), causa, remedio y comando sugerido para Danny.",
+      "parameters": {},
+      "example": {},
+    },
+    handler: async () => ({ ok: true, result: { codes: errorCatalog() } }),
+  },
+  {
+    name: "errors.explain",
+    family: "errors",
+    aliases: ["error_explain", "explain_error"],
+    glossary: {
+      "description": "Explica un mensaje de error (aunque venga de tu lado, p. ej. 'McpServerError: Session terminated') o un código del catálogo: devuelve {code, layer, who_fixes, cause, remedy, command}.",
+      "parameters": { "message": "Texto exacto del error o código (string, requerido)" },
+      "example": { "message": "INVALID_ARGUMENT: McpServerError: Session terminated" },
+    },
+    handler: async (args) => {
+      const message = String(args.message ?? args.error ?? args.code ?? "").trim();
+      if (!message) return { ok: false, result: null, error: "message requerido" };
+      return { ok: true, result: diagnose(message) };
+    },
+  },
+  {
+    name: "errors.recent",
+    family: "errors",
+    aliases: ["error_recent", "last_errors"],
+    glossary: {
+      "description": "Últimos fallos reales en la máquina de Danny, cada uno con su diagnosis: errores de tools codex_*, permisos denegados (shell/agents) y salud de los túneles (poll timeouts seguidos = túnel atascado). Úsalo para decirle a Danny qué falló y cómo arreglarlo.",
+      "parameters": { "limit": "Máximo de entradas por lista (int, 1-100, por defecto 20)" },
+      "example": { "limit": 10 },
+    },
+    handler: async (args) => ({ ok: true, result: recentErrors(Number(args.limit ?? 20)) }),
+  },
   {
     name: "tui.spawn",
     family: "tui",

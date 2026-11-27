@@ -66,6 +66,7 @@ import { spawnAgentTui, spawnAgyTui } from "../tui-launcher";
 import { checkGate } from "../permissions";
 import { registerTableroTools } from "../tablero/register";
 import { appendTrace, sanitizeToolTraceText, sanitizeToolTraceValue } from "../tool-trace";
+import { diagnose, recordError } from "../bridge-errors";
 import { handleQueueLeaseMcpCall, isQueueLeaseToken } from "../remote-monitor";
 
 const args = process.argv.slice(2);
@@ -182,13 +183,39 @@ async function tracedCall(
   const session = sessionFrom(input, tool, callId);
   const token = String(input[turnKey] ?? "");
   try {
-    const result = await dispatch(session, callId);
+    const result = withDiagnosis(tool, session, token, await dispatch(session, callId));
     traceResult(session, tool, callId, token, result);
     return result;
   } catch (error) {
-    const result = fail(`tool dispatch failed: ${String(error)}`);
+    const result = withDiagnosis(tool, session, token, fail(`tool dispatch failed: ${String(error)}`));
     traceResult(session, tool, callId, token, result);
     return result;
+  }
+}
+
+/**
+ * Si la tool fallo, adjunta `diagnosis` (codigo estable + causa + remedio, src/bridge-errors.ts) para
+ * que el modelo explique QUE fallo y QUIEN lo arregla, y lo deja en audit/errors.jsonl. Nunca rompe
+ * la tool: ante cualquier problema devuelve el resultado tal cual.
+ */
+function withDiagnosis<T extends { content: Array<{ type: string; text?: string }>; isError?: boolean }>(
+  tool: string, session: CodexSession | null, token: string, out: T): T {
+  try {
+    const idx = out.content.findIndex((c) => c.type === "text");
+    if (idx < 0) return out;
+    const r = JSON.parse(out.content[idx]!.text ?? "{}") as Record<string, unknown>;
+    if (!r || typeof r !== "object" || Array.isArray(r) || r.diagnosis !== undefined) return out;
+    const stub = !session && r.executed === false && typeof r.stderr === "string" && /V1 stub/.test(r.stderr);
+    const message = typeof r.error === "string" ? r.error : stub ? String(r.stderr) : null;
+    if (!out.isError && message === null) return out;
+    const text = (message ?? "error sin detalle").replaceAll(token || "\u0000", "[token redacted]");
+    const diagnosis = diagnose(text);
+    recordError(tool, text, { session: session ? `${session.label}[${session.fp}]` : null, code: diagnosis.code });
+    const content = [...out.content];
+    content[idx] = { ...content[idx]!, text: JSON.stringify({ ...r, diagnosis }) };
+    return { ...out, content };
+  } catch {
+    return out;
   }
 }
 
@@ -629,7 +656,10 @@ server.registerTool(
       }
     }
     if (isQueueLeaseToken(token)) return runQueueLeaseTool("codex_turn_start", token, input);
-    return jsonText({ started: true, turn_token: token });
+    // Token sin sesion viva: el contrato V1 responde started=true (stub), pero el modelo debe saber
+    // que no habra bootstrap ni ejecucion real, y por que.
+    recordError("codex_turn_start", "turn_token_unknown", { session: null, code: "turn_token_unknown" });
+    return jsonText({ started: true, turn_token: token, warning: "token sin sesion viva: no habra ejecucion real", diagnosis: diagnose("turn_token_unknown") });
   }),
 );
 

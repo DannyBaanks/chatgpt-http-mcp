@@ -12,6 +12,7 @@ import { callGitHubApi } from "../github/client";
 import { openBridgeMonitorStack } from "../remote-monitor";
 import { ISYMCP_AGENT_PROTOCOL_MD } from "../agent-protocol";
 import { executeShellCommand } from "../shell/executor";
+import { diagnose, recordError, TRANSPORT_HINT } from "../bridge-errors";
 
 export type { GlossaryEntry } from "./gateway-actions";
 
@@ -103,8 +104,9 @@ export function gatewayToolPayload(res: { ok: boolean; result: unknown; error?: 
     }
     return res.result !== undefined ? res.result : { ok: true };
   }
-  if (res.result === undefined || res.result === null) return { ok: false, error: res.error ?? "error sin detalle" };
-  return res.error ? { ok: false, error: res.error, result: res.result } : res.result;
+  const error = res.error ?? "error sin detalle";
+  if (res.result === undefined || res.result === null) return { ok: false, error, diagnosis: diagnose(error) };
+  return res.error ? { ok: false, error: res.error, diagnosis: diagnose(res.error), result: res.result } : res.result;
 }
 
 /**
@@ -117,7 +119,7 @@ export function registerIsyMcpGateway(server: McpServer): void {
       description:
         "ISyMCP Universal Gateway — Interfaz unificada de ejecución estilo REA para todas las capacidades de ISyMCP en la máquina de Danny. " +
         "Contiene el glosario interactivo de herramientas (TUI Launcher con Antigravity, GitHub, Monitor de Tareas, Multimedia, ComfyUI, OpenSwift Simulator). " +
-        "Invoca con action='glossary' o sin argumentos para descubrir el catálogo de acciones disponibles con sus parámetros y ejemplos.",
+        "Invoca con action='glossary' o sin argumentos para descubrir el catálogo de acciones disponibles con sus parámetros y ejemplos." + TRANSPORT_HINT,
       inputSchema: {
         action: z
           .string()
@@ -132,6 +134,7 @@ export function registerIsyMcpGateway(server: McpServer): void {
     },
     async (input) => {
       const res = await dispatchIsyMcpAction(input.action, input.arguments as Record<string, any>);
+      if (!res.ok) recordError(`isymcp:${String(input.action ?? "")}`.slice(0, 80), res.error ?? "error sin detalle");
       const maybeImg =
         res.ok && res.result && typeof res.result === "object" && !Array.isArray(res.result)
           ? (res.result as Record<string, any>)._mcp_image

@@ -43,9 +43,10 @@ describe("registro único del gateway", () => {
 describe("respuesta de la tool isymcp", () => {
   it("GR-06: si una acción falla, el modelo recibe el motivo (nunca `null`)", async () => {
     const { gatewayToolPayload } = await import("../src/mcp/gateway");
-    expect(gatewayToolPayload({ ok: false, result: null, error: "DENIED: x" })).toEqual({ ok: false, error: "DENIED: x" });
-    expect(gatewayToolPayload({ ok: false, result: undefined, error: "y" })).toEqual({ ok: false, error: "y" });
-    expect(gatewayToolPayload({ ok: false, result: { exit_code: 126 }, error: "z" })).toEqual({ ok: false, error: "z", result: { exit_code: 126 } });
+    // Cada fallo trae además `diagnosis` (src/bridge-errors.ts) para que el modelo explique qué pasó.
+    expect(gatewayToolPayload({ ok: false, result: null, error: "DENIED: x" })).toMatchObject({ ok: false, error: "DENIED: x", diagnosis: { code: "permission_denied" } });
+    expect(gatewayToolPayload({ ok: false, result: undefined, error: "y" })).toMatchObject({ ok: false, error: "y", diagnosis: { code: "unknown" } });
+    expect(gatewayToolPayload({ ok: false, result: { exit_code: 126 }, error: "z" })).toMatchObject({ ok: false, error: "z", result: { exit_code: 126 } });
     expect(gatewayToolPayload({ ok: false, result: { stderr: "w" } })).toEqual({ stderr: "w" });
     expect(gatewayToolPayload({ ok: true, result: [1] })).toEqual([1]);
     const denied = await dispatchIsyMcpAction("no.existe");
