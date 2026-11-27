@@ -2,8 +2,9 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import { HiveManager } from "../hive/manager";
-import type { HiveTask } from "../hive/types";
-import { peerAuthority, requireComputeAuthority } from "./authority";
+import { deliverLiveMessage, listLiveRoster } from "../hive/live";
+import type { HiveTask, MessageAct } from "../hive/types";
+import { peerAuthority, requireComputeAuthority, requireOfficeAuthority } from "./authority";
 import {
   b64u,
   hostCapacity,
@@ -42,6 +43,12 @@ export type ComputeRpcHandler = (
   peer: LinkPeer,
 ) => Promise<unknown>;
 
+export type HiveSpawnHandler = (
+  args: Record<string, unknown>,
+  peer: LinkPeer,
+  hive: HiveManager,
+) => Promise<unknown>;
+
 export interface LinkServerOptions {
   dir?: string;
   hiveRoot?: string | null;
@@ -49,6 +56,7 @@ export interface LinkServerOptions {
   version?: string;
   now?: () => number;
   computeHandler?: ComputeRpcHandler;
+  hiveSpawnHandler?: HiveSpawnHandler;
 }
 
 const COMPUTE_PROTECTED_OPS = new Set([
@@ -335,6 +343,90 @@ export function createLinkServer(opts: LinkServerOptions = {}): {
         );
         appendReceipt(dir, { event: "reply_received", from: peer.office_id, from_name: peer.name, task_id: rec.task_id, origin_ref: ref });
         return { origin_ref: ref, task_id: rec.task_id, status, result: resultText, receipt: receipt("link_reply_received", rec.task_id) };
+      }
+
+      case "hive_roster": {
+        requireOfficeAuthority(peer);
+        const h = resolveHive();
+        if (!h) {
+          return {
+            office_id: identity.office_id,
+            name: identity.name,
+            hive_enabled: false,
+            agents: [],
+          };
+        }
+        h.ensureHive();
+        return {
+          office_id: identity.office_id,
+          name: identity.name,
+          hive_enabled: true,
+          agents: listLiveRoster(h, {
+            officeId: identity.office_id,
+            includeArchived: args.include_archived === true,
+          }),
+        };
+      }
+
+      case "hive_deliver": {
+        requireOfficeAuthority(peer);
+        const h = requireHive();
+        const to = typeof args.to === "string" ? args.to.trim() : "";
+        if (!to) throw new LinkError("bad_args", "falta destinatario `to`");
+        const subject = typeof args.subject === "string" && args.subject.trim()
+          ? args.subject.trim().slice(0, 200)
+          : `Mensaje desde ${peer.name}`;
+        const body = typeof args.body === "string" ? args.body : "";
+        const validActs: MessageAct[] = ["request", "inform", "propose", "query", "agree", "refuse", "done"];
+        const act: MessageAct =
+          typeof args.act === "string" && (validActs as string[]).includes(args.act)
+            ? (args.act as MessageAct)
+            : "request";
+        const rawFrom = typeof args.from === "string" && args.from.trim() ? args.from.trim() : "agent";
+        const taggedFrom = rawFrom.includes("@") ? rawFrom : `${rawFrom}@${peer.name}`;
+        if (to !== "broadcast" && to !== "god" && to !== "human") {
+          const reg = h.registry();
+          if (!reg.agents[to]) {
+            throw new LinkError("agent_not_found", `no existe el agente «${to}» en este Hive`, 404);
+          }
+        }
+        const msg = deliverLiveMessage(
+          h,
+          {
+            to,
+            subject,
+            body,
+            act,
+            in_reply_to: typeof args.in_reply_to === "string" ? args.in_reply_to : null,
+            conversation: typeof args.conversation === "string" ? args.conversation : undefined,
+            requires_reply: args.requires_reply === true,
+          },
+          taggedFrom,
+        );
+        appendReceipt(dir, {
+          event: "hive_delivered",
+          from: peer.office_id,
+          from_name: peer.name,
+          from_agent: taggedFrom,
+          to_agent: to,
+          message_id: msg.id,
+        });
+        return {
+          delivered: true,
+          office_id: identity.office_id,
+          name: identity.name,
+          message: msg,
+          receipt: receipt("hive_delivered", msg.id),
+        };
+      }
+
+      case "hive_spawn_remote": {
+        requireOfficeAuthority(peer);
+        const h = requireHive();
+        if (!opts.hiveSpawnHandler) {
+          throw new LinkError("spawn_unavailable", "hive_spawn_remote no está habilitado en este servidor", 503);
+        }
+        return opts.hiveSpawnHandler(args, peer, h);
       }
 
       default:
