@@ -14,9 +14,19 @@ import type {
   ComputeJobSubmitInput,
   ComputePriority,
   ComputeRunningHandle,
+  ComputeUploadInput,
+  ComputeUploadResult,
+  OracleArtifactEntry,
+  OracleReceipt,
 } from "./types";
 
 const MAX_FETCH_CHUNK = 128 * 1024; // cabe con holgura en MAX_BODY (256 KB) tras base64 + sobre
+const MAX_UPLOAD_CHUNK = 128 * 1024;
+const MAX_UPLOAD_FILE_BYTES = 128 * 1024 * 1024;
+const MAX_UPLOAD_TOTAL_BYTES = 256 * 1024 * 1024;
+const MAX_UPLOAD_FILES = 128;
+const DEFAULT_UPLOAD_TTL_MS = 2 * 60 * 60 * 1000;
+const ORACLE_RECEIPT_FILE = "oracle-receipt.json";
 const MAX_LOG_CHUNK = 64 * 1024;
 const MAX_INPUT_FILES = 32;
 const MAX_INPUT_FILE_BYTES = 180 * 1024;
@@ -111,6 +121,10 @@ function readSlice(filePath: string, offset: number, maxBytes: number): { text: 
   return { text: buf.toString("utf8"), next_offset: start + len, size };
 }
 
+function sha256FileEmpty(): string {
+  return "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+}
+
 function sha256File(filePath: string): string {
   const hash = crypto.createHash("sha256");
   const fd = fs.openSync(filePath, "r");
@@ -125,6 +139,38 @@ function sha256File(filePath: string): string {
     fs.closeSync(fd);
   }
   return hash.digest("hex");
+}
+
+interface UploadFileEntry {
+  size: number;
+  sha256: string | null;
+  finalized: boolean;
+}
+
+interface UploadStagingMeta {
+  upload_id: string;
+  owner_office_id: string;
+  owner_name: string;
+  created_at: string;
+  expires_at: string;
+  total_bytes: number;
+  files: Record<string, UploadFileEntry>;
+}
+
+const UPLOAD_ID_RE = /^upl-[0-9]+-[a-f0-9]+$/;
+
+function copyDirRecursive(srcDir: string, dstDir: string): void {
+  if (!fs.existsSync(srcDir)) return;
+  fs.mkdirSync(dstDir, { recursive: true });
+  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    const src = path.join(srcDir, entry.name);
+    const dst = path.join(dstDir, entry.name);
+    if (entry.isDirectory()) {
+      copyDirRecursive(src, dst);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(src, dst);
+    }
+  }
 }
 
 export class ComputeQueue {
@@ -158,6 +204,187 @@ export class ComputeQueue {
     fs.mkdirSync(this.jobsDir, { recursive: true, mode: 0o700 });
     this.loadExisting();
     this.pruneOldJobs();
+    this.pruneExpiredUploads();
+  }
+
+  private uploadsDir(): string {
+    return path.join(this.jobsDir, "_uploads");
+  }
+
+  private uploadDir(uploadId: string): string {
+    if (!UPLOAD_ID_RE.test(uploadId)) {
+      throw new LinkError("bad_args", `upload_id inválido: ${uploadId}`);
+    }
+    return path.join(this.uploadsDir(), uploadId);
+  }
+
+  private uploadMetaPath(uploadId: string): string {
+    return path.join(this.uploadDir(uploadId), "meta.json");
+  }
+
+  private saveUploadMeta(meta: UploadStagingMeta): void {
+    const dir = this.uploadDir(meta.upload_id);
+    fs.mkdirSync(dir, { recursive: true });
+    const p = this.uploadMetaPath(meta.upload_id);
+    const tmp = `${p}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
+    fs.renameSync(tmp, p);
+  }
+
+  private loadUploadMeta(uploadId: string, peerOfficeId: string): UploadStagingMeta {
+    const p = this.uploadMetaPath(uploadId);
+    if (!fs.existsSync(p)) {
+      throw new LinkError("no_upload", "ese upload_id no existe o expiró", 404);
+    }
+    const meta = JSON.parse(fs.readFileSync(p, "utf8")) as UploadStagingMeta;
+    if (!meta || meta.owner_office_id !== peerOfficeId) {
+      throw new LinkError("no_upload", "ese upload_id no existe o no pertenece a este peer", 404);
+    }
+    if (Date.parse(meta.expires_at) <= Date.now()) {
+      fs.rmSync(this.uploadDir(uploadId), { recursive: true, force: true });
+      throw new LinkError("upload_expired", "ese upload_id expiró", 410);
+    }
+    return meta;
+  }
+
+  pruneExpiredUploads(nowMs = Date.now()): number {
+    const root = this.uploadsDir();
+    if (!fs.existsSync(root)) return 0;
+    let removed = 0;
+    for (const entry of fs.readdirSync(root)) {
+      const dir = path.join(root, entry);
+      const metaPath = path.join(dir, "meta.json");
+      try {
+        if (!fs.existsSync(metaPath)) {
+          fs.rmSync(dir, { recursive: true, force: true });
+          removed++;
+          continue;
+        }
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as UploadStagingMeta;
+        if (!meta || (Date.parse(meta.expires_at) || 0) <= nowMs) {
+          fs.rmSync(dir, { recursive: true, force: true });
+          removed++;
+        }
+      } catch {
+        try {
+          fs.rmSync(dir, { recursive: true, force: true });
+          removed++;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return removed;
+  }
+
+  uploadChunk(input: ComputeUploadInput, peer: Pick<LinkPeer, "office_id" | "name">): ComputeUploadResult {
+    this.pruneExpiredUploads();
+    const relPath = String(input.path ?? "").trim();
+    if (!relPath) {
+      throw new LinkError("bad_args", "job_upload requiere `path`");
+    }
+    if (typeof input.chunk_b64 !== "string") {
+      throw new LinkError("bad_args", "job_upload requiere `chunk_b64`");
+    }
+    const chunkBuf = Buffer.from(input.chunk_b64, "base64");
+    if (chunkBuf.length > MAX_UPLOAD_CHUNK) {
+      throw new LinkError("chunk_too_big", `chunk excede ${MAX_UPLOAD_CHUNK} bytes`, 413);
+    }
+
+    const nowMs = Date.now();
+    const expiresAt = new Date(nowMs + DEFAULT_UPLOAD_TTL_MS).toISOString();
+    let meta: UploadStagingMeta;
+    if (input.upload_id && String(input.upload_id).trim()) {
+      meta = this.loadUploadMeta(String(input.upload_id).trim(), peer.office_id);
+      meta.expires_at = expiresAt;
+    } else {
+      const uploadId = `upl-${nowMs}-${crypto.randomBytes(4).toString("hex")}`;
+      meta = {
+        upload_id: uploadId,
+        owner_office_id: peer.office_id,
+        owner_name: peer.name,
+        created_at: new Date(nowMs).toISOString(),
+        expires_at: expiresAt,
+        total_bytes: 0,
+        files: {},
+      };
+      fs.mkdirSync(path.join(this.uploadDir(uploadId), "work"), { recursive: true });
+    }
+
+    const stagingWork = path.join(this.uploadDir(meta.upload_id), "work");
+    const full = safeSubPath(stagingWork, relPath);
+    const normalizedRel = path.relative(stagingWork, full).replaceAll("\\", "/");
+
+    const existingEntry = meta.files[normalizedRel];
+    if (!existingEntry && Object.keys(meta.files).length >= MAX_UPLOAD_FILES) {
+      throw new LinkError("too_many_files", `máximo ${MAX_UPLOAD_FILES} archivos por upload_id`);
+    }
+
+    const offset = Number(input.offset ?? 0);
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new LinkError("bad_args", `offset inválido: ${input.offset}`);
+    }
+
+    const currentSize = fs.existsSync(full) ? fs.statSync(full).size : 0;
+    if (offset !== 0 && offset !== currentSize) {
+      throw new LinkError("offset_mismatch", `offset esperado ${currentSize}, recibido ${offset}`, 409);
+    }
+
+    const previousSize = existingEntry?.size ?? currentSize;
+    const newSize = offset === 0 ? chunkBuf.length : currentSize + chunkBuf.length;
+    if (newSize > MAX_UPLOAD_FILE_BYTES) {
+      throw new LinkError("file_too_big", `archivo excede ${MAX_UPLOAD_FILE_BYTES} bytes: ${normalizedRel}`, 413);
+    }
+    const newTotalBytes = meta.total_bytes - previousSize + newSize;
+    if (newTotalBytes > MAX_UPLOAD_TOTAL_BYTES) {
+      throw new LinkError("quota_exceeded", `upload_id excede cuota total de ${MAX_UPLOAD_TOTAL_BYTES} bytes`, 413);
+    }
+
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    if (offset === 0) {
+      fs.writeFileSync(full, chunkBuf);
+    } else {
+      const fd = fs.openSync(full, "r+");
+      try {
+        fs.writeSync(fd, chunkBuf, 0, chunkBuf.length, offset);
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+
+    const eof = input.eof === true;
+    let fileSha256: string | null = null;
+    if (eof) {
+      fileSha256 = sha256File(full);
+      const expected = typeof input.sha256 === "string" ? input.sha256.trim().toLowerCase() : "";
+      if (expected && expected !== fileSha256) {
+        try { fs.rmSync(full, { force: true }); } catch { /* ignore */ }
+        delete meta.files[normalizedRel];
+        meta.total_bytes = Math.max(0, meta.total_bytes - previousSize);
+        this.saveUploadMeta(meta);
+        throw new LinkError("sha256_mismatch", `sha256 mismatch en ${normalizedRel}: esperado ${expected}, actual ${fileSha256}`, 400);
+      }
+    }
+
+    meta.total_bytes = newTotalBytes;
+    meta.files[normalizedRel] = {
+      size: newSize,
+      sha256: fileSha256,
+      finalized: eof,
+    };
+    this.saveUploadMeta(meta);
+
+    return {
+      upload_id: meta.upload_id,
+      path: normalizedRel,
+      offset,
+      next_offset: newSize,
+      size: newSize,
+      eof,
+      sha256: fileSha256,
+      total_bytes: meta.total_bytes,
+      expires_at: meta.expires_at,
+    };
   }
 
   private jobDir(jobId: string): string {
@@ -295,6 +522,20 @@ export class ComputeQueue {
       fs.writeFileSync(path.join(dir, "stdout.log"), "", "utf8");
       fs.writeFileSync(path.join(dir, "stderr.log"), "", "utf8");
 
+      if (typeof input.upload_id === "string" && input.upload_id.trim()) {
+        const uploadId = input.upload_id.trim();
+        this.loadUploadMeta(uploadId, peer.office_id);
+        const stagingWork = path.join(this.uploadDir(uploadId), "work");
+        copyDirRecursive(stagingWork, workDir);
+        if (input.consume_upload !== false) {
+          try {
+            fs.rmSync(this.uploadDir(uploadId), { recursive: true, force: true });
+          } catch {
+            /* best effort */
+          }
+        }
+      }
+
       if (Array.isArray(input.files) && input.files.length > 0) {
         if (input.files.length > MAX_INPUT_FILES) {
           throw new LinkError("too_many_files", `máximo ${MAX_INPUT_FILES} archivos de entrada por job`);
@@ -336,6 +577,7 @@ export class ComputeQueue {
       wsl_distro: typeof input.wsl_distro === "string" ? input.wsl_distro : undefined,
       gpu: input.gpu === true,
       priority,
+      oracle: input.oracle === true ? true : undefined,
       argv: hasArgv ? input.argv : undefined,
       command: hasCmd ? input.command : undefined,
       cwd,
@@ -401,6 +643,7 @@ export class ComputeQueue {
       const dir = this.jobDir(rec.job_id);
       const env = this.pendingEnv.get(rec.job_id);
       this.pendingEnv.delete(rec.job_id);
+      const startedMs = Date.now();
 
       const handle = await exec.spawn({
         job_id: rec.job_id,
@@ -423,6 +666,7 @@ export class ComputeQueue {
       this.saveMeta(rec);
 
       const outcome = await handle.done;
+      const durationMs = Math.max(0, Date.now() - startedMs);
       this.running.delete(rec.job_id);
       rec.exit_code = outcome.exit_code;
       rec.signal = outcome.signal;
@@ -432,6 +676,10 @@ export class ComputeQueue {
       else if (outcome.killed) rec.status = "killed";
       else if (outcome.exit_code === 0 && !outcome.error) rec.status = "done";
       else rec.status = "failed";
+
+      if (rec.oracle) {
+        this.writeOracleReceipt(rec, dir, durationMs);
+      }
       this.saveMeta(rec);
     } catch (err) {
       this.running.delete(rec.job_id);
@@ -441,8 +689,48 @@ export class ComputeQueue {
       this.saveMeta(rec);
     } finally {
       this.pruneOldJobs();
+      this.pruneExpiredUploads();
       releaseSlot();
     }
+  }
+
+  private writeOracleReceipt(rec: ComputeJobRecord, jobDir: string, durationMs: number): void {
+    const workDir = path.join(jobDir, "work");
+    const stdoutPath = path.join(jobDir, "stdout.log");
+    const stderrPath = path.join(jobDir, "stderr.log");
+    const stdoutSize = fs.existsSync(stdoutPath) ? fs.statSync(stdoutPath).size : 0;
+    const stderrSize = fs.existsSync(stderrPath) ? fs.statSync(stderrPath).size : 0;
+    const stdoutSha = fs.existsSync(stdoutPath) ? sha256File(stdoutPath) : sha256FileEmpty();
+    const stderrSha = fs.existsSync(stderrPath) ? sha256File(stderrPath) : sha256FileEmpty();
+    const artifacts: OracleArtifactEntry[] = listWorkFiles(workDir)
+      .filter((f) => f.path !== ORACLE_RECEIPT_FILE)
+      .map((f) => ({
+        path: f.path,
+        size: f.size,
+        sha256: sha256File(path.join(workDir, f.path)),
+      }));
+
+    const receipt: OracleReceipt = {
+      schema: "win-oracle-receipt@1",
+      job_id: rec.job_id,
+      exit_code: rec.exit_code,
+      signal: rec.signal,
+      timed_out: rec.status === "timed_out",
+      killed: rec.status === "killed",
+      duration_ms: durationMs,
+      stdout_size: stdoutSize,
+      stdout_sha256: stdoutSha,
+      stderr_size: stderrSize,
+      stderr_sha256: stderrSha,
+      artifacts,
+      os_version: `${os.type()} ${os.release()}`,
+      arch: process.arch,
+      target: rec.target,
+      finished_at: rec.finished_at ?? new Date().toISOString(),
+    };
+    const receiptPath = path.join(workDir, ORACLE_RECEIPT_FILE);
+    fs.mkdirSync(workDir, { recursive: true });
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
   }
 
   private ownJob(jobId: string, peerOfficeId: string): ComputeJobRecord {
@@ -575,6 +863,8 @@ export function createComputeRpcHandler(queue: ComputeQueue): ComputeRpcHandler 
           offset: Number(args.offset ?? 0),
           limit: Number(args.limit ?? MAX_FETCH_CHUNK),
         });
+      case "job_upload":
+        return queue.uploadChunk(args as unknown as ComputeUploadInput, peer);
       default:
         throw new LinkError("bad_op", `operación compute desconocida: ${op}`);
     }

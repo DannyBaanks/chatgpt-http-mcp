@@ -3,6 +3,7 @@ import { mkdirSync, createWriteStream, type WriteStream } from "node:fs";
 import os from "node:os";
 import { dirname } from "node:path";
 import { stopProcessTree } from "../platform/process";
+import { attachWindowsJobObject, type WindowsJobHandle } from "../platform/win-job";
 import { buildSafeJobEnv } from "./env";
 import type {
   ComputeExecRequest,
@@ -122,14 +123,18 @@ export const winComputeExecutor: PlatformComputeExecutor = {
     let killed = false;
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let winJob: WindowsJobHandle | null = null;
 
     const handle: ComputeRunningHandle = {
       pid: 0,
       cancel: async () => {
         if (settled) return;
         killed = true;
+        if (winJob) {
+          try { winJob.terminate(); } catch { /* ya detenido */ }
+        }
         if (handle.pid > 0) {
-          // Mata el árbol completo (hijos + nietos) con taskkill /T /F.
+          // Mata el árbol completo (hijos + nietos) con taskkill /T /F como respaldo.
           try { stopProcessTree(handle.pid); } catch { /* ya detenido */ }
         }
       },
@@ -154,6 +159,7 @@ export const winComputeExecutor: PlatformComputeExecutor = {
           stderr: "pipe",
         });
         handle.pid = proc.pid;
+        winJob = attachWindowsJobObject(proc.pid);
       } catch (error) {
         spawnError = error instanceof Error ? error.message : String(error);
       }
@@ -182,6 +188,10 @@ export const winComputeExecutor: PlatformComputeExecutor = {
 
       if (timer !== null) clearTimeout(timer);
       settled = true;
+      if (winJob) {
+        try { winJob.close(); } catch { /* ignore */ }
+        winJob = null;
+      }
       return { exit_code: exitCode, signal: null, timed_out: timedOut, killed };
     })();
 

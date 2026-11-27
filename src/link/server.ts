@@ -57,6 +57,7 @@ const COMPUTE_PROTECTED_OPS = new Set([
   "job_list",
   "job_cancel",
   "job_fetch",
+  "job_upload",
 ]);
 
 function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
