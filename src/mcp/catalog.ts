@@ -8,6 +8,7 @@
 // sesion) nada es ejecutable y el inventario lo dice en vez de fingir.
 import { z } from "zod";
 import { CODEX_TOOLS } from "./identity";
+import { TRANSPORT_HINT } from "../bridge-errors";
 
 export type ToolName = (typeof CODEX_TOOLS)[number];
 
@@ -52,7 +53,7 @@ export function shapesFor(contract: "native" | "safe"): Record<ToolName, Record<
 
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   codex_turn_start:
-    "Inicia el turno usando su token y devuelve la guía local verificada en bootstrap.content y, si está vinculada, la tarea local en request.content.",
+    "Inicia el turno usando su token y devuelve la guía local verificada en bootstrap.content y, si está vinculada, la tarea local en request.content." + TRANSPORT_HINT,
   codex_exec:
     ("Ejecuta un argv en el backend autorizado por el token; consulta el inventario. Las sesiones independientes usan sandbox aislado (bwrap en Linux o " +
       "contenedor Linux de Docker en Windows) y admiten background=true con exec_id. Las sesiones active-codex envían comandos al dueño nativo y reportan " +
