@@ -64,6 +64,7 @@ const Instance = struct {
     err_len: usize = 0,
     bound: ?u32 = null,
     started_ns: u64,
+    last_used_ns: u64,
     ready_ms: ?u64 = null,
     init_id: u64 = 0,
     list_id: u64 = 0,
@@ -88,6 +89,7 @@ const Pool = struct {
     /// Hasta cuándo no se intenta arrancar de nuevo tras un fallo de spawn (ns, 0 = sin backoff).
     spawn_retry_at: u64 = 0,
     last_error: ?[]u8 = null,
+    hibernated: bool = false,
     closed: bool = false,
     seq: u32 = 0,
 };
@@ -120,6 +122,7 @@ pub const Options = struct {
     socket_path: []const u8,
     config_path: []const u8,
     log_path: ?[]const u8,
+    cache_path: ?[]const u8 = null,
     quiet: bool,
 };
 
@@ -270,6 +273,15 @@ pub const Daemon = struct {
             _ = self.pools.orderedRemove(i);
             dead_pools.append(self.gpa, p) catch {};
         }
+        // Carga opcional del catálogo cacheado en disco para responder discover/describe en 0 ms sin despertar procesos.
+        const cache_servers: ?std.json.ObjectMap = blk: {
+            const cp = self.opts.cache_path orelse break :blk null;
+            const ctext = sys.readFileAlloc(tmp.allocator(), cp, 32 * 1024 * 1024) catch break :blk null;
+            const parsed = std.json.parseFromSliceLeaky(Value, tmp.allocator(), ctext, .{}) catch break :blk null;
+            if (parsed != .object) break :blk null;
+            const cs = parsed.object.get("servers") orelse break :blk null;
+            break :blk if (cs == .object) cs.object else null;
+        };
         // Añade los nuevos (con su propia copia de la config).
         for (servers) |s| {
             if (self.findPool(s.name) != null) continue;
@@ -281,9 +293,60 @@ pub const Daemon = struct {
                 continue;
             };
             self.pools.append(self.gpa, p) catch continue;
-            self.log("server_added", "\"server\":{f},\"isolation\":\"{s}\",\"enabled\":{}", .{ js(p.cfg.name), isoName(p.cfg.isolation), p.cfg.enabled });
+            if (cache_servers) |cs| self.hydratePoolFromCache(p, cs);
+            self.log("server_added", "\"server\":{f},\"isolation\":\"{s}\",\"enabled\":{},\"cached\":{}", .{ js(p.cfg.name), isoName(p.cfg.isolation), p.cfg.enabled, p.cat != null });
             self.warm(p);
         }
+    }
+
+    fn hydratePoolFromCache(self: *Daemon, p: *Pool, cache_servers: std.json.ObjectMap) void {
+        if (!p.cfg.enabled or p.cfg.direct) return;
+        const entry = cache_servers.get(p.cfg.name) orelse return;
+        if (entry != .object) return;
+        const fp = entry.object.get("fingerprint") orelse return;
+        if (fp != .string or !std.mem.eql(u8, fp.string, p.cfg.fingerprint)) return;
+        const tools = entry.object.get("tools") orelse return;
+        if (tools != .array) return;
+        p.cat = catalog.Catalog.build(self.gpa, tools.array.items) catch return;
+        if (entry.object.get("instructions")) |ins| if (ins == .string) {
+            p.instructions = self.gpa.dupe(u8, ins.string) catch null;
+        };
+        if (entry.object.get("info_name")) |n| if (n == .string) {
+            p.info_name = self.gpa.dupe(u8, n.string) catch null;
+        };
+        if (entry.object.get("info_version")) |v| if (v == .string) {
+            p.info_version = self.gpa.dupe(u8, v.string) catch null;
+        };
+        if (p.cfg.prewarm == 0) p.hibernated = true;
+    }
+
+    fn saveCatalogCache(self: *Daemon) void {
+        const cp = self.opts.cache_path orelse return;
+        var w: Writer.Allocating = .init(self.gpa);
+        defer w.deinit();
+        const ww = &w.writer;
+        ww.writeAll("{\"version\":1,\"servers\":{") catch return;
+        var first = true;
+        for (self.pools.items) |p| {
+            if (p.closed or p.cfg.direct) continue;
+            const cat = p.cat orelse continue;
+            ww.print("{s}{f}:{{\"fingerprint\":{f}", .{ if (first) "" else ",", js(p.cfg.name), js(p.cfg.fingerprint) }) catch return;
+            first = false;
+            if (p.info_name) |n| ww.print(",\"info_name\":{f}", .{js(n)}) catch return;
+            if (p.info_version) |v| ww.print(",\"info_version\":{f}", .{js(v)}) catch return;
+            if (p.instructions) |ins| ww.print(",\"instructions\":{f}", .{js(ins)}) catch return;
+            ww.writeAll(",\"tools\":[") catch return;
+            for (cat.entries, 0..) |e, k| {
+                ww.print("{s}{s}", .{ if (k == 0) "" else ",", e.json }) catch return;
+            }
+            ww.writeAll("]}") catch return;
+        }
+        ww.writeAll("}}\n") catch return;
+        sys.ensurePrivateDir(sys.dirname(cp)) catch return;
+        var tmp_buf: [4096]u8 = undefined;
+        const tmp_path = std.fmt.bufPrint(&tmp_buf, "{s}.tmp", .{cp}) catch return;
+        sys.writeFile(tmp_path, w.written()) catch return;
+        sys.rename(tmp_path, cp) catch sys.unlink(tmp_path);
     }
 
     fn dupeCfg(a: std.mem.Allocator, s: config.ServerCfg) !config.ServerCfg {
@@ -361,7 +424,7 @@ pub const Daemon = struct {
     fn warm(self: *Daemon, p: *Pool) void {
         if (!p.cfg.enabled or p.closed or self.stop or p.cfg.direct) return;
         if (p.cfg.isolation == .shared) {
-            if (self.liveCount(p, false) == 0) _ = self.spawn(p);
+            if (p.cfg.prewarm > 0 and self.liveCount(p, false) == 0) _ = self.spawn(p);
         } else {
             while (self.liveCount(p, true) < p.cfg.prewarm and self.liveCount(p, false) < p.cfg.max_instances) {
                 if (self.spawn(p) == null) break;
@@ -465,7 +528,8 @@ pub const Daemon = struct {
 
         const inst = try self.gpa.create(Instance);
         p.seq += 1;
-        inst.* = .{ .id = self.next_inst, .seq = p.seq, .pool = p, .pid = pid, .in_fd = pin[1], .out_fd = pout[0], .err_fd = perr[0], .started_ns = sys.nowNs() };
+        const now = sys.nowNs();
+        inst.* = .{ .id = self.next_inst, .seq = p.seq, .pool = p, .pid = pid, .in_fd = pin[1], .out_fd = pout[0], .err_fd = perr[0], .started_ns = now, .last_used_ns = now };
         self.next_inst += 1;
         try self.insts.put(self.gpa, inst.id, inst);
         try self.epAdd(inst.out_fd, linux.EPOLL.IN, tag(.inst_out, inst.id));
@@ -693,6 +757,7 @@ pub const Daemon = struct {
             if (id == inst.list_id) return self.onListResult(inst, top);
             const pend = self.pending.fetchRemove(id) orelse return;
             inst.in_flight -|= 1;
+            inst.last_used_ns = sys.nowNs();
             defer self.freePending(pend.value);
             const conn = self.conns.get(pend.value.conn_id) orelse return;
             var w: Writer.Allocating = .init(a);
@@ -789,6 +854,7 @@ pub const Daemon = struct {
         const p = inst.pool;
         if (p.cat) |*old| old.deinit();
         p.cat = cat;
+        self.saveCatalogCache();
         var nb: [80]u8 = undefined;
         if (inst.state == .ready) {
             self.log("backend_tools_changed", "\"server\":{f},\"id\":{f},\"tools\":{d}", .{ js(p.cfg.name), js(instName(inst, &nb)), cat.entries.len });
@@ -798,8 +864,11 @@ pub const Daemon = struct {
     fn markReady(self: *Daemon, inst: *Instance) void {
         if (inst.state != .starting) return;
         inst.state = .ready;
-        inst.ready_ms = (sys.nowNs() - inst.started_ns) / std.time.ns_per_ms;
+        const now = sys.nowNs();
+        inst.last_used_ns = now;
+        inst.ready_ms = (now - inst.started_ns) / std.time.ns_per_ms;
         const p = inst.pool;
+        p.hibernated = false;
         if (p.last_error) |x| self.gpa.free(x);
         p.last_error = null;
         p.restart_delay_ms = 1000;
@@ -1185,9 +1254,9 @@ pub const Daemon = struct {
         if (self.poolStarting(p)) return .wait;
         if (p.restart_at != 0) return .unavailable;
         self.warm(p);
-        // per-client con prewarm 0: sin procesos nunca habría catálogo. Se lanza uno, que queda de
-        // reserva y lo toma la primera TUI que ejecute.
-        if (!self.poolStarting(p) and p.cfg.isolation == .per_client and self.liveCount(p, false) < p.cfg.max_instances) _ = self.spawn(p);
+        // prewarm 0 (shared o per-client): sin procesos ni caché nunca habría catálogo. Se lanza uno
+        // bajo demanda; si no se usa, hibernará tras idle_timeout_ms conservando el catálogo.
+        if (!self.poolStarting(p) and self.liveCount(p, false) < p.cfg.max_instances) _ = self.spawn(p);
         return if (self.poolStarting(p)) .wait else .unavailable;
     }
 
@@ -1257,9 +1326,9 @@ pub const Daemon = struct {
                 var any_waiting = false;
                 for (self.pools.items) |p| {
                     if (!p.cfg.enabled or p.cfg.direct) continue;
-                    // Servidores per-client con prewarm=0 aún sin catálogo: no despertarlos en búsquedas
-                    // normales (respetan prewarm=0); con include_idle=true se arrancan todos en paralelo.
-                    const is_lazy_idle = p.cat == null and p.cfg.isolation == .per_client and p.cfg.prewarm == 0 and !self.poolStarting(p) and p.restart_at == 0 and p.last_error == null;
+                    // Servidores con prewarm=0 aún sin catálogo (en memoria o caché): no despertarlos en
+                    // búsquedas normales; con include_idle=true se arrancan todos en paralelo.
+                    const is_lazy_idle = p.cat == null and p.cfg.prewarm == 0 and !self.poolStarting(p) and p.restart_at == 0 and p.last_error == null;
                     if (is_lazy_idle and !include_idle) {
                         try idle.append(a, p.cfg.name);
                         continue;
@@ -1379,6 +1448,7 @@ pub const Daemon = struct {
             const orig = try self.gpa.dupe(u8, id);
             try self.pending.put(self.gpa, rid, .{ .inst_id = inst.id, .conn_id = conn.id, .orig_id = orig, .progress = progress, .deadline = sys.nowNs() + p.cfg.call_timeout_ms * std.time.ns_per_ms });
             inst.in_flight += 1;
+            inst.last_used_ns = sys.nowNs();
             var w: Writer.Allocating = .init(a);
             try w.writer.print("{{\"jsonrpc\":\"2.0\",\"id\":{d},\"method\":\"tools/call\",\"params\":{{\"name\":{f},\"arguments\":", .{ rid, js(tname) });
             try std.json.Stringify.value(tool_args, .{}, &w.writer);
@@ -1492,13 +1562,14 @@ pub const Daemon = struct {
         };
         if (ready) return "ready";
         if (starting) return "starting";
+        if (p.hibernated and p.last_error == null) return "hibernated";
         if (p.cat != null and p.last_error == null) return "ready";
-        // Sin procesos ni errores (per-client con prewarm 0 antes del primer uso): en reposo.
+        // Sin procesos ni errores (prewarm 0 antes del primer uso): en reposo.
         return if (p.last_error == null) "idle" else "failed";
     }
 
     fn writePoolStatus(self: *Daemon, w: *Writer, p: *Pool) !void {
-        try w.print("{{\"server\":{f},\"isolation\":\"{s}\",\"enabled\":{},\"state\":\"{s}\"", .{ js(p.cfg.name), isoName(p.cfg.isolation), p.cfg.enabled, self.poolState(p) });
+        try w.print("{{\"server\":{f},\"isolation\":\"{s}\",\"enabled\":{},\"state\":\"{s}\",\"idle_timeout_ms\":{d}", .{ js(p.cfg.name), isoName(p.cfg.isolation), p.cfg.enabled, self.poolState(p), p.cfg.idle_timeout_ms });
         if (p.cfg.description) |d| try w.print(",\"description\":{f}", .{js(d)});
         if (p.info_name) |n| try w.print(",\"serverInfo\":{{\"name\":{f},\"version\":{f}}}", .{ js(n), js(p.info_version orelse "") });
         try w.print(",\"tools\":{d},\"instances\":[", .{if (p.cat) |c| c.entries.len else 0});
@@ -1534,16 +1605,27 @@ pub const Daemon = struct {
 
     fn tick(self: *Daemon) void {
         const now = sys.nowNs();
+        var to_hibernate: std.ArrayList(*Instance) = .empty;
+        defer to_hibernate.deinit(self.gpa);
         var it = self.insts.valueIterator();
         while (it.next()) |inst_ptr| {
             const inst = inst_ptr.*;
             if (inst.state == .starting and now - inst.started_ns > inst.pool.cfg.startup_timeout_ms * std.time.ns_per_ms) {
                 self.instDied(inst, "timeout de arranque");
+            } else if (shouldHibernate(inst.state, inst.in_flight, inst.pool.cfg.idle_timeout_ms, inst.last_used_ns, now)) {
+                to_hibernate.append(self.gpa, inst) catch {};
             }
             if (inst.kill_deadline != 0 and now > inst.kill_deadline) {
                 _ = linux.kill(inst.pid, .KILL);
                 inst.kill_deadline = 0;
             }
+        }
+        for (to_hibernate.items) |inst| {
+            var nb: [80]u8 = undefined;
+            const idle_ms = (now - inst.last_used_ns) / std.time.ns_per_ms;
+            self.log("backend_hibernated", "\"server\":{f},\"id\":{f},\"pid\":{d},\"idle_ms\":{d}", .{ js(inst.pool.cfg.name), js(instName(inst, &nb)), inst.pid, idle_ms });
+            inst.pool.hibernated = true;
+            self.closeInstance(inst);
         }
         // Llamadas vencidas.
         var expired: std.ArrayList(u64) = .empty;
@@ -1747,6 +1829,23 @@ test "spawnBackoffSec: 2, 4, 8 ... s, tope 600 s" {
     try std.testing.expectEqual(@as(u64, 600), spawnBackoffSec(10));
     try std.testing.expectEqual(@as(u64, 600), spawnBackoffSec(11));
     try std.testing.expectEqual(@as(u64, 600), spawnBackoffSec(std.math.maxInt(u32)));
+}
+
+/// ¿Debe hibernar una instancia? Solo si está lista, sin llamadas en vuelo, con timeout > 0 y ociosa.
+pub fn shouldHibernate(state: InstState, in_flight: u32, idle_timeout_ms: u64, last_used_ns: u64, now_ns: u64) bool {
+    if (state != .ready or in_flight != 0 or idle_timeout_ms == 0) return false;
+    if (now_ns < last_used_ns) return false;
+    return (now_ns - last_used_ns) >= idle_timeout_ms * std.time.ns_per_ms;
+}
+
+test "shouldHibernate: solo ready sin in_flight y tras idle_timeout_ms" {
+    const ms = std.time.ns_per_ms;
+    try std.testing.expect(!shouldHibernate(.ready, 0, 0, 100 * ms, 999_999 * ms));
+    try std.testing.expect(!shouldHibernate(.starting, 0, 500, 100 * ms, 1000 * ms));
+    try std.testing.expect(!shouldHibernate(.ready, 1, 500, 100 * ms, 1000 * ms));
+    try std.testing.expect(!shouldHibernate(.ready, 0, 500, 100 * ms, 599 * ms));
+    try std.testing.expect(shouldHibernate(.ready, 0, 500, 100 * ms, 600 * ms));
+    try std.testing.expect(shouldHibernate(.ready, 0, 500, 100 * ms, 1000 * ms));
 }
 
 test "spawnLogDue: primer fallo y cada cambio de espera, nunca tras el tope" {

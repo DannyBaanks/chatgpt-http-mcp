@@ -18,6 +18,8 @@ pub const ServerCfg = struct {
     max_instances: u32,
     startup_timeout_ms: u64,
     call_timeout_ms: u64,
+    /// Tiempo de inactividad tras el cual una instancia ociosa hiberna (0 = nunca hibernar).
+    idle_timeout_ms: u64,
     enabled: bool,
     description: ?[]const u8,
     /// mode "direct": el daemon no lo arranca; cada TUI lo lanza tal cual con su propio entorno
@@ -31,6 +33,7 @@ pub const DEFAULT_PREWARM = 1;
 pub const DEFAULT_MAX_INSTANCES = 4;
 pub const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
 pub const DEFAULT_CALL_TIMEOUT_MS = 30 * 60_000;
+pub const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
 
 /// Todo lo devuelto vive en `a` (un arena por servidor o por carga de config).
 pub fn parse(a: std.mem.Allocator, text: []const u8) ![]ServerCfg {
@@ -70,6 +73,7 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) ![]ServerCfg {
             .max_instances = @intCast(@max(1, int(o, "max_instances") orelse DEFAULT_MAX_INSTANCES)),
             .startup_timeout_ms = @intCast(int(o, "startup_timeout_ms") orelse DEFAULT_STARTUP_TIMEOUT_MS),
             .call_timeout_ms = @intCast(int(o, "call_timeout_ms") orelse DEFAULT_CALL_TIMEOUT_MS),
+            .idle_timeout_ms = int(o, "idle_timeout_ms") orelse DEFAULT_IDLE_TIMEOUT_MS,
             .enabled = if (o.get("enabled")) |e| !(e == .bool and !e.bool) else true,
             .description = str(o, "description"),
             .direct = if (str(o, "mode")) |m| std.mem.eql(u8, m, "direct") else false,
@@ -109,4 +113,18 @@ test "mode direct" {
     defer arena.deinit();
     const s = try parse(arena.allocator(), "{\"servers\":{\"m\":{\"command\":\"/usr/bin/mxterm\",\"mode\":\"direct\"}}}");
     try std.testing.expect(s[0].direct);
+}
+
+test "idle_timeout_ms: valor por defecto, personalizado y 0 (desactivado)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const s = try parse(arena.allocator(),
+        \\{"servers":{"def":{"command":"x"},"fast":{"command":"x","idle_timeout_ms":5000},"hot":{"command":"x","idle_timeout_ms":0}}}
+    );
+    try std.testing.expectEqual(@as(usize, 3), s.len);
+    for (s) |x| {
+        if (std.mem.eql(u8, x.name, "def")) try std.testing.expectEqual(@as(u64, DEFAULT_IDLE_TIMEOUT_MS), x.idle_timeout_ms);
+        if (std.mem.eql(u8, x.name, "fast")) try std.testing.expectEqual(@as(u64, 5000), x.idle_timeout_ms);
+        if (std.mem.eql(u8, x.name, "hot")) try std.testing.expectEqual(@as(u64, 0), x.idle_timeout_ms);
+    }
 }

@@ -23,6 +23,9 @@ describe("config del hub (CLI)", () => {
     expect(() => parseHubConfig({ servers: { "bad name": { command: "x" } } })).toThrow(/nombre/);
     expect(() => parseHubConfig({ servers: { a: { command: "x", isolation: "otro" } } })).toThrow(/isolation/);
     expect(() => parseHubConfig({ servers: { a: { command: "x", max_instances: 0 } } })).toThrow(/max_instances/);
+    expect(parseHubConfig({ servers: { a: { command: "x", idle_timeout_ms: 5000 } } }).servers.a.idle_timeout_ms).toBe(5000);
+    expect(parseHubConfig({ servers: { a: { command: "x", idle_timeout_ms: 0 } } }).servers.a.idle_timeout_ms).toBe(0);
+    expect(() => parseHubConfig({ servers: { a: { command: "x", idle_timeout_ms: -1 } } })).toThrow(/idle_timeout_ms/);
   });
 
   it("HUB-02: import copia stdio, marca per-client, salta remotos, existentes y el propio hub", () => {
@@ -335,6 +338,82 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
     // en ambos casos debe apuntar ahí, nunca a <hub home>/run.
     expect(r.stderr).not.toContain(join(dir, "hub", "run"));
   });
+
+  it("HUB-26: un MCP ocioso hiberna tras idle_timeout_ms (0 procesos), discover/describe no lo despiertan y execute lo despierta", async () => {
+    writeServers({
+      shared: cmd(),
+      hib: { ...cmd(), idle_timeout_ms: 400 },
+    });
+    daemon.kill("SIGHUP");
+    const c = clients[0];
+    await waitFor(async () => (await status(c, "hib"))?.state === "ready");
+    const pid1 = (await exec(c, "hib", "pid")).text;
+    expect(Number(pid1)).toBeGreaterThan(0);
+
+    // Espera a que hiberne tras 400 ms de inactividad y quede sin procesos vivos.
+    await waitFor(async () => {
+      const st = await status(c, "hib");
+      return st?.state === "hibernated" && st.instances.length === 0;
+    }, 10_000);
+
+    // discover y describe deben responder desde catálogo en memoria SIN despertar el proceso.
+    const disc = await call(c, "hub_discover", { server: "hib" });
+    expect(disc.data.tool_count).toBe(8);
+    const desc = await call(c, "hub_describe", { server: "hib", tool: "echo" });
+    expect(desc.data.tool.name).toBe("echo");
+    const stillHib = await status(c, "hib");
+    expect(stillHib.state).toBe("hibernated");
+    expect(stillHib.instances).toEqual([]);
+
+    // execute lo despierta bajo demanda con un nuevo PID.
+    const pid2 = (await exec(c, "hib", "pid")).text;
+    expect(Number(pid2)).toBeGreaterThan(0);
+    expect(pid2).not.toBe(pid1);
+    expect((await status(c, "hib")).state).toBe("ready");
+  }, 20_000);
+
+  it("HUB-27: catalog-cache.json permite arrancar un daemon con prewarm=0 en estado hibernated (0 procesos) y responder discover/describe en 0 ms", async () => {
+    const cachePath = join(dir, "hub", "catalog-cache.json");
+    expect(existsSync(cachePath)).toBe(true);
+    const cached = JSON.parse(readFileSync(cachePath, "utf8"));
+    expect(cached.version).toBe(1);
+    expect(cached.servers.hib?.tools?.length).toBe(8);
+
+    // Segundo daemon aislado que reutiliza el mismo catalog-cache.json con prewarm=0.
+    const dir2 = mkdtempSync(join(tmpdir(), "isymcp-hub-cache-"));
+    const sock2 = join(dir2, "run", "hub.sock");
+    const lazyCfg = { ...cmd(), prewarm: 0, idle_timeout_ms: 400 };
+    // Ajusta el fingerprint en el cache a la nueva config lazy para simular un reinicio del daemon con la misma config.
+    const cached2 = { version: 1, servers: { lazy_cached: { ...cached.servers.hib, fingerprint: JSON.stringify(lazyCfg) } } };
+    const cache2 = join(dir2, "catalog-cache.json");
+    writeFileSync(cache2, JSON.stringify(cached2));
+    writeFileSync(join(dir2, "servers.json"), JSON.stringify({ servers: { lazy_cached: lazyCfg } }));
+
+    const env2 = { ...(process.env as Record<string, string>), ISYMCP_HUB_SOCKET: sock2, ISYMCP_HUB_CONFIG: join(dir2, "servers.json"), ISYMCP_HUB_LOG: join(dir2, "hub.log"), ISYMCP_HUB_CACHE: cache2, CODEX_WEB_HTTP_HOME: dir2 };
+    const d2 = spawn(BIN, ["serve", "--quiet"], { env: env2, stdio: "ignore" });
+    let c2: Client | undefined;
+    try {
+      await waitFor(() => existsSync(sock2));
+      const transport = new StdioClientTransport({ command: BIN, args: ["connect"], env: { ...env2, ISYMCP_HUB_NO_AUTOSTART: "1" }, stderr: "pipe" });
+      c2 = new Client({ name: "tui-cache", version: "0" });
+      await c2.connect(transport);
+      const st = await status(c2, "lazy_cached");
+      expect(st.state).toBe("hibernated");
+      expect(st.tools).toBe(8);
+      expect(st.instances).toEqual([]);
+      const desc = await call(c2, "hub_describe", { server: "lazy_cached", tool: "echo" });
+      expect(desc.data.tool.name).toBe("echo");
+      expect((await status(c2, "lazy_cached")).instances).toEqual([]);
+      // Al ejecutar, despierta y responde.
+      expect((await exec(c2, "lazy_cached", "echo", { text: "despierto" })).text).toBe("despierto");
+      expect((await status(c2, "lazy_cached")).state).toBe("ready");
+    } finally {
+      await c2?.close().catch(() => {});
+      d2.kill("SIGTERM");
+      await new Promise((r) => setTimeout(r, 200));
+      rmSync(dir2, { recursive: true, force: true });
+    }
+  }, 20_000);
 
   it("HUB-19: la memoria del daemon queda acotada (RSS < 64 MB tras todo lo anterior)", () => {
     const rss = Number(/VmRSS:\s+(\d+)/.exec(readFileSync(`/proc/${daemon.pid}/status`, "utf8"))?.[1] ?? 0);

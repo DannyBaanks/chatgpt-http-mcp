@@ -34,6 +34,8 @@ export interface HubServerConfig {
   startup_timeout_ms?: number;
   /** Plazo total de una llamada a tool. */
   call_timeout_ms?: number;
+  /** Plazo de inactividad tras el cual un proceso MCP hiberna a 0 RAM (0 = nunca hibernar). */
+  idle_timeout_ms?: number;
   /** false = declarado pero sin arrancar. */
   enabled?: boolean;
   /** Texto corto para el listado de hub_discover. */
@@ -56,6 +58,7 @@ export const DEFAULTS = {
   max_instances: 4,
   startup_timeout_ms: 120_000,
   call_timeout_ms: 30 * 60_000,
+  idle_timeout_ms: 10 * 60_000,
 } as const;
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
@@ -74,7 +77,7 @@ export function parseHubConfig(raw: unknown): HubConfig {
     if (v.args !== undefined && !(Array.isArray(v.args) && v.args.every((a) => typeof a === "string"))) throw Error(`hub_config_invalid: servers.${name}.args`);
     if (v.env !== undefined && !(v.env && typeof v.env === "object" && !Array.isArray(v.env) && Object.values(v.env).every((e) => typeof e === "string"))) throw Error(`hub_config_invalid: servers.${name}.env`);
     if (v.isolation !== undefined && v.isolation !== "shared" && v.isolation !== "per-client") throw Error(`hub_config_invalid: servers.${name}.isolation`);
-    for (const k of ["prewarm", "max_instances", "startup_timeout_ms", "call_timeout_ms"] as const) {
+    for (const k of ["prewarm", "max_instances", "startup_timeout_ms", "call_timeout_ms", "idle_timeout_ms"] as const) {
       if (v[k] !== undefined && !(Number.isInteger(v[k]) && (v[k] as number) >= 0)) throw Error(`hub_config_invalid: servers.${name}.${k}`);
     }
     if (v.max_instances === 0) throw Error(`hub_config_invalid: servers.${name}.max_instances debe ser >= 1`);
@@ -89,6 +92,7 @@ export function parseHubConfig(raw: unknown): HubConfig {
       max_instances: v.max_instances as number | undefined,
       startup_timeout_ms: v.startup_timeout_ms as number | undefined,
       call_timeout_ms: v.call_timeout_ms as number | undefined,
+      idle_timeout_ms: v.idle_timeout_ms as number | undefined,
       enabled: v.enabled === undefined ? true : v.enabled === true,
       description: typeof v.description === "string" ? v.description : undefined,
       ...(v.mode === "direct" ? { mode: "direct" as const } : {}),
