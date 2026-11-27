@@ -1164,3 +1164,29 @@ La versión estable 1.0.0 consolida el token obligatorio del bridge, el freno fa
 3. **Confinamiento de enlaces simbólicos**: `apply_patch` resuelve rutas de forma recursiva con `resolveWithinReal`, bloqueando escapes del workspace mediante symlinks en carpetas intermedias.
 4. **Validación sincrónica de sesiones y tareas multiturno**: `findLive` y `sweepLiveExecs` verifican sincrónicamente las sesiones en disco y terminan procesos al revocar, admitiendo indexación por la huella de sesión raíz (`session.parent ?? session.fp`) entre turnos.
 Suite: 718 pass / 3 skip / 0 fail (108 archivos). 11 tests adversarios automatizados (`tests/security-boundary.test.ts`). Notas: `docs/releases/v1.0.2.md`.
+
+## Relay del Hive: que el mensaje le llegue al agente solo (2026-11-27)
+
+Antes, un mensaje `hive_talk` caía en el inbox del agente y ahí se quedaba hasta que
+alguien le decía «lee tu inbox» (o el agente ya estaba esperando en `hive_wait`).
+`isymcp hive relay` vigila el inbox y se lo entrega al agente en cuanto llega:
+
+```bash
+# El agente es una TUI viva en tmux: el mensaje se pega en su terminal y él contesta con hive_talk.
+isymcp hive relay win-agent --tmux agente --socket default
+
+# El agente se lanza en modo headless por cada mensaje: su respuesta vuelve sola al remitente.
+isymcp hive relay win-agent -- claude -p
+isymcp hive relay win-agent -- gemini -p
+isymcp hive relay win-agent --cwd C:\proyecto --timeout-ms 900000 -- codex exec -
+```
+
+- Corre en la máquina del agente que **recibe** (p. ej. el Xeon con Windows), junto a `isymcp link serve`
+  y con el mismo `--root` del Hive (por defecto el mismo que usa `link serve`).
+- Modo headless: el mensaje entra por stdin (nunca en la línea de comandos); la salida estándar vuelve como
+  `act=inform` con `in_reply_to`, también a remitentes remotos `agente@peer`. Si el CLI falla o se pasa del
+  tiempo, el remitente recibe el error en vez de quedarse esperando.
+- No hay ping-pong: en modo headless solo se contesta a `request`, `query`, `propose` o `requires_reply=true`,
+  nunca a mensajes propios. Las respuestas viajan como `inform`.
+- Si el agente no estaba registrado, el relay lo registra (sin inbox el Hive descarta el mensaje). Cada entrega
+  queda en el log del Hive (`isymcp hive logs`, `kind: "relay"`). Ctrl+C lo detiene.
