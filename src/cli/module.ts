@@ -20,6 +20,9 @@ import {
 import { monitorModule, protocolModule } from "./commands/monitor";
 import { dashModule } from "./commands/dash";
 import { sandboxModule } from "./commands/sandbox";
+import { hiveModule } from "./commands/hive";
+import { linkModule } from "./commands/link";
+import { computeModule } from "./commands/compute";
 
 export interface CliContext {
   /** Raíz del repo (para rutas como backups/). */
@@ -41,6 +44,7 @@ export const CLI_MODULES: CliModule[] = [
   monitorModule, protocolModule,
   healthModule, metricsModule, smokeModule, doctorModule, treeModule, canaryModule, logsModule,
   panelModule, uiModule, execModule, fuzzModule, versionModule, helpModule, dashModule, sandboxModule,
+  hiveModule, linkModule, computeModule,
   nativeBrowserModule, tableroModule, mediaModule, comfyModule, githubModule,
 ];
 

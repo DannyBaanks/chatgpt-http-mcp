@@ -70,7 +70,10 @@ export const FAMILY_DESCRIPTIONS: Record<string, string> = {
   "fuzz": "Suite de pruebas adversariales y fuzzing para configs de TUIs y Universal Gateway.",
   "openisy": "Túnel bidireccional hacia OpenISy/OpenCode (HTTP v2 Daemon) para orquestar su TUI en vivo (como usuario o como agente sintético) y despachar sub-agentes multi-provider con o sin API keys externas.",
   "openswift": "Simulador visual de pantallas SwiftUI en iPhone e iPad (OpenSwift): renderiza código o archivos .swift a capturas PNG Retina para que el modelo vea visualmente la interfaz.",
-  "handoff": "Carga unificada en 1 paso de handoffs compactados por NVIDIA Nemotron en el Baúl (`compacted/`) junto con verificación viva de archivos, estado git y búsqueda `ziggrep`."
+  "handoff": "Carga unificada en 1 paso de handoffs compactados por NVIDIA Nemotron en el Baúl (`compacted/`) junto con verificación viva de archivos, estado git y búsqueda `ziggrep`.",
+  "hive": "Coordinación multi-agente headless en disco (extraída de isyco-worlds, sin GUI): registry, board.md, tasks.json, inboxes/outboxes y router.",
+  "link": "Enlace cifrado E2E entre máquinas (munder-link@1 sobre LAN/Tailscale): peers, estado de oficina y delegación Hive.",
+  "compute": "Ejecución remota asíncrona de procesos CPU/WSL2/GPU (ej. PC Xeon Windows con RTX 4060) sobre ISyMCP Link con slots de recursos, streaming de logs y descarga verificada por SHA-256."
 };
 
 /** Entrada del CLI isymcp que las consolas usan para responder. */
@@ -1261,6 +1264,381 @@ export const GATEWAY_ACTIONS: GatewayAction[] = [
         dryRun: args.dryRun === true || args.dry_run === true,
       });
       return { ok: res.ok, result: res.ok ? res : null, error: res.error };
+    },
+  },
+  // ── Hive headless (cero Electron) ───────────────────────────────────────────
+  {
+    name: "hive.status",
+    family: "hive",
+    glossary: {
+      "description": "Estado del Hive headless local: ruta, agentes registrados, tareas abiertas y salud del router.",
+      "parameters": { "hive_root": "string (opcional)" },
+      "example": { "action": "hive.status" }
+    },
+    handler: async (args) => {
+      const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
+      const hive = new HiveManager({ hiveRoot: args.hive_root ? String(args.hive_root) : defaultHiveRoot() });
+      const reg = hive.registry();
+      const tasks = hive.tasks().tasks;
+      return {
+        ok: true,
+        result: {
+          hive_root: hive.root(),
+          sock_path: hive.sockPath(),
+          god_id: reg.godId,
+          agents_total: Object.keys(reg.agents).length,
+          tasks_total: tasks.length,
+          tasks_open: tasks.filter((t) => t.status !== "done").length,
+          router: hive.routerHealth(),
+        },
+      };
+    },
+  },
+  {
+    name: "hive.agents",
+    family: "hive",
+    glossary: {
+      "description": "Lista los agentes registrados en el Hive headless (`registry.json`).",
+      "parameters": { "hive_root": "string (opcional)" },
+      "example": { "action": "hive.agents" }
+    },
+    handler: async (args) => {
+      const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
+      const hive = new HiveManager({ hiveRoot: args.hive_root ? String(args.hive_root) : defaultHiveRoot() });
+      const reg = hive.registry();
+      markTainted("hive.agents", hive.root());
+      return { ok: true, result: reg };
+    },
+  },
+  {
+    name: "hive.tasks",
+    family: "hive",
+    glossary: {
+      "description": "Lee el ledger de tareas del Hive (`tasks.json`).",
+      "parameters": { "hive_root": "string (opcional)" },
+      "example": { "action": "hive.tasks" }
+    },
+    handler: async (args) => {
+      const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
+      const hive = new HiveManager({ hiveRoot: args.hive_root ? String(args.hive_root) : defaultHiveRoot() });
+      const tasks = hive.tasks();
+      markTainted("hive.tasks", hive.root());
+      return { ok: true, result: tasks };
+    },
+  },
+  {
+    name: "hive.board",
+    family: "hive",
+    glossary: {
+      "description": "Lee el pizarrón compartido del Hive (`board.md`).",
+      "parameters": { "hive_root": "string (opcional)" },
+      "example": { "action": "hive.board" }
+    },
+    handler: async (args) => {
+      const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
+      const hive = new HiveManager({ hiveRoot: args.hive_root ? String(args.hive_root) : defaultHiveRoot() });
+      const board = hive.board();
+      markTainted("hive.board", hive.root());
+      return { ok: true, result: { board } };
+    },
+  },
+  {
+    name: "hive.send",
+    family: "hive",
+    glossary: {
+      "description": "Envía un mensaje FIPA-lite dentro del Hive headless local.",
+      "parameters": {
+        "to": "string (obligatorio: agentId | 'god' | 'broadcast')",
+        "subject": "string (obligatorio)",
+        "body": "string (opcional)",
+        "from": "string (opcional, default 'gateway')",
+        "act": "string (opcional: request|inform|propose|query|agree|refuse|done)",
+        "hive_root": "string (opcional)"
+      },
+      "example": { "action": "hive.send", "arguments": { "to": "god", "subject": "Estado", "body": "Listo" } }
+    },
+    handler: async (args) => {
+      const to = String(args.to ?? "").trim();
+      const subject = String(args.subject ?? "").trim();
+      if (!to || !subject) return { ok: false, result: null, error: "hive.send requiere `to` y `subject`" };
+      const gate = checkGate("agent_spawn", "hive.send", { to, subject });
+      if (!gate.ok) return { ok: false, result: null, error: gate.message };
+      const { HiveManager, defaultHiveRoot } = await import("../hive/manager");
+      const hive = new HiveManager({ hiveRoot: args.hive_root ? String(args.hive_root) : defaultHiveRoot() });
+      const msg = hive.send(
+        { to, subject, body: String(args.body ?? ""), act: (args.act ? String(args.act) : "request") as any },
+        args.from ? String(args.from) : "gateway",
+      );
+      return { ok: true, result: msg };
+    },
+  },
+  // ── Link E2E (`munder-link@1`) ──────────────────────────────────────────────
+  {
+    name: "link.peers",
+    family: "link",
+    glossary: {
+      "description": "Lista la identidad local y los peers emparejados con su autoridad (`office` / `compute`).",
+      "parameters": {},
+      "example": { "action": "link.peers" }
+    },
+    handler: async () => {
+      const { defaultLinkDir, loadIdentity, loadPeers } = await import("../link/store");
+      const { prettyFingerprint } = await import("../link/crypto");
+      const { peerAuthority } = await import("../link/authority");
+      const dir = defaultLinkDir();
+      const id = loadIdentity(dir);
+      const peers = Object.values(loadPeers(dir)).map((p) => ({
+        office_id: p.office_id,
+        name: p.name,
+        fingerprint: prettyFingerprint(p.office_id),
+        addresses: p.addresses,
+        authority: peerAuthority(p),
+      }));
+      return { ok: true, result: { self: { office_id: id.office_id, name: id.name }, peers } };
+    },
+  },
+  {
+    name: "link.status",
+    family: "link",
+    glossary: {
+      "description": "Consulta estado y capacidad de un peer emparejado sobre el canal sellado.",
+      "parameters": { "peer": "string (obligatorio: nombre o id, ej. 'xeon')" },
+      "example": { "action": "link.status", "arguments": { "peer": "xeon" } }
+    },
+    handler: async (args) => {
+      const { call } = await import("../link/client");
+      const peer = String(args.peer ?? args.office ?? "").trim();
+      if (!peer) return { ok: false, result: null, error: "link.status requiere `peer`" };
+      try {
+        const res = await call(peer, "status", {});
+        markTainted("link.status", peer);
+        return { ok: true, result: res };
+      } catch (e) {
+        return { ok: false, result: null, error: (e as Error).message };
+      }
+    },
+  },
+  {
+    name: "link.submit",
+    family: "link",
+    glossary: {
+      "description": "Delega una tarea Hive a un peer emparejado.",
+      "parameters": {
+        "peer": "string (obligatorio)",
+        "compose": "string (obligatorio)",
+        "title": "string (opcional)",
+        "priority": "number (opcional 1..10)"
+      },
+      "example": { "action": "link.submit", "arguments": { "peer": "xeon", "compose": "Audita logs" } }
+    },
+    handler: async (args) => {
+      const peer = String(args.peer ?? args.office ?? "").trim();
+      const compose = String(args.compose ?? "").trim();
+      if (!peer || !compose) return { ok: false, result: null, error: "link.submit requiere `peer` y `compose`" };
+      const gate = checkGate("agent_spawn", "link.submit", {
+        peer,
+        title: args.title ? String(args.title) : "",
+      });
+      if (!gate.ok) return { ok: false, result: null, error: gate.message };
+      const { delegate } = await import("../link/client");
+      try {
+        const res = await delegate(peer, compose, {
+          title: args.title ? String(args.title) : undefined,
+          priority: args.priority !== undefined ? Number(args.priority) : undefined,
+        });
+        return { ok: true, result: res };
+      } catch (e) {
+        return { ok: false, result: null, error: (e as Error).message };
+      }
+    },
+  },
+  // ── Compute remoto async (CPU / WSL2 / GPU) ─────────────────────────────────
+  {
+    name: "compute.telemetry",
+    family: "compute",
+    glossary: {
+      "description": "Consulta telemetría CPU, RAM, GPU (RTX 4060 vía nvidia-smi) y slots libres/ocupados de un peer.",
+      "parameters": { "peer": "string (obligatorio)" },
+      "example": { "action": "compute.telemetry", "arguments": { "peer": "xeon" } }
+    },
+    handler: async (args) => {
+      const { call } = await import("../link/client");
+      const peer = String(args.peer ?? "").trim();
+      if (!peer) return { ok: false, result: null, error: "compute.telemetry requiere `peer`" };
+      try {
+        const res = await call(peer, "host_telemetry", {});
+        return { ok: true, result: res };
+      } catch (e) {
+        return { ok: false, result: null, error: (e as Error).message };
+      }
+    },
+  },
+  {
+    name: "compute.submit",
+    family: "compute",
+    glossary: {
+      "description": "Despacha un proceso asíncrono remoto (Windows nativo, WSL2/CUDA o POSIX) en un peer con permiso `compute`. Devuelve `job_id` de inmediato.",
+      "parameters": {
+        "peer": "string (obligatorio: ej. 'xeon')",
+        "command": "string (obligatorio si no se pasa argv)",
+        "argv": "string[] (opcional)",
+        "target": "enum: 'auto' | 'win' | 'wsl' | 'posix' (opcional, default 'auto')",
+        "gpu": "boolean (opcional, default false: reserva slot GPU)",
+        "priority": "enum: 'idle' | 'below_normal' | 'normal' (opcional, default 'below_normal')",
+        "timeout_ms": "number (opcional)",
+        "files": "Array<{ path, content_b64 }> (opcional)"
+      },
+      "example": {
+        "action": "compute.submit",
+        "arguments": { "peer": "xeon", "target": "wsl", "gpu": true, "command": "nvidia-smi" }
+      }
+    },
+    handler: async (args) => {
+      const gate = checkGate("host_shell", "compute.submit", {
+        peer: String(args.peer ?? ""),
+        command: String(args.command ?? ""),
+        target: String(args.target ?? "auto"),
+      });
+      if (!gate.ok) return { ok: false, result: null, error: gate.message };
+      const { call } = await import("../link/client");
+      const peer = String(args.peer ?? "").trim();
+      if (!peer) return { ok: false, result: null, error: "compute.submit requiere `peer`" };
+      try {
+        const res = await call(
+          peer,
+          "job_submit",
+          {
+            command: args.command ? String(args.command) : undefined,
+            argv: Array.isArray(args.argv) ? args.argv.map(String) : undefined,
+            target: args.target ? String(args.target) : "auto",
+            wsl_distro: args.wsl_distro ? String(args.wsl_distro) : undefined,
+            cwd: args.cwd ? String(args.cwd) : undefined,
+            gpu: args.gpu === true,
+            priority: args.priority ? String(args.priority) : "below_normal",
+            timeout_ms: args.timeout_ms !== undefined ? Number(args.timeout_ms) : undefined,
+            label: args.label ? String(args.label) : undefined,
+            files: Array.isArray(args.files) ? args.files : undefined,
+          },
+        );
+        return { ok: true, result: res };
+      } catch (e) {
+        return { ok: false, result: null, error: (e as Error).message };
+      }
+    },
+  },
+  {
+    name: "compute.status",
+    family: "compute",
+    glossary: {
+      "description": "Consulta el estado de un job remoto, sus artefactos y el tail incremental de stdout/stderr.",
+      "parameters": {
+        "peer": "string (obligatorio)",
+        "job_id": "string (obligatorio)",
+        "stdout_offset": "number (opcional)",
+        "stderr_offset": "number (opcional)"
+      },
+      "example": { "action": "compute.status", "arguments": { "peer": "xeon", "job_id": "job-123" } }
+    },
+    handler: async (args) => {
+      const { call } = await import("../link/client");
+      const peer = String(args.peer ?? "").trim();
+      const jobId = String(args.job_id ?? "").trim();
+      if (!peer || !jobId) return { ok: false, result: null, error: "compute.status requiere `peer` y `job_id`" };
+      try {
+        const res = await call(
+          peer,
+          "job_status",
+          {
+            job_id: jobId,
+            stdout_offset: Number(args.stdout_offset ?? 0),
+            stderr_offset: Number(args.stderr_offset ?? 0),
+          },
+        );
+        markTainted("compute.status", `${peer}:${jobId}`);
+        return { ok: true, result: res };
+      } catch (e) {
+        return { ok: false, result: null, error: (e as Error).message };
+      }
+    },
+  },
+  {
+    name: "compute.list",
+    family: "compute",
+    glossary: {
+      "description": "Lista los jobs remotos lanzados por esta oficina en un peer.",
+      "parameters": { "peer": "string (obligatorio)", "limit": "number (opcional)" },
+      "example": { "action": "compute.list", "arguments": { "peer": "xeon" } }
+    },
+    handler: async (args) => {
+      const { call } = await import("../link/client");
+      const peer = String(args.peer ?? "").trim();
+      if (!peer) return { ok: false, result: null, error: "compute.list requiere `peer`" };
+      try {
+        const res = await call(
+          peer,
+          "job_list",
+          { limit: Number(args.limit ?? 50) },
+        );
+        markTainted("compute.list", peer);
+        return { ok: true, result: res };
+      } catch (e) {
+        return { ok: false, result: null, error: (e as Error).message };
+      }
+    },
+  },
+  {
+    name: "compute.cancel",
+    family: "compute",
+    glossary: {
+      "description": "Cancela un job remoto y mata su árbol completo de procesos.",
+      "parameters": { "peer": "string (obligatorio)", "job_id": "string (obligatorio)" },
+      "example": { "action": "compute.cancel", "arguments": { "peer": "xeon", "job_id": "job-123" } }
+    },
+    handler: async (args) => {
+      const { call } = await import("../link/client");
+      const peer = String(args.peer ?? "").trim();
+      const jobId = String(args.job_id ?? "").trim();
+      if (!peer || !jobId) return { ok: false, result: null, error: "compute.cancel requiere `peer` y `job_id`" };
+      try {
+        const res = await call(peer, "job_cancel", { job_id: jobId });
+        return { ok: true, result: res };
+      } catch (e) {
+        return { ok: false, result: null, error: (e as Error).message };
+      }
+    },
+  },
+  {
+    name: "compute.fetch",
+    family: "compute",
+    glossary: {
+      "description": "Descarga un bloque (<=128 KB base64 + SHA-256 total) de un artefacto producido por un job remoto.",
+      "parameters": {
+        "peer": "string (obligatorio)",
+        "job_id": "string (obligatorio)",
+        "path": "string (obligatorio: ruta relativa en work/)",
+        "offset": "number (opcional)"
+      },
+      "example": { "action": "compute.fetch", "arguments": { "peer": "xeon", "job_id": "job-123", "path": "out.json" } }
+    },
+    handler: async (args) => {
+      const { call } = await import("../link/client");
+      const peer = String(args.peer ?? "").trim();
+      const jobId = String(args.job_id ?? "").trim();
+      const relPath = String(args.path ?? "").trim();
+      if (!peer || !jobId || !relPath) {
+        return { ok: false, result: null, error: "compute.fetch requiere `peer`, `job_id` y `path`" };
+      }
+      try {
+        const res = await call(
+          peer,
+          "job_fetch",
+          { job_id: jobId, path: relPath, offset: Number(args.offset ?? 0) },
+        );
+        markTainted("compute.fetch", `${peer}:${jobId}:${relPath}`);
+        return { ok: true, result: res };
+      } catch (e) {
+        return { ok: false, result: null, error: (e as Error).message };
+      }
     },
   },
 ];
