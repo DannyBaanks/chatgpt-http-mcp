@@ -89,6 +89,14 @@ fn int(o: std.json.ObjectMap, k: []const u8) ?u64 {
     return if (v == .integer and v.integer >= 0) @intCast(v.integer) else null;
 }
 
+/// Lee el opt-in global `auto_reconnect` (nivel raíz de servers.json). Por defecto false.
+pub fn parseAutoReconnect(a: std.mem.Allocator, text: []const u8) bool {
+    const root = std.json.parseFromSliceLeaky(Value, a, text, .{}) catch return false;
+    if (root != .object) return false;
+    const v = root.object.get("auto_reconnect") orelse return false;
+    return v == .bool and v.bool;
+}
+
 test "parse con valores por defecto" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -109,4 +117,14 @@ test "mode direct" {
     defer arena.deinit();
     const s = try parse(arena.allocator(), "{\"servers\":{\"m\":{\"command\":\"/usr/bin/mxterm\",\"mode\":\"direct\"}}}");
     try std.testing.expect(s[0].direct);
+}
+
+test "parseAutoReconnect: opt-in por defecto false" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expect(!parseAutoReconnect(a, "{\"servers\":{}}"));
+    try std.testing.expect(!parseAutoReconnect(a, "{\"auto_reconnect\":false,\"servers\":{}}"));
+    try std.testing.expect(parseAutoReconnect(a, "{\"auto_reconnect\":true,\"servers\":{}}"));
+    try std.testing.expect(!parseAutoReconnect(a, "no es json"));
 }

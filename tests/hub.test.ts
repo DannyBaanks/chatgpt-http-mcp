@@ -23,6 +23,9 @@ describe("config del hub (CLI)", () => {
     expect(() => parseHubConfig({ servers: { "bad name": { command: "x" } } })).toThrow(/nombre/);
     expect(() => parseHubConfig({ servers: { a: { command: "x", isolation: "otro" } } })).toThrow(/isolation/);
     expect(() => parseHubConfig({ servers: { a: { command: "x", max_instances: 0 } } })).toThrow(/max_instances/);
+    expect(parseHubConfig({ auto_reconnect: true, servers: { a: { command: "x" } } }).auto_reconnect).toBe(true);
+    expect(parseHubConfig({ servers: { a: { command: "x" } } }).auto_reconnect).toBeUndefined();
+    expect(() => parseHubConfig({ auto_reconnect: "si" as any, servers: { a: { command: "x" } } })).toThrow(/auto_reconnect/);
   });
 
   it("HUB-02: import copia stdio, marca per-client, salta remotos, existentes y el propio hub", () => {
@@ -335,6 +338,56 @@ describe.skipIf(process.platform !== "linux")("hub Zig e2e (daemon + conector + 
     // en ambos casos debe apuntar ahí, nunca a <hub home>/run.
     expect(r.stderr).not.toContain(join(dir, "hub", "run"));
   });
+
+  it("HUB-26: auto_reconnect (opt-in) reconecta transparentemente tras reiniciar el daemon sin cortar la TUI", async () => {
+    const rdir = mkdtempSync(join(tmpdir(), "isymcp-hub-reconn-"));
+    const rsock = join(rdir, "run", "hub.sock");
+    const rcfg = join(rdir, "servers.json");
+    writeFileSync(rcfg, JSON.stringify({ auto_reconnect: true, servers: { shared: cmd() } }));
+    const renv = { ...(process.env as Record<string, string>), ISYMCP_HUB_SOCKET: rsock, ISYMCP_HUB_CONFIG: rcfg, ISYMCP_HUB_LOG: join(rdir, "hub.log"), CODEX_WEB_HTTP_HOME: rdir, ISYMCP_HUB_NO_AUTOSTART: "1" };
+
+    const d1 = spawn(BIN, ["serve", "--quiet"], { env: renv, stdio: "ignore" });
+    let d2: ChildProcess | undefined;
+    let cAuto: Client | undefined;
+    let cNoAuto: Client | undefined;
+    let noAutoClosed = false;
+    try {
+      await waitFor(() => existsSync(rsock));
+
+      const tAuto = new StdioClientTransport({ command: BIN, args: ["connect"], env: renv, stderr: "pipe" });
+      cAuto = new Client({ name: "tui-auto", version: "0" });
+      await cAuto.connect(tAuto);
+
+      const tNoAuto = new StdioClientTransport({ command: BIN, args: ["connect"], env: { ...renv, ISYMCP_HUB_AUTO_RECONNECT: "0" }, stderr: "pipe" });
+      tNoAuto.onclose = () => { noAutoClosed = true; };
+      cNoAuto = new Client({ name: "tui-noauto", version: "0" });
+      await cNoAuto.connect(tNoAuto);
+
+      expect((await exec(cAuto, "shared", "echo", { text: "antes" })).text).toBe("antes");
+      expect((await exec(cNoAuto, "shared", "echo", { text: "antes" })).text).toBe("antes");
+
+      // Reinicio del daemon: mata d1 y levanta d2 en el mismo socket.
+      const d1Exit = new Promise((r) => d1.once("exit", r));
+      d1.kill("SIGTERM");
+      await d1Exit;
+
+      // El cliente sin opt-in cierra al caer el daemon.
+      await waitFor(() => noAutoClosed, 5_000);
+
+      d2 = spawn(BIN, ["serve", "--quiet"], { env: renv, stdio: "ignore" });
+      await waitFor(() => existsSync(rsock));
+
+      // El cliente con auto_reconnect sigue vivo y ejecuta sobre d2 sin reconectar la TUI.
+      expect((await exec(cAuto, "shared", "echo", { text: "despues" })).text).toBe("despues");
+    } finally {
+      await cAuto?.close().catch(() => {});
+      await cNoAuto?.close().catch(() => {});
+      d1.kill("SIGTERM");
+      d2?.kill("SIGTERM");
+      await new Promise((r) => setTimeout(r, 200));
+      rmSync(rdir, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("HUB-19: la memoria del daemon queda acotada (RSS < 64 MB tras todo lo anterior)", () => {
     const rss = Number(/VmRSS:\s+(\d+)/.exec(readFileSync(`/proc/${daemon.pid}/status`, "utf8"))?.[1] ?? 0);

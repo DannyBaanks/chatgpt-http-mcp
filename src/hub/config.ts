@@ -48,6 +48,8 @@ export interface HubServerConfig {
 }
 
 export interface HubConfig {
+  /** Opt-in: si es true, `isymcp-hub connect` reconecta solo tras reiniciar el daemon sin cortar la TUI. */
+  auto_reconnect?: boolean;
   servers: Record<string, HubServerConfig>;
 }
 
@@ -63,6 +65,8 @@ const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 /** Valida y normaliza; lanza Error con el campo culpable para que el operador lo corrija. */
 export function parseHubConfig(raw: unknown): HubConfig {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw Error("hub_config_invalid: se esperaba un objeto");
+  const autoReconnect = (raw as { auto_reconnect?: unknown }).auto_reconnect;
+  if (autoReconnect !== undefined && typeof autoReconnect !== "boolean") throw Error("hub_config_invalid: auto_reconnect debe ser booleano");
   const servers = (raw as { servers?: unknown }).servers;
   if (!servers || typeof servers !== "object" || Array.isArray(servers)) throw Error("hub_config_invalid: falta 'servers'");
   const out: Record<string, HubServerConfig> = {};
@@ -94,7 +98,7 @@ export function parseHubConfig(raw: unknown): HubConfig {
       ...(v.mode === "direct" ? { mode: "direct" as const } : {}),
     };
   }
-  return { servers: out };
+  return { ...(autoReconnect !== undefined ? { auto_reconnect: autoReconnect } : {}), servers: out };
 }
 
 export function loadHubConfig(path = hubConfigPath()): HubConfig {

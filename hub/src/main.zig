@@ -21,6 +21,7 @@ test {
     _ = @import("jspan.zig");
     _ = @import("catalog.zig");
     _ = @import("config.zig");
+    _ = @import("connect.zig");
     _ = @import("pipeline.zig");
     _ = @import("daemon.zig");
 }
@@ -136,6 +137,16 @@ pub fn main(init: std.process.Init) !void {
         if (linux.errno(rl) != .SUCCESS) return error.SelfExeUnknown;
         exe_buf[rl] = 0;
         const wait_ms: u64 = if (nonEmpty(init.environ_map, "ISYMCP_HUB_CONNECT_WAIT_MS")) |w| std.fmt.parseInt(u64, w, 10) catch 20_000 else 20_000;
+        var cli_auto_reconnect = false;
+        for (args[2..]) |x| if (std.mem.eql(u8, x, "--auto-reconnect")) {
+            cli_auto_reconnect = true;
+        };
+        const auto_reconnect: bool = if (cli_auto_reconnect) true else if (nonEmpty(init.environ_map, "ISYMCP_HUB_AUTO_RECONNECT")) |v|
+            (std.mem.eql(u8, v, "1") or std.mem.eql(u8, v, "true"))
+        else blk: {
+            const text = sys.readFileAlloc(arena, paths.config, 16 * 1024 * 1024) catch break :blk false;
+            break :blk config.parseAutoReconnect(arena, text);
+        };
         try sys.ensurePrivateDir(paths.home);
         // envp para el daemon autoarrancado: el mismo entorno que recibió el conector.
         var envl: std.ArrayList(?[*:0]const u8) = .empty;
@@ -144,6 +155,7 @@ pub fn main(init: std.process.Init) !void {
         connect.run(.{
             .socket_path = paths.socket,
             .autostart = !std.mem.eql(u8, nonEmpty(init.environ_map, "ISYMCP_HUB_NO_AUTOSTART") orelse "0", "1"),
+            .auto_reconnect = auto_reconnect,
             .wait_ms = wait_ms,
             .self_exe = exe_buf[0..rl :0],
             .log_path = try std.fmt.allocPrint(arena, "{s}/hub.autostart.log", .{paths.home}),
