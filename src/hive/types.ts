@@ -60,13 +60,22 @@ export interface HiveTaskStatusEvent {
   ts: number;
 }
 
+export type HiveWakeMode = "wait" | "hook" | "tui";
+export type HiveHarness = "claude" | "agy" | "codex" | "opencode" | (string & {});
+
 export interface AgentMeta {
   id: string;
   name: string;
   provider?: string;
+  harness?: HiveHarness;
   role?: string;
   capabilities?: string[];
   cwd: string;
+  pid?: number;
+  host?: string;
+  office_id?: string;
+  sessionId?: string;
+  wake?: HiveWakeMode;
   isGod?: boolean;
   isAssistant?: boolean;
 }
@@ -78,6 +87,33 @@ export interface RegistryAgent extends AgentMeta {
   onHold?: boolean;
   sessionId?: string;
   cwdValid?: boolean;
+  alive?: boolean;
+}
+
+export interface HiveRosterEntry extends RegistryAgent {
+  alive: boolean;
+}
+
+export interface HiveSpawnInput {
+  agent_id?: string;
+  harness: HiveHarness;
+  name: string;
+  role?: string;
+  cwd?: string;
+  prompt: string;
+  parent_agent_id?: string;
+  wake?: HiveWakeMode;
+  capabilities?: string[];
+  command?: string[];
+}
+
+export interface HiveSpawnResult {
+  agent_id: string;
+  name: string;
+  harness: string;
+  pid: number;
+  cwd: string;
+  alive: boolean;
 }
 
 export interface Registry {

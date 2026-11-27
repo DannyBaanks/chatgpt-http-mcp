@@ -160,6 +160,10 @@ const NON_RETRYABLE_CODES = new Set([
   "bad_op",
   "no_hive",
   "compute_denied",
+  "office_denied",
+  "agent_not_found",
+  "spawn_denied",
+  "spawn_unavailable",
   "no_job",
   "not_found",
 ]);
@@ -263,5 +267,78 @@ export async function reply(
     "reply",
     { origin_ref: originRef.trim(), text: opts.text, result: opts.result, status: opts.status },
     { dir: opts.dir },
+  );
+}
+
+export async function remoteHiveRoster(
+  query: string,
+  opts: { includeArchived?: boolean; dir?: string; timeoutMs?: number } = {},
+) {
+  return call<{
+    office_id: string;
+    name: string;
+    hive_enabled: boolean;
+    agents: Array<Record<string, unknown>>;
+  }>(
+    query,
+    "hive_roster",
+    { include_archived: opts.includeArchived === true },
+    { dir: opts.dir, timeoutMs: opts.timeoutMs },
+  );
+}
+
+export async function remoteHiveDeliver(
+  query: string,
+  payload: {
+    to: string;
+    from: string;
+    subject: string;
+    body?: string;
+    act?: string;
+    in_reply_to?: string | null;
+    conversation?: string;
+    requires_reply?: boolean;
+  },
+  opts: { dir?: string; timeoutMs?: number } = {},
+) {
+  return call<{
+    delivered: boolean;
+    office_id: string;
+    name: string;
+    message: Record<string, unknown>;
+  }>(
+    query,
+    "hive_deliver",
+    {
+      to: payload.to,
+      from: payload.from,
+      subject: payload.subject,
+      body: payload.body ?? "",
+      act: payload.act ?? "request",
+      in_reply_to: payload.in_reply_to ?? null,
+      conversation: payload.conversation,
+      requires_reply: payload.requires_reply === true,
+    },
+    { dir: opts.dir, timeoutMs: opts.timeoutMs },
+  );
+}
+
+export async function remoteHiveSpawn(
+  query: string,
+  payload: {
+    harness: string;
+    name: string;
+    role?: string;
+    cwd?: string;
+    prompt?: string;
+    parent_agent_id?: string;
+  },
+  opts: { dir?: string; timeoutMs?: number } = {},
+) {
+  return call<Record<string, unknown>>(
+    query,
+    "hive_spawn_remote",
+    payload,
+    { dir: opts.dir, timeoutMs: opts.timeoutMs ?? 15_000 },
   );
 }

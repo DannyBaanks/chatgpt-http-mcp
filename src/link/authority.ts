@@ -18,6 +18,16 @@ export function peerHasCompute(peer: LinkPeer | null | undefined): boolean {
   return peerAuthority(peer).compute;
 }
 
+export function requireOfficeAuthority(peer: LinkPeer): void {
+  if (!peerAuthority(peer).office) {
+    throw new LinkError(
+      "office_denied",
+      `el peer «${peer.name}» no tiene permiso de oficina/Hive`,
+      403,
+    );
+  }
+}
+
 export function requireComputeAuthority(peer: LinkPeer): void {
   if (!peerHasCompute(peer)) {
     throw new LinkError(
