@@ -236,3 +236,16 @@ test.skipIf(!wslAvailable)("exec-wsl: cwd Windows traducido corre en drvfs o fal
     expect(readFileSync(req.stderr_path, "utf8")).toContain("cwd WSL inaccesible");
   }
 }, 30_000);
+
+test.skipIf(!ON_WINDOWS)("exec-win: max_log_bytes trunca con aviso y el hijo termina (sin bloqueo de pipe)", async () => {
+  const req = jobRequest({
+    argv: ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "1..20000 | % { 'x' * 100 }"],
+    max_log_bytes: 4096,
+  });
+  const handle = await winComputeExecutor.spawn(req);
+  const result = await handle.done;
+  expect(result.exit_code).toBe(0);
+  const log = readFileSync(req.stdout_path, "utf8");
+  expect(log).toContain("[isymcp] output truncated at 4096 bytes");
+  expect(Buffer.byteLength(log)).toBeLessThan(4096 + 200);
+}, 30_000);

@@ -3,6 +3,7 @@ import { mkdirSync, createWriteStream, type WriteStream } from "node:fs";
 import os from "node:os";
 import { dirname } from "node:path";
 import { stopProcessTree } from "../platform/process";
+import { buildSafeJobEnv } from "./env";
 import type {
   ComputeExecRequest,
   ComputeRunningHandle,
@@ -38,50 +39,63 @@ function niceValueFor(priority: ComputePriority): number {
  * Entorno sanitizado: solo variables inofensivas del host + las que pide el job.
  * Evita filtrar secretos del escritorio (tokens, cookies, claves de API) a procesos remotos.
  */
-const SAFE_ENV_KEYS = [
-  "SystemRoot", "windir", "ComSpec", "PATHEXT", "PATH",
-  "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
-  "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)",
-  "COMPUTERNAME", "USERNAME", "USERDOMAIN", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
-] as const;
-
-/** Exportado para reutilización por exec-wsl (ambos archivos son propiedad Windows). */
+/** Exportado para reutilización por exec-wsl. Delega en la allowlist compartida (`env.ts`, case-insensitive en Windows). */
 export function sanitizedEnv(extra?: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of SAFE_ENV_KEYS) {
-    const value = process.env[key];
-    if (value !== undefined) env[key] = value;
-  }
-  if (extra) {
-    for (const [key, value] of Object.entries(extra)) {
-      if (value !== undefined) env[key] = value;
-    }
-  }
-  return env;
+  return buildSafeJobEnv(extra);
 }
 
-/** Vuelca un ReadableStream en streaming (append/create) al archivo de log del job. Exportado para exec-wsl. */
-export async function pumpToLog(stream: ReadableStream<Uint8Array>, logPath: string): Promise<void> {
+/** Mismo default que executor-posix y queue: 32 MiB por stream. */
+export const DEFAULT_MAX_LOG_BYTES = 32 * 1024 * 1024;
+
+export function resolveMaxLogBytes(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_LOG_BYTES;
+}
+
+/**
+ * Vuelca un ReadableStream al log del job con tope de bytes. Al llegar al tope escribe
+ * el mismo aviso que executor-posix y SIGUE drenando (descartando) para que el hijo
+ * nunca se bloquee con el pipe lleno. Exportado para exec-wsl.
+ */
+export async function pumpToLog(
+  stream: ReadableStream<Uint8Array>,
+  logPath: string,
+  maxBytes: number = DEFAULT_MAX_LOG_BYTES,
+): Promise<void> {
   // Apertura inmediata (igual que executor-posix): el log existe aunque el stream quede vacío.
-  try { mkdirSync(dirname(logPath), { recursive: true }); } catch { /* la cola ya lo crea */ }
-  const sink: WriteStream = createWriteStream(logPath, { flags: "a" });
-  await new Promise<void>((resolve, reject) => {
-    sink.once("open", () => resolve());
-    sink.once("error", reject);
-  });
+  let sink: WriteStream | null = null;
+  try {
+    try { mkdirSync(dirname(logPath), { recursive: true }); } catch { /* la cola ya lo crea */ }
+    const s = createWriteStream(logPath, { flags: "a" });
+    await new Promise<void>((resolve, reject) => {
+      s.once("open", () => resolve());
+      s.once("error", reject);
+    });
+    sink = s;
+  } catch { sink = null; /* sin log: aun así drenamos para no bloquear al hijo */ }
+
+  let written = 0;
+  let truncated = false;
   const reader = stream.getReader();
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (!sink.write(value)) {
+      if (sink === null || truncated) continue;
+      let chunk = value;
+      if (written + chunk.length > maxBytes) {
+        chunk = chunk.subarray(0, Math.max(0, maxBytes - written));
+        truncated = true;
+      }
+      written += chunk.length;
+      if (chunk.length > 0 && !sink.write(chunk)) {
         await new Promise<void>((resolve) => sink!.once("drain", resolve));
       }
+      if (truncated) sink.write(`\n[isymcp] output truncated at ${maxBytes} bytes\n`);
     }
   } catch { /* el proceso murió a mitad de lectura: los logs quedan con lo recibido */ }
   finally {
     reader.releaseLock();
-    await new Promise<void>((resolve) => sink.end(resolve));
+    if (sink !== null) await new Promise<void>((resolve) => sink!.end(resolve));
   }
 }
 
@@ -162,8 +176,8 @@ export const winComputeExecutor: PlatformComputeExecutor = {
 
       const [exitCode] = await Promise.all([
         proc.exited,
-        pumpToLog(proc.stdout as unknown as ReadableStream<Uint8Array>, req.stdout_path),
-        pumpToLog(proc.stderr as unknown as ReadableStream<Uint8Array>, req.stderr_path),
+        pumpToLog(proc.stdout as unknown as ReadableStream<Uint8Array>, req.stdout_path, resolveMaxLogBytes(req.max_log_bytes)),
+        pumpToLog(proc.stderr as unknown as ReadableStream<Uint8Array>, req.stderr_path, resolveMaxLogBytes(req.max_log_bytes)),
       ]);
 
       if (timer !== null) clearTimeout(timer);

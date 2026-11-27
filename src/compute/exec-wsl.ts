@@ -1,6 +1,6 @@
 /** Ejecutor de cómputo hacia WSL2 desde Windows (owner: Windows Xeon, contrato Hive+Link+Compute v1 §2.3). */
 import { stopProcessTree } from "../platform/process";
-import { pumpToLog, sanitizedEnv } from "./exec-win";
+import { pumpToLog, resolveMaxLogBytes, sanitizedEnv } from "./exec-win";
 import type {
   ComputeExecRequest,
   ComputeRunningHandle,
@@ -166,7 +166,7 @@ export const wslComputeExecutor: PlatformComputeExecutor = {
       let proc: Bun.Subprocess<"ignore", "pipe", "pipe"> | null = null;
       try {
         // Paso 1: copiar el script a un archivo DENTRO de WSL (stdin → cp /dev/stdin).
-        const copy = Bun.spawn(wslBaseArgs(req.wsl_distro).concat("--exec", "cp", "/dev/stdin", scriptFile), {
+        const copy = Bun.spawn(wslBaseArgs(req.wsl_distro).concat("--exec", "sh", "-c", "umask 077 && cat > \"$0\"", scriptFile), {
           env: sanitizedEnv(),
           stdin: "pipe",
           stdout: "ignore",
@@ -206,8 +206,8 @@ export const wslComputeExecutor: PlatformComputeExecutor = {
 
       const [exitCode] = await Promise.all([
         proc.exited,
-        pumpToLog(proc.stdout as unknown as ReadableStream<Uint8Array>, req.stdout_path),
-        pumpToLog(proc.stderr as unknown as ReadableStream<Uint8Array>, req.stderr_path),
+        pumpToLog(proc.stdout as unknown as ReadableStream<Uint8Array>, req.stdout_path, resolveMaxLogBytes(req.max_log_bytes)),
+        pumpToLog(proc.stderr as unknown as ReadableStream<Uint8Array>, req.stderr_path, resolveMaxLogBytes(req.max_log_bytes)),
       ]);
 
       if (timer !== null) clearTimeout(timer);
