@@ -12,25 +12,29 @@ Pensado para clientes que registran MCP como "programa local" (`npx -y <paquete>
 
 ## Uso
 
-Registrar en tu cliente como MCP stdio (una vez publicado):
+Tres formas de registrarlo como MCP stdio, según si está publicado o no:
 
-```
-command: npx
-args:    [-y, isymcp-hub-mcp]
-```
-
-O sin publicar, desde el repo:
-
-```sh
-node packages/isymcp-hub-mcp/bin/isymcp-hub-mcp.mjs   # modo MCP
-```
-
-Diagnóstico:
+| Cuándo | Comando | Argumentos |
+|---|---|---|
+| **Ahora, sin publicar** (recomendado mientras no esté en npm) | `isymcp-hub-mcp` (instalado en `~/.local/bin` desde el tarball) | *(ninguno)* |
+| **Ahora, sin instalar nada** | `node` | `<repo>/packages/isymcp-hub-mcp/bin/isymcp-hub-mcp.mjs` |
+| **Tras publicar en npm** | `npx` | `-y isymcp-hub-mcp` |
 
 ```sh
-npx -y isymcp-hub-mcp --doctor   # socket, binario, versión del hub, MCP detrás (texto)
-npx -y isymcp-hub-mcp --status   # lo mismo en JSON
+# instalar el tarball local sin registry ni sudo (crea ~/.local/bin/isymcp-hub-mcp)
+npm pack --pack-destination /tmp
+npm install -g --prefix "$HOME/.local" /tmp/isymcp-hub-mcp-0.1.0.tgz
 ```
+
+Diagnóstico (con cualquiera de las tres formas, añade `--doctor` o `--status`):
+
+```sh
+isymcp-hub-mcp --doctor   # socket, binario, versión del hub, MCP detrás (texto; rc≠0 si el hub no responde)
+isymcp-hub-mcp --status   # lo mismo en JSON
+```
+
+> `npx -y isymcp-hub-mcp` **falla con E404 mientras el paquete no esté publicado** en npm; ese error
+> viene de npm, no del conector. Usa una de las dos primeras filas hasta publicar.
 
 ## Flujo de uso desde un agente
 
