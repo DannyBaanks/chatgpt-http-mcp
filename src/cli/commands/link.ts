@@ -9,6 +9,8 @@ import { DEFAULT_PORT, prettyFingerprint } from "../../link/crypto";
 import { createDiscoveryResponder, discoverLan, discoverTailscale } from "../../link/discovery";
 import { createLinkServer } from "../../link/server";
 import { defaultLinkDir, importLegacyMunderLink, linkFiles, loadIdentity, loadPeers } from "../../link/store";
+import { CacheStore } from "../../link/cache";
+import { cacheFetch } from "../../link/cache-client";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -31,7 +33,11 @@ Uso:
   isymcp link task <peer> <task_id>
   isymcp link reply <peer> <origin_ref> <texto> [--result <res>] [--status <st>]
   isymcp link compute allow <peer>
-  isymcp link compute revoke <peer>`);
+  isymcp link compute revoke <peer>
+  isymcp link cache fetch <url|hf:...> [-o dest]
+  isymcp link cache put <archivo> [--key <clave>]
+  isymcp link cache ls
+  isymcp link cache gc --max-gb <N>`);
 }
 
 export const linkModule: CliModule = {
@@ -229,6 +235,47 @@ export const linkModule: CliModule = {
         });
         console.log(JSON.stringify(res, null, 2));
         return;
+      }
+
+      case "cache": {
+        const action = rest[0];
+        if (action === "fetch") {
+          const key = rest[1];
+          if (!key) {
+            console.error("Uso: isymcp link cache fetch <url|hf:...> [-o dest]");
+            process.exit(2);
+          }
+          const output = flagValue(rest, "-o") ?? flagValue(rest, "--output");
+          const res = await cacheFetch(key, { linkDir: dir, output });
+          console.log(JSON.stringify(res, null, 2));
+          return;
+        }
+        if (action === "put") {
+          const file = rest[1];
+          if (!file) {
+            console.error("Uso: isymcp link cache put <archivo> [--key <clave>]");
+            process.exit(2);
+          }
+          const entry = await new CacheStore().put(file, flagValue(rest, "--key"));
+          console.log(JSON.stringify(entry, null, 2));
+          return;
+        }
+        if (action === "ls") {
+          console.log(JSON.stringify(new CacheStore().ls(), null, 2));
+          return;
+        }
+        if (action === "gc") {
+          const gb = Number(flagValue(rest, "--max-gb"));
+          if (!Number.isFinite(gb) || gb <= 0) {
+            console.error("Uso: isymcp link cache gc --max-gb <N>");
+            process.exit(2);
+          }
+          const res = new CacheStore().gc(Math.floor(gb * 1_000_000_000));
+          console.log(JSON.stringify({ ok: true, removed: res.removed.length, kept_bytes: res.kept_bytes, removed_entries: res.removed }, null, 2));
+          return;
+        }
+        console.error("Uso: isymcp link cache fetch|put|ls|gc");
+        process.exit(2);
       }
 
       case "compute": {
