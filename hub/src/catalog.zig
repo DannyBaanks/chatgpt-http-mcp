@@ -121,21 +121,94 @@ pub fn firstSentence(a: std.mem.Allocator, text: []const u8, max: usize) ![]cons
 
 pub const Hit = struct { server: []const u8, entry: *const Entry, score: u32 };
 
-/// Busca términos en nombre (pesa más) y descripción. Exige al menos un punto por término.
+/// Palabras que no discriminan en catálogos de tools (español/inglés corriente + conectores).
+/// Un término de esta lista nunca se exige ni suma; si la consulta entera es de este tipo, se
+/// devuelve lista vacía en vez de la primera página (bug 2026-11-28: "zzzz-no-existe" devolvía
+/// tools por el "no" de "norm"/"native").
+const stopwords = [_][]const u8{
+    "a",     "al",    "algo",  "como",  "con",   "cual",  "de",    "del",   "el",    "en",
+    "es",    "esa",   "ese",   "eso",   "esta",  "este",  "esto",  "for",   "la",    "las",
+    "lo",    "los",   "mas",   "más",   "me",    "mi",    "no",    "nos",   "o",     "os",
+    "para",  "pero",  "por",   "que",   "qué",   "se",    "si",    "sí",    "sin",   "so",
+    "su",    "sus",   "the",   "to",    "un",    "una",   "uno",   "y",     "yo",    "of",
+    "and",   "or",    "in",    "on",    "at",    "is",    "it",    "an",    "as",    "be",
+    "by",    "do",    "if",    "my",    "up",    "us",    "we",    "you",   "use",   "usa",
+};
+
+fn isStopword(t: []const u8) bool {
+    for (stopwords) |sw| if (std.mem.eql(u8, sw, t)) return true;
+    return false;
+}
+
+/// Busca términos en nombre (pesa más) y descripción.
+///
+/// Criterio (fix 2026-11-28):
+///   1. Stopwords y términos de 1-2 chars se ignoran por completo (no exigen ni puntúan).
+///   2. Un término que no aparece en NINGUNA tool (df = 0) se ignora: no discrimina.
+///   3. La tool entra sólo si casan TODOS los términos que quedan. Si no queda ninguno, lista vacía.
 pub fn search(a: std.mem.Allocator, out: *std.ArrayList(Hit), server: []const u8, cat: *const Catalog, query: []const u8) !void {
     var terms: std.ArrayList([]const u8) = .empty;
-    var it = std.mem.tokenizeAny(u8, query, " \t_-.,");
-    while (it.next()) |t| try terms.append(a, try std.ascii.allocLowerString(a, t));
+    var it = std.mem.tokenizeAny(u8, query, " \t_-.,:/()[]");
+    while (it.next()) |t| {
+        const low = try std.ascii.allocLowerString(a, t);
+        if (low.len < 3 or isStopword(low)) continue;
+        try terms.append(a, low);
+    }
     if (terms.items.len == 0) return;
+
+    // Pasada 1: df por término; los que no aparecen en ninguna tool se descartan.
+    var df = try a.alloc(usize, terms.items.len);
+    @memset(df, 0);
+    for (cat.entries) |*e| {
+        const name = try std.ascii.allocLowerString(a, e.name);
+        for (terms.items, 0..) |term, ti| {
+            if (std.mem.indexOf(u8, name, term) != null or std.mem.indexOf(u8, e.haystack, term) != null) df[ti] += 1;
+        }
+    }
+    var meaningful: usize = 0;
+    for (df) |d| if (d > 0) {
+        meaningful += 1;
+    };
+    if (meaningful == 0) return; // consulta sin coincidencias: [] y no la primera página
+
+    // Pasada 2: puntuar; exigir todos los términos con df > 0.
     for (cat.entries) |*e| {
         const name = try std.ascii.allocLowerString(a, e.name);
         var score: u32 = 0;
-        for (terms.items) |term| {
-            if (std.mem.eql(u8, name, term)) score += 10 else if (std.mem.indexOf(u8, name, term) != null) score += 5;
-            if (std.mem.indexOf(u8, e.haystack, term) != null) score += 1;
+        var matched: usize = 0;
+        for (terms.items, 0..) |term, ti| {
+            if (df[ti] == 0) continue;
+            var hit = false;
+            if (std.mem.eql(u8, name, term)) {
+                score += 10;
+                hit = true;
+            } else if (std.mem.indexOf(u8, name, term) != null) {
+                score += 5;
+                hit = true;
+            }
+            if (std.mem.indexOf(u8, e.haystack, term) != null) {
+                score += 1;
+                hit = true;
+            }
+            if (hit) matched += 1;
         }
-        if (score >= terms.items.len) try out.append(a, .{ .server = server, .entry = e, .score = score });
+        if (matched == meaningful and score > 0) try out.append(a, .{ .server = server, .entry = e, .score = score });
     }
+}
+
+/// `term` aparece en `hay` delimitado por caracteres no alfanuméricos (o en los extremos).
+/// Evita que "no" case con "annotate" o "unknowns" (el bug de hub_discover query).
+fn hasWord(hay: []const u8, term: []const u8) bool {
+    if (term.len == 0) return false;
+    var start: usize = 0;
+    while (std.mem.indexOfPos(u8, hay, start, term)) |i| {
+        const left_ok = i == 0 or !std.ascii.isAlphanumeric(hay[i - 1]);
+        const end = i + term.len;
+        const right_ok = end >= hay.len or !std.ascii.isAlphanumeric(hay[end]);
+        if (left_ok and right_ok) return true;
+        start = i + 1;
+    }
+    return false;
 }
 
 pub fn sortHits(hits: []Hit) void {
@@ -232,4 +305,40 @@ test "Catalog.build separa json_input sin outputSchema y reutiliza slice si no e
     try std.testing.expect(std.mem.indexOf(u8, heavy.json, "\"outputSchema\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, heavy.json_input, "\"outputSchema\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, heavy.json_input, "\"inputSchema\"") != null);
+}
+
+test "regresión 2026-11-28: query sin coincidencias devuelve lista vacía (no la primera página)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cat = try Catalog.build(std.testing.allocator, (try std.json.parseFromSliceLeaky(Value, a,
+        \\[{"name":"annotate_native_function","description":"Rename one function atomically."},{"name":"list_unknowns","description":"Lista los simbolos desconocidos"},{"name":"close_binary","description":"Cierra el binario abierto"}]
+    , .{})).array.items);
+    defer cat.deinit();
+    var hits: std.ArrayList(Hit) = .empty;
+
+    // El bug: "zzzz-no-existe" casaba por el "no" de "native"/"unknowns" y devolvía tools ajenas.
+    try search(a, &hits, "rea", &cat, "zzzz-no-existe");
+    try std.testing.expectEqual(@as(usize, 0), hits.items.len);
+
+    // Una errata imposible sola tampoco debe devolver nada.
+    hits.clearRetainingCapacity();
+    try search(a, &hits, "rea", &cat, "zzzzqqqq");
+    try std.testing.expectEqual(@as(usize, 0), hits.items.len);
+
+    // Consulta sólo de stopwords: lista vacía (antes: primera página).
+    hits.clearRetainingCapacity();
+    try search(a, &hits, "rea", &cat, "de la con no");
+    try std.testing.expectEqual(@as(usize, 0), hits.items.len);
+
+    // Un término real sigue encontrando (sin regresión).
+    hits.clearRetainingCapacity();
+    try search(a, &hits, "rea", &cat, "binary");
+    try std.testing.expect(hits.items.len >= 1);
+
+    // Los términos que no existen se ignoran; los reales deben casar todos.
+    hits.clearRetainingCapacity();
+    try search(a, &hits, "rea", &cat, "zzzz list unknowns");
+    try std.testing.expectEqual(@as(usize, 1), hits.items.len);
+    try std.testing.expectEqualStrings("list_unknowns", hits.items[0].entry.name);
 }

@@ -90,6 +90,50 @@ El panel funciona en **http://127.0.0.1:8798**. Para utilizar chat, túneles o a
 
 **Sigue con:** [Guía paso a paso en español](GUIA.md) · [Instalación en Windows](docs/WINDOWS.md) · [Descargar una versión publicada](https://github.com/DannyBaanks/chatgpt-http-mcp/releases).
 
+### Conectar el hub a cualquier cliente MCP (npx / npm)
+
+El hub expone **todos** los MCP que administra a través de una sola conexión: cuatro herramientas
+(`hub_discover`, `hub_describe`, `hub_execute`, `agentspipeline`) en lugar de registrar cada MCP por
+separado. El conector está publicado en npm y no necesita instalar Bun ni el repositorio:
+
+```bash
+npx -y isymcp-hub-mcp --doctor   # ¿hay socket, binario y hub? (texto)
+npx -y isymcp-hub-mcp --status   # lo mismo en JSON
+```
+
+Para conectarlo, registra un MCP **stdio** en tu cliente (AutoClaw, Claude Code, Codex, Cursor,
+OpenCode, o cualquier cliente compatible):
+
+| Campo | Valor |
+|---|---|
+| Nombre | `isymcp-hub` |
+| Comando | `npx` |
+| Argumentos | `-y isymcp-hub-mcp` |
+
+O instálalo una vez si prefieres no depender de la red en cada arranque:
+
+```bash
+npm install -g isymcp-hub-mcp        # deja `isymcp-hub-mcp` en el PATH
+# y en el cliente: comando `isymcp-hub-mcp`, sin argumentos
+```
+
+**Requisito:** el daemon del hub tiene que existir (`isymcp hub install --enable`, o `cd hub && zig build -Doptimize=ReleaseSafe` con Zig 0.16). Si no lo encuentra, el conector **falla con instrucciones** y no crea un hub paralelo.
+
+> [!IMPORTANT]
+> El conector **no** implementa herramientas ni relaja permisos: transporta bytes hacia el socket
+> del hub, y las tools siguen siendo del daemon con su aislamiento y autorizaciones. Cada servidor
+> conserva sus propias credenciales.
+
+Flujo típico desde un agente:
+
+1. `hub_discover` — lista los MCP y su estado (con `server`, su catálogo; con `query`, búsqueda).
+2. `hub_describe(server, tool)` — esquema de entrada antes de llamar.
+3. `hub_execute(server, tool, arguments)` — ejecuta con las reglas del hub.
+4. `agentspipeline` — orquestación multi-agente en worktrees; integrar cambios sigue exigiendo
+   autorización explícita (`integration_authorized`).
+
+Código del paquete y tests: [`packages/isymcp-hub-mcp`](packages/isymcp-hub-mcp).
+
 > [!TIP]
 > Ejecuta `isymcp` sin argumentos para explorar el menú. Usa `isymcp dash` (o `isymcp status`) para revisar servicios e `isymcp smoke` para ejecutar comprobaciones locales.
 

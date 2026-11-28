@@ -1,0 +1,39 @@
+{
+  "name": "isymcp-hub-mcp",
+  "version": "0.1.0",
+  "description": "MCP connector (stdio) for the ISyMCP hub: one tool set (hub_discover / hub_describe / hub_execute / agentspipeline) in front of every MCP the hub already runs. Zero dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "isymcp-hub-mcp": "bin/isymcp-hub-mcp.mjs"
+  },
+  "main": "bin/isymcp-hub-mcp.mjs",
+  "files": [
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "isymcp",
+    "hub",
+    "agent-tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DannyBaanks/chatgpt-http-mcp.git",
+    "directory": "packages/isymcp-hub-mcp"
+  },
+  "scripts": {
+    "test": "node --test test/connector.test.mjs",
+    "status": "node bin/isymcp-hub-mcp.mjs --status",
+    "test:e2e": "node test/e2e-live.mjs"
+  }
+}

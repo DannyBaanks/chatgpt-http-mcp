@@ -9,6 +9,9 @@
     "isymcp": "src/isymcp.ts"
   },
   "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "start": "bun run src/cli.ts",
     "test": "bun test",
@@ -31,7 +34,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
-    "playwright-core": "1.62.0"
+    "playwright-core": "1.62.0",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
