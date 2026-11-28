@@ -1190,3 +1190,28 @@ isymcp hive relay win-agent --cwd C:\proyecto --timeout-ms 900000 -- codex exec 
   nunca a mensajes propios. Las respuestas viajan como `inform`.
 - Si el agente no estaba registrado, el relay lo registra (sin inbox el Hive descarta el mensaje). Cada entrega
   queda en el log del Hive (`isymcp hive logs`, `kind: "relay"`). Ctrl+C lo detiene.
+
+### Modos de acceso del relay (2026-11-27)
+
+Igual que `isymcp shell exec`, el relay decide cuánto puede hacer el agente con cada mensaje. Con
+`--harness` ISyMCP arma el CLI con los permisos propios de ese harness:
+
+```bash
+isymcp hive relay win-agent --harness claude                      # none: solo texto (defecto)
+isymcp hive relay win-agent --harness claude --access ro --cwd C:\repo   # leer/buscar en el repo
+isymcp hive relay win-agent --harness codex  --access rw --cwd C:\repo   # editar dentro del repo
+isymcp hive relay win-agent --harness claude --access full --for 2h      # todo, 2 horas
+```
+
+| modo | claude | codex |
+|---|---|---|
+| `none` | `--tools ""` (sin herramientas) | no se puede: rechazado, usa `ro` |
+| `ro` | `--restricted --tools Read,Glob,Grep` | `--sandbox read-only` |
+| `rw` | `--restricted --tools Read,Glob,Grep,Edit,Write --permission-mode acceptEdits` | `--sandbox workspace-write` |
+| `full` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` |
+
+- Claude corre siempre con `--permission-prompts none`: lo que pediría permiso se deniega (nadie contesta en headless).
+- `full` exige `--for` (máx 24 h). Al caducar, el relay deja de ejecutar y se apaga solo.
+- Cada arranque queda en la bitácora de permisos (`kind: hive_relay_start`, con argv, cwd y caducidad).
+- `-- <cli>` sigue disponible para un CLI propio; queda registrado como acceso `custom` (sin control de ISyMCP).
+- Cualquier agente emparejado por munder-link puede mandar mensajes: elige el modo pensando en eso.

@@ -4,6 +4,8 @@ import { defaultHiveRoot, HiveManager } from "../../hive/manager";
 import { startHiveDaemon } from "../../hive/daemon";
 import type { MessageAct } from "../../hive/types";
 import { runRelay, type RelayOptions } from "../../hive/relay";
+import { relayCommand } from "../../hive/relay-access";
+import { appendAudit } from "../../permissions";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -23,12 +25,16 @@ Uso:
   isymcp hive send <to> <subject> <body> [--from <id>] [--act <act>] [--root <dir>]
   isymcp hive logs [--tail <n>] [--root <dir>]
   isymcp hive relay <agent_id> --tmux <session> [--socket <tmux -L>] [--root <dir>]
+  isymcp hive relay <agent_id> --harness claude|codex [--access none|ro|rw|full] [--for 2h] [--cwd <dir>]
   isymcp hive relay <agent_id> [--cwd <dir>] [--timeout-ms <n>] [--reply-from <id>] -- <cli headless...>
 
 relay: cada mensaje que llega al inbox de <agent_id> se le entrega solo.
   --tmux  lo pega en su TUI viva (el agente contesta con hive_talk).
   -- cmd  lanza el CLI headless con el mensaje por stdin y devuelve su stdout al remitente
-          (ej.: -- claude -p   |   -- gemini -p   |   -- codex exec -).`);
+          (ej.: -- claude -p   |   -- gemini -p   |   -- codex exec -).
+  --harness  arma el CLI con un modo de acceso (como isymcp shell exec):
+             none = solo texto (defecto) · ro = leer en --cwd · rw = editar en --cwd ·
+             full = sin límites, exige --for (máx 24h), se audita y el relay se apaga al caducar.`);
 }
 
 export const hiveModule: CliModule = {
@@ -130,11 +136,25 @@ export const hiveModule: CliModule = {
         const dd = rest.indexOf("--");
         const head = dd >= 0 ? rest.slice(0, dd) : rest;
         const execArgv = dd >= 0 ? rest.slice(dd + 1) : [];
-        const valued = new Set(["--root", "--tmux", "--socket", "--cwd", "--timeout-ms", "--reply-from"]);
+        const valued = new Set(["--root", "--tmux", "--socket", "--cwd", "--timeout-ms", "--reply-from", "--harness", "--access", "--for"]);
         const agentId = head.find((a, i) => !a.startsWith("--") && !valued.has(head[i - 1] ?? ""));
         const tmuxSession = flagValue(head, "--tmux");
-        if (!agentId || (!tmuxSession && execArgv.length === 0) || (tmuxSession && execArgv.length > 0)) {
-          console.error("Uso: isymcp hive relay <agent_id> (--tmux <session> | -- <cli headless...>)");
+        const harness = flagValue(head, "--harness");
+        const sources = [Boolean(tmuxSession), execArgv.length > 0, Boolean(harness)].filter(Boolean).length;
+        if (!agentId || sources !== 1) {
+          console.error("Uso: isymcp hive relay <agent_id> (--tmux <session> | --harness claude|codex [--access ...] | -- <cli headless...>)");
+          process.exit(2);
+        }
+        const cwd = flagValue(head, "--cwd") ?? process.cwd();
+        let access: RelayOptions["access"] = execArgv.length > 0 ? "custom" : undefined;
+        let expiresAt: number | null = null;
+        if (harness) {
+          const cmd = relayCommand(harness, flagValue(head, "--access") ?? "none", { cwd, forRaw: flagValue(head, "--for") });
+          execArgv.push(...cmd.argv);
+          access = cmd.access;
+          expiresAt = cmd.expiresAt;
+        } else if (flagValue(head, "--access") || flagValue(head, "--for")) {
+          console.error("--access/--for solo aplican con --harness");
           process.exit(2);
         }
         const timeout = Number(flagValue(head, "--timeout-ms") ?? 600_000);
@@ -144,15 +164,26 @@ export const hiveModule: CliModule = {
           tmuxSession,
           tmuxSocket: flagValue(head, "--socket"),
           execArgv,
-          execCwd: flagValue(head, "--cwd"),
+          execCwd: cwd,
+          access,
+          expiresAt,
           execTimeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 600_000,
           replyFrom: flagValue(head, "--reply-from"),
         };
+        appendAudit({
+          kind: "hive_relay_start",
+          agent_id: agentId,
+          mode: opts.mode,
+          access: access ?? null,
+          argv: opts.mode === "exec" ? execArgv : null,
+          cwd,
+          expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
+        });
         const ac = new AbortController();
         process.once("SIGINT", () => ac.abort());
         process.once("SIGTERM", () => ac.abort());
         console.log(
-          `[isymcp-hive-relay] ${agentId} (${opts.mode}${tmuxSession ? ` → tmux ${tmuxSession}` : ` → ${execArgv.join(" ")}`}) escuchando en ${hive.root()}`,
+          `[isymcp-hive-relay] ${agentId} (${opts.mode}${tmuxSession ? ` → tmux ${tmuxSession}` : ` → ${execArgv.join(" ")}`}${access ? ` · acceso ${access}` : ""}${expiresAt ? ` hasta ${new Date(expiresAt).toISOString()}` : ""}) escuchando en ${hive.root()}`,
         );
         await runRelay(hive, opts, {
           signal: ac.signal,
