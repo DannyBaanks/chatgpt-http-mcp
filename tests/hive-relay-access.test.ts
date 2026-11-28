@@ -28,6 +28,31 @@ describe("relay access modes", () => {
     expect(() => relayCommand("codex", "none", { cwd: "/w" })).toThrow(/read-only/);
   });
 
+  test("isycode: ro = classic, full = flow; none/rw se rechazan (flow también ejecuta comandos)", () => {
+    expect(relayCommand("isycode", "ro", { cwd: "/w" }).argv).toEqual(["isycode", "-p", "--mode", "classic"]);
+    expect(relayCommand("isycode", "full", { cwd: "/w", forRaw: "1h" }).argv).toEqual(["isycode", "-p", "--mode", "flow"]);
+    expect(() => relayCommand("isycode", "none", { cwd: "/w" })).toThrow(/classic/);
+    expect(() => relayCommand("isycode", "rw", { cwd: "/w" })).toThrow(/flow/);
+  });
+
+  test("openisy: servidor privado + permisos por OPENCODE_CONFIG_CONTENT", () => {
+    const perm = (a: string, f?: string) => {
+      const c = relayCommand("openisy", a, { cwd: "/w", forRaw: f });
+      expect(c.argv.slice(0, 3)).toEqual(["openisy", "run", "--standalone"]);
+      return { argv: c.argv, p: JSON.parse(c.env!.OPENCODE_CONFIG_CONTENT!).permission };
+    };
+    expect(perm("none").p).toEqual({ "*": "deny" });
+    expect(perm("ro").p).toEqual({ "*": "deny", read: "allow", glob: "allow", grep: "allow", list: "allow" });
+    const rw = perm("rw").p;
+    expect(rw.edit).toBe("allow");
+    expect(rw.external_directory).toBe("deny");
+    expect(rw.bash).toBeUndefined();
+    const full = perm("full", "2h");
+    expect(full.p).toEqual({ "*": "allow" });
+    expect(full.argv).toContain("--auto");
+    expect(perm("ro").argv).not.toContain("--auto");
+  });
+
   test("full exige --for <=24h; --for fuera de full y valores desconocidos fallan cerrado", () => {
     expect(() => relayCommand("claude", "full", { cwd: "/w" })).toThrow(/--for/);
     expect(() => relayCommand("claude", "full", { cwd: "/w", forRaw: "25h" })).toThrow(/24h/);

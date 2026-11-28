@@ -9,17 +9,22 @@
 // Cada harness aplica el modo con SUS propios permisos (verificado con --help, 2026-11-27):
 //   claude 2.1.x  --tools / --restricted / --permission-mode / --permission-prompts none
 //   codex 0.172   exec --sandbox read-only | workspace-write | --dangerously-bypass-approvals-and-sandbox
+//   isycode       -p (stdin) --mode classic (solo lectura) | flow (edita + comandos + isymem)
+//   openisy       run --standalone + OPENCODE_CONFIG_CONTENT {"permission": ...} (servidor privado: el
+//                 servicio compartido no hereda estos permisos)
 // Un harness que no puede cumplir un modo lo rechaza en vez de dar más acceso del pedido.
 import { MAX_TTL_MS, parseDuration } from "../permissions";
 
 export type RelayAccess = "none" | "ro" | "rw" | "full";
-export type RelayHarness = "claude" | "codex";
+export type RelayHarness = "claude" | "codex" | "isycode" | "openisy";
 
 export const RELAY_ACCESS: RelayAccess[] = ["none", "ro", "rw", "full"];
-export const RELAY_HARNESSES: RelayHarness[] = ["claude", "codex"];
+export const RELAY_HARNESSES: RelayHarness[] = ["claude", "codex", "isycode", "openisy"];
 
 export interface RelayCommand {
   argv: string[];
+  /** variables extra para el proceso del agente (p. ej. permisos de openisy). */
+  env?: Record<string, string>;
   access: RelayAccess;
   harness: RelayHarness;
   /** ms epoch en que caduca el acceso full (null para los demás modos). */
@@ -51,7 +56,23 @@ export function relayCommand(
   }
 
   let argv: string[];
-  if (h === "claude") {
+  let env: Record<string, string> | undefined;
+  if (h === "isycode") {
+    // classic = solo lectura; flow = edita, ejecuta y usa isymem: equivale a full, no a rw.
+    if (a === "none") throw new Error("isycode no tiene modo sin herramientas: usa --access ro (classic, solo lectura)");
+    if (a === "rw") throw new Error("isycode no tiene escritura acotada (flow también ejecuta comandos): usa ro o full --for");
+    argv = ["isycode", "-p", "--mode", a === "ro" ? "classic" : "flow"];
+  } else if (h === "openisy") {
+    const allow = (keys: string[]) => Object.fromEntries(keys.map((k) => [k, "allow"]));
+    const read = ["read", "glob", "grep", "list"];
+    const permission =
+      a === "none" ? { "*": "deny" }
+      : a === "ro" ? { "*": "deny", ...allow(read) }
+      : a === "rw" ? { "*": "deny", ...allow([...read, "edit"]), external_directory: "deny" }
+      : { "*": "allow" };
+    env = { OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission }) };
+    argv = ["openisy", "run", "--standalone", ...(a === "full" ? ["--auto"] : [])];
+  } else if (h === "claude") {
     // --permission-prompts none: en headless nadie contesta; lo que pediría permiso se deniega.
     const base = ["claude", "-p", "--permission-prompts", "none"];
     if (a === "none") argv = [...base, "--tools", "", "--strict-mcp-config"];
@@ -67,7 +88,7 @@ export function relayCommand(
     else if (a === "rw") argv = [...base, "--sandbox", "workspace-write"];
     else argv = [...base, "--dangerously-bypass-approvals-and-sandbox"];
   }
-  return { argv, access: a, harness: h, expiresAt };
+  return { argv, ...(env ? { env } : {}), access: a, harness: h, expiresAt };
 }
 
 /**

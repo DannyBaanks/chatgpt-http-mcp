@@ -1210,6 +1210,11 @@ isymcp hive relay win-agent --harness claude --access full --for 2h      # todo,
 | `rw` | `--restricted --tools Read,Glob,Grep,Edit,Write --permission-mode acceptEdits` | `--sandbox workspace-write` |
 | `full` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` |
 
+ISyCode y OpenISy también: `isycode` usa `-p --mode classic` para `ro` y `--mode flow` para `full`.
+No tiene `none` ni `rw` (flow también ejecuta comandos), así que esos modos se rechazan. `openisy` corre
+`run --standalone` (servidor privado) con `OPENCODE_CONFIG_CONTENT`: `none` niega todo; `ro` permite
+read/glob/grep/list; `rw` añade edit y niega external_directory; `full` = todo permitido + `--auto`.
+
 - Claude corre siempre con `--permission-prompts none`: lo que pediría permiso se deniega (nadie contesta en headless).
 - `full` exige `--for` (máx 24 h). Al caducar, el relay deja de ejecutar y se apaga solo.
 - Cada arranque queda en la bitácora de permisos (`kind: hive_relay_start`, con argv, cwd y caducidad).

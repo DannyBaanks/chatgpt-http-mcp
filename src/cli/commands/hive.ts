@@ -25,7 +25,7 @@ Uso:
   isymcp hive send <to> <subject> <body> [--from <id>] [--act <act>] [--root <dir>]
   isymcp hive logs [--tail <n>] [--root <dir>]
   isymcp hive relay <agent_id> --tmux <session> [--socket <tmux -L>] [--root <dir>]
-  isymcp hive relay <agent_id> --harness claude|codex [--access none|ro|rw|full] [--for 2h] [--cwd <dir>]
+  isymcp hive relay <agent_id> --harness claude|codex|isycode|openisy [--access none|ro|rw|full] [--for 2h] [--cwd <dir>]
   isymcp hive relay <agent_id> [--cwd <dir>] [--timeout-ms <n>] [--reply-from <id>] -- <cli headless...>
 
 relay: cada mensaje que llega al inbox de <agent_id> se le entrega solo.
@@ -142,17 +142,19 @@ export const hiveModule: CliModule = {
         const harness = flagValue(head, "--harness");
         const sources = [Boolean(tmuxSession), execArgv.length > 0, Boolean(harness)].filter(Boolean).length;
         if (!agentId || sources !== 1) {
-          console.error("Uso: isymcp hive relay <agent_id> (--tmux <session> | --harness claude|codex [--access ...] | -- <cli headless...>)");
+          console.error("Uso: isymcp hive relay <agent_id> (--tmux <session> | --harness claude|codex|isycode|openisy [--access ...] | -- <cli headless...>)");
           process.exit(2);
         }
         const cwd = flagValue(head, "--cwd") ?? process.cwd();
         let access: RelayOptions["access"] = execArgv.length > 0 ? "custom" : undefined;
         let expiresAt: number | null = null;
+        let execEnv: Record<string, string> | undefined;
         if (harness) {
           const cmd = relayCommand(harness, flagValue(head, "--access") ?? "none", { cwd, forRaw: flagValue(head, "--for") });
           execArgv.push(...cmd.argv);
           access = cmd.access;
           expiresAt = cmd.expiresAt;
+          execEnv = cmd.env;
         } else if (flagValue(head, "--access") || flagValue(head, "--for")) {
           console.error("--access/--for solo aplican con --harness");
           process.exit(2);
@@ -165,6 +167,7 @@ export const hiveModule: CliModule = {
           tmuxSocket: flagValue(head, "--socket"),
           execArgv,
           execCwd: cwd,
+          execEnv,
           access,
           expiresAt,
           execTimeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 600_000,
