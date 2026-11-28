@@ -102,7 +102,7 @@ test("pipe byte a byte: el conector traslada JSON-RPC stdin⇄socket tal cual", 
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("autostart: sin socket, el conector arranca el binario y espera a que escuche", async () => {
+test("autostart: sin socket, el conector arranca el binario y espera a que escuche", { skip: process.platform === "win32" && "binario falso usa shebang POSIX (#!/bin/sh); hub Zig es POSIX" }, async () => {
   const dir = mk();
   const sockPath = join(dir, "hub.sock");
   // "binario" falso: script node que crea el socket tras 200 ms
