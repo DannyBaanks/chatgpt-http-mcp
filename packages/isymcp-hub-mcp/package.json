@@ -33,6 +33,7 @@
   },
   "scripts": {
     "test": "node --test test/connector.test.mjs",
-    "status": "node bin/isymcp-hub-mcp.mjs --status"
+    "status": "node bin/isymcp-hub-mcp.mjs --status",
+    "test:e2e": "node test/e2e-live.mjs"
   }
 }
