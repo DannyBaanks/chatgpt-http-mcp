@@ -10,31 +10,52 @@ Pensado para clientes que registran MCP como "programa local" (`npx -y <paquete>
 - **NO ES** el hub: las tools (`hub_discover`, `hub_describe`, `hub_execute`, `agentspipeline`) y los MCP detrás (rea, isyco-gateway, playwright, craft-anything, iphone, pyzig-rag, wins… los que tengas en `servers.json`) siguen siendo del daemon. Este paquete no implementa ninguna tool, no añade MCP, no cambia aislamientos ni autorizaciones: **la autoridad sigue donde ya estaba**.
 - Si no hay socket ni binario: **fallo explícito** con instrucciones de instalación. Nunca levanta un hub paralelo.
 
-## Uso
+## Instalación
 
-Tres formas de registrarlo como MCP stdio, según si está publicado o no:
-
-| Cuándo | Comando | Argumentos |
-|---|---|---|
-| **Ahora, sin publicar** (recomendado mientras no esté en npm) | `isymcp-hub-mcp` (instalado en `~/.local/bin` desde el tarball) | *(ninguno)* |
-| **Ahora, sin instalar nada** | `node` | `<repo>/packages/isymcp-hub-mcp/bin/isymcp-hub-mcp.mjs` |
-| **Tras publicar en npm** | `npx` | `-y isymcp-hub-mcp` |
+**Publicado en npm:** [`isymcp-hub-mcp`](https://www.npmjs.com/package/isymcp-hub-mcp).
 
 ```sh
-# instalar el tarball local sin registry ni sudo (crea ~/.local/bin/isymcp-hub-mcp)
-npm pack --pack-destination /tmp
-npm install -g --prefix "$HOME/.local" /tmp/isymcp-hub-mcp-0.1.0.tgz
+# sin instalar nada (npx lo descarga y lo ejecuta)
+npx -y isymcp-hub-mcp --doctor
+
+# o instálalo una vez y deja el binario en el PATH
+npm install -g isymcp-hub-mcp
 ```
 
-Diagnóstico (con cualquiera de las tres formas, añade `--doctor` o `--status`):
+| Vía | Comando en el cliente | Argumentos | Cuándo |
+|---|---|---|---|
+| **npx** (recomendado) | `npx` | `-y isymcp-hub-mcp` | siempre; no ensucia el sistema |
+| **global** | `isymcp-hub-mcp` | *(ninguno)* | arranques sin red o más rápidos |
+| **desde el repo** | `node` | `<repo>/packages/isymcp-hub-mcp/bin/isymcp-hub-mcp.mjs` | desarrollo del propio conector |
+
+Fijar una versión concreta (útil en equipos con CI):
 
 ```sh
-isymcp-hub-mcp --doctor   # socket, binario, versión del hub, MCP detrás (texto; rc≠0 si el hub no responde)
-isymcp-hub-mcp --status   # lo mismo en JSON
+npx -y isymcp-hub-mcp@0.1.0
 ```
 
-> `npx -y isymcp-hub-mcp` **falla con E404 mientras el paquete no esté publicado** en npm; ese error
-> viene de npm, no del conector. Usa una de las dos primeras filas hasta publicar.
+## Conectar tu cliente
+
+Registra un MCP de tipo **stdio**:
+
+| Campo | Valor |
+|---|---|
+| Nombre | `isymcp-hub` |
+| Comando | `npx` |
+| Argumentos | `-y isymcp-hub-mcp` |
+
+Ejemplos por cliente:
+
+- **AutoClaw:** *Herramientas y conexiones* → **Agregar herramienta** → *programa local*.
+- **Claude Code:** `claude mcp add isymcp-hub -- npx -y isymcp-hub-mcp`
+- **Codex / Cursor / OpenCode:** en su `mcpServers`/config, `command: "npx"`, `args: ["-y","isymcp-hub-mcp"]`.
+
+## Diagnóstico
+
+```sh
+isymcp-hub-mcp --doctor   # socket, binario, versión del hub y MCP detrás (texto; rc≠0 si el hub no responde)
+isymcp-hub-mcp --status   # lo mismo en JSON (para scripts)
+```
 
 ## Flujo de uso desde un agente
 
