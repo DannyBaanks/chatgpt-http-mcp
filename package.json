@@ -9,6 +9,9 @@
     "isymcp": "src/isymcp.ts"
   },
   "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "start": "bun run src/cli.ts",
     "test": "bun test",
