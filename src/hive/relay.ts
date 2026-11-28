@@ -14,6 +14,7 @@
 import { spawn } from "node:child_process";
 import { pasteIntoTmux, type DeliveryResult } from "../console-delivery";
 import { remoteHiveDeliver } from "../link/client";
+import { quoteForWindowsShell, type RelayAccess } from "./relay-access";
 import { deliverLiveMessage, isPidAlive, registerLiveAgent, waitForAgentMessage, type LiveRegistryAgent } from "./live";
 import type { HiveManager } from "./manager";
 import type { HiveMessage } from "./types";
@@ -29,9 +30,15 @@ export interface RelayOptions {
   /** modo exec: argv del CLI headless; el mensaje entra por stdin. */
   execArgv?: string[];
   execCwd?: string;
+  execEnv?: Record<string, string>;
   execTimeoutMs?: number;
   /** remitente que firma las respuestas (por defecto agentId). */
   replyFrom?: string;
+  /** modo de acceso (src/hive/relay-access.ts); "custom" = argv propio tras `--`. */
+  access?: RelayAccess | "custom";
+  /** ms epoch: pasado este instante el relay deja de ejecutar (acceso full con --for). */
+  expiresAt?: number | null;
+  now?: () => number;
 }
 
 export interface RelayOutcome {
@@ -44,7 +51,7 @@ export interface RelayOutcome {
 
 export interface RelayDeps {
   paste?: (socket: string, session: string, text: string) => DeliveryResult;
-  exec?: (argv: string[], stdin: string, opts: { cwd?: string; timeoutMs: number }) => Promise<ExecResult>;
+  exec?: (argv: string[], stdin: string, opts: { cwd?: string; env?: Record<string, string>; timeoutMs: number }) => Promise<ExecResult>;
   reply?: (to: string, payload: ReplyPayload) => Promise<string | null>;
 }
 
@@ -90,12 +97,15 @@ export function buildRelayPrompt(msg: HiveMessage, agentId: string, mode: RelayM
   return lines.join("\n");
 }
 
-function defaultExec(argv: string[], stdin: string, opts: { cwd?: string; timeoutMs: number }): Promise<ExecResult> {
+function defaultExec(argv: string[], stdin: string, opts: { cwd?: string; env?: Record<string, string>; timeoutMs: number }): Promise<ExecResult> {
   return new Promise((resolve) => {
     // En Windows los CLIs de npm son .cmd: hace falta shell. El mensaje NUNCA va en argv, solo por stdin.
-    const child = spawn(argv[0]!, argv.slice(1), {
+    const win = process.platform === "win32";
+    const args = win ? argv.slice(1).map(quoteForWindowsShell) : argv.slice(1);
+    const child = spawn(argv[0]!, args, {
       cwd: opts.cwd,
-      shell: process.platform === "win32",
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+      shell: win,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -174,10 +184,13 @@ export async function relayMessage(
 
   if (!opts.execArgv?.length) return { ...base, action: "failed", reason: "exec_argv_required" };
   if (!wantsReply(msg)) return { ...base, action: "skipped", reason: `act_${msg.act}_no_reply` };
+  const now = (opts.now ?? Date.now)();
+  if (opts.expiresAt && now >= opts.expiresAt) return { ...base, action: "skipped", reason: "access_expired" };
 
   const exec = deps.exec ?? defaultExec;
   const res = await exec(opts.execArgv, buildRelayPrompt(msg, opts.agentId, "exec"), {
     cwd: opts.execCwd,
+    env: opts.execEnv,
     timeoutMs: opts.execTimeoutMs ?? 600_000,
   });
   const ok = !res.timedOut && res.code === 0;
@@ -224,11 +237,17 @@ export async function runRelay(
     pid: prev?.pid && isPidAlive(prev.pid) ? prev.pid : process.pid,
     wake: opts.mode === "tmux" ? "tui" : prev?.wake,
   });
+  const now = opts.now ?? Date.now;
   while (!hooks.signal?.aborted) {
+    if (opts.expiresAt && now() >= opts.expiresAt) {
+      hive.appendLog({ kind: "relay-expired", agentId: opts.agentId, access: opts.access ?? null });
+      hooks.onOutcome?.({ message_id: "-", from: "-", action: "skipped", reason: "access_expired_relay_stopped" });
+      return;
+    }
     const { messages } = await waitForAgentMessage(hive, opts.agentId, { timeoutMs: 5_000, markRead: true });
     for (const msg of messages) {
       const outcome = await relayMessage(hive, msg, opts, hooks.deps);
-      hive.appendLog({ kind: "relay", agentId: opts.agentId, mode: opts.mode, ...outcome });
+      hive.appendLog({ kind: "relay", agentId: opts.agentId, mode: opts.mode, access: opts.access ?? null, ...outcome });
       hooks.onOutcome?.(outcome);
     }
   }
