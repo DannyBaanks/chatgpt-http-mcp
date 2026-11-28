@@ -1304,6 +1304,11 @@ pub const Daemon = struct {
                 if (p.info_name) |n| try ww.print(",\"server_info\":{{\"name\":{f},\"version\":{f}}}", .{ js(n), js(p.info_version orelse "") });
                 try ww.print(",\"isolation\":\"{s}\",\"tool_count\":{d}", .{ isoName(p.cfg.isolation), c.entries.len });
                 if (entries.items.len > limit) try ww.print(",\"truncated\":true,\"note\":\"Mostrando {d} de {d}; usa query para filtrar o sube limit.\"", .{ limit, entries.items.len });
+                // Con query: si el filtro no casó nada, decirlo explícitamente (antes devolvía la
+                // primera página, indistinguible de resultados reales).
+                if (argStr(args, "query")) |q| if (entries.items.len == 0) {
+                    try ww.print(",\"filtered_by\":{f},\"note\":\"Ninguna tool coincide con la query; tools={d} en el catálogo completo.\"", .{ js(q), c.entries.len });
+                };
                 try ww.writeAll(",\"tools\":[");
                 for (entries.items[0..@min(limit, entries.items.len)], 0..) |e, k| {
                     try ww.print("{s}{{\"name\":{f},\"description\":{f}{s}{s}}}", .{ if (k == 0) "" else ",", js(e.name), js(e.short), if (e.read_only) ",\"read_only\":true" else "", if (e.destructive) ",\"destructive\":true" else "" });
