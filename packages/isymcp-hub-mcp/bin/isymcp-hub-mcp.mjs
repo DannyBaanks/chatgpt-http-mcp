@@ -23,13 +23,16 @@
 //   ISYMCP_HUB_LOG               log del autostart (def: <home>/hub/hub.autostart.log)
 import { createConnection } from "node:net";
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const PKG = createRequire(import.meta.url)("../package.json");
+// realpath: el bin puede correr por un symlink (node_modules/.bin, ~/.local/bin, npx) y
+// createRequire sobre la ruta del symlink NO encuentra ../package.json.
+const SELF = realpathSync(fileURLToPath(import.meta.url));
+const PKG = createRequire(SELF)("../package.json");
 const VERSION = PKG.version;
 
 // ----------------------------------------------------------------------------- rutas (espejo de src/hub/paths.ts)
@@ -214,7 +217,12 @@ async function main() {
   return runMcp();
 }
 
-const invoked = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+// Comparar rutas REALES: el bin corre por symlink (node_modules/.bin, ~/.local/bin, npx) y ahí
+// import.meta.url ya resuelve, pero process.argv[1] es la ruta del symlink.
+const invoked = (() => {
+  if (!process.argv[1]) return false;
+  try { return SELF === realpathSync(process.argv[1]); } catch { return false; }
+})();
 if (invoked) {
   main().then((rc) => process.exit(rc)).catch((e) => { process.stderr.write(`isymcp-hub-mcp: ${e.stack ?? e}\n`); process.exit(1); });
 }
