@@ -9,6 +9,8 @@ import { call, delegate, remoteHiveDeliver, remoteHiveRoster, remoteHiveSpawn } 
 import { prettyFingerprint } from "../link/crypto";
 import { defaultLinkDir, loadIdentity, loadPeers } from "../link/store";
 import { defaultHiveRoot, HiveManager } from "../hive/manager";
+import { CacheStore } from "../link/cache";
+import { cacheFetch } from "../link/cache-client";
 import {
   deliverLiveMessage,
   listLiveRoster,
@@ -645,6 +647,49 @@ export function registerComputeMcpTools(server: McpServer): void {
           parent_agent_id: args.parent_agent_id,
         });
         return okJson({ spawned: true, local: true, agent: spawned });
+      } catch (e) {
+        return errJson((e as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    "cache_fetch",
+    {
+      description:
+        "Descarga un archivo a la caché compartida ISyMCP Link (local → peers emparejados por cable → internet) con verificación SHA-256. Acepta URL http(s) o clave hf:<org>/<repo>[@rev]/<archivo>. Devuelve clave, sha256, tamaño, origen y ruta del blob; con `output` materializa una copia en esa ruta.",
+      inputSchema: {
+        key: z.string().min(1).describe("URL http(s) o clave hf:<org>/<repo>[@rev]/<archivo>"),
+        output: z.string().optional().describe("Ruta destino donde materializar una copia del blob"),
+        peer: z.string().optional().describe("Peer concreto a consultar (nombre u office_id); por defecto, todos los emparejados"),
+        no_peers: z.boolean().optional().default(false).describe("Si true, no consulta peers (solo local e internet)"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async (args) => {
+      try {
+        const res = await cacheFetch(args.key, {
+          output: args.output,
+          peers: args.peer ? [args.peer] : undefined,
+          noPeers: args.no_peers === true,
+        });
+        return okJson(res);
+      } catch (e) {
+        return errJson((e as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    "cache_ls",
+    {
+      description: "Lista las entradas de la caché compartida local ISyMCP Link (clave, sha256, tamaño, último uso).",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      try {
+        return okJson({ entries: new CacheStore().ls() });
       } catch (e) {
         return errJson((e as Error).message);
       }

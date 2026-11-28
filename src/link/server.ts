@@ -1,9 +1,11 @@
 // src/link/server.ts — Servidor HTTP sellado `munder-link@1` + extensión `compute.*` (cero Electron).
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
 import { HiveManager } from "../hive/manager";
 import { deliverLiveMessage, listLiveRoster } from "../hive/live";
 import type { HiveTask, MessageAct } from "../hive/types";
+import { CacheStore, HASH_RE, TicketBook } from "./cache";
 import { peerAuthority, requireComputeAuthority, requireOfficeAuthority } from "./authority";
 import {
   b64u,
@@ -57,6 +59,41 @@ export interface LinkServerOptions {
   now?: () => number;
   computeHandler?: ComputeRpcHandler;
   hiveSpawnHandler?: HiveSpawnHandler;
+  /** Caché compartida; null la desactiva (por defecto, la de ~/.codex-web-http/cache). */
+  cache?: CacheStore | null;
+  /** Quién puede bajar blobs en claro (por defecto: loopback, LAN privada y Tailscale). */
+  blobAddressAllowed?: (addr: string) => boolean;
+}
+
+/** Loopback, RFC1918, link-local, CGNAT/Tailscale (100.64/10) y ULA IPv6. */
+export function isPrivateAddress(addr: string): boolean {
+  const a = addr.replace(/^::ffff:/, "");
+  if (a === "::1" || /^127\./.test(a)) return true;
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(a);
+  if (m) {
+    const x = Number(m[1]);
+    const y = Number(m[2]);
+    return x === 10 || (x === 172 && y >= 16 && y <= 31) || (x === 192 && y === 168) || (x === 169 && y === 254) || (x === 100 && y >= 64 && y <= 127);
+  }
+  return /^f[cd][0-9a-f]{2}:/i.test(a) || /^fe80:/i.test(a);
+}
+
+function parseRange(header: string | undefined, size: number): { start: number; end: number } | null | "invalid" {
+  if (!header) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || (!m[1] && !m[2])) return "invalid";
+  let start: number;
+  let end: number;
+  if (!m[1]) {
+    const n = Number(m[2]);
+    start = Math.max(0, size - n);
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+  }
+  if (start > end || start >= size) return "invalid";
+  return { start, end };
 }
 
 const COMPUTE_PROTECTED_OPS = new Set([
@@ -117,6 +154,13 @@ export function createLinkServer(opts: LinkServerOptions = {}): {
   const identity = loadIdentity(dir);
   const seen = new Map<string, number>();
   const pairHits = new Map<string, { start: number; count: number }>();
+  const cache = opts.cache === undefined ? new CacheStore() : opts.cache;
+  const tickets = new TicketBook(now);
+  const blobAllowed = opts.blobAddressAllowed ?? isPrivateAddress;
+  const requireCache = (): CacheStore => {
+    if (!cache) throw new LinkError("cache_unavailable", "la caché compartida está desactivada en este servidor", 503);
+    return cache;
+  };
 
   const resolveHive = (): HiveManager | null => {
     if (opts.hive) return opts.hive;
@@ -345,6 +389,23 @@ export function createLinkServer(opts: LinkServerOptions = {}): {
         return { origin_ref: ref, task_id: rec.task_id, status, result: resultText, receipt: receipt("link_reply_received", rec.task_id) };
       }
 
+      case "cache_has": {
+        requireOfficeAuthority(peer);
+        const c = requireCache();
+        return { office_id: identity.office_id, ...c.has({ keys: args.keys, hashes: args.hashes }) };
+      }
+
+      case "cache_ticket": {
+        requireOfficeAuthority(peer);
+        const c = requireCache();
+        const hash = typeof args.hash === "string" ? args.hash : "";
+        if (!HASH_RE.test(hash)) throw new LinkError("bad_args", "hash sha256 inválido");
+        const size = c.blobSize(hash);
+        if (size === null) throw new LinkError("not_found", "no tengo ese blob", 404);
+        const t = tickets.issue(hash, peer.office_id);
+        return { hash, size, ticket: t.ticket, expires_at: t.expires_at, path: `/cache/blob/${hash}?t=${t.ticket}` };
+      }
+
       case "hive_roster": {
         requireOfficeAuthority(peer);
         const h = resolveHive();
@@ -439,6 +500,42 @@ export function createLinkServer(opts: LinkServerOptions = {}): {
       const url = new URL(req.url || "/", "http://link");
       if (req.method === "GET" && url.pathname === "/link/v1/hello") {
         return sendJson(res, 200, card());
+      }
+
+      const blobMatch = /^\/cache\/blob\/([0-9a-f]{64})$/.exec(url.pathname);
+      if (req.method === "GET" && blobMatch) {
+        const addr = req.socket.remoteAddress || "";
+        if (!blobAllowed(addr)) throw new LinkError("blob_forbidden", "la caché solo sirve blobs por LAN privada o Tailscale", 403);
+        const c = requireCache();
+        const hash = blobMatch[1]!;
+        const office = tickets.redeem(url.searchParams.get("t") || "", hash);
+        if (!office) throw new LinkError("bad_ticket", "ticket inválido, usado o caducado", 403);
+        const file = c.blobPath(hash);
+        let size: number;
+        try {
+          size = fs.statSync(file).size;
+        } catch {
+          throw new LinkError("not_found", "no tengo ese blob", 404);
+        }
+        const range = parseRange(typeof req.headers.range === "string" ? req.headers.range : undefined, size);
+        if (range === "invalid") {
+          res.writeHead(416, { "Content-Range": `bytes */${size}` });
+          return res.end();
+        }
+        const start = range?.start ?? 0;
+        const end = range?.end ?? size - 1;
+        res.writeHead(range ? 206 : 200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": size === 0 ? 0 : end - start + 1,
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "no-store",
+          "X-Content-SHA256": hash,
+          ...(range ? { "Content-Range": `bytes ${start}-${end}/${size}` } : {}),
+        });
+        appendReceipt(dir, { event: "cache_blob_served", from: office, hash, start, end, size });
+        if (size === 0) return res.end();
+        fs.createReadStream(file, { start, end }).on("error", () => res.destroy()).pipe(res);
+        return;
       }
 
       if (req.method === "POST" && url.pathname === "/link/v1/pair") {
