@@ -336,6 +336,11 @@ async function openSession(options: WebTurnOptions): Promise<{ browser: Browser;
  * pestana existente (no la cierra entre turnos).
  */
 const ASSISTANT_PRIMARY_SELECTOR = [
+  // UI 2026-11-27 (medida en vivo): el turno [data-turn-key] ahora envuelve el mensaje del
+  // usuario Y la respuesta, y ya no trae "ChatGPT dijo:". La respuesta vive sola en
+  // [data-response-body] (su valor es el id del mensaje de la respuesta) o en la unidad ":assistant".
+  // Primero esos contenedores limpios; despues los de las UI anteriores.
+  '[data-response-body], [data-chatgpt-search-unit-key$=":assistant"]',
   '[data-testid^="conversation-turn-"][data-turn="assistant"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"][data-message-author-role="assistant"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"]):not([data-turn-key] *)',
@@ -389,7 +394,8 @@ async function readLastAssistantSnapshot(page: Page): Promise<{ id: string; text
 
     const marks = last.querySelectorAll('[data-markdown-text-style="assistant-message"], .markdown');
     const text = (marks.length ? (marks[marks.length - 1] as HTMLElement).innerText : last.innerText) ?? "";
-    const id = (typeof last.getAttribute === "function" ? (last.getAttribute("data-turn-id")
+    const id = (typeof last.getAttribute === "function" ? (last.getAttribute("data-response-body")
+      ?? last.getAttribute("data-turn-id")
       ?? last.getAttribute("data-message-id")
       ?? last.getAttribute("data-turn-key")
       ?? last.getAttribute("data-testid")) : null)
@@ -439,8 +445,10 @@ async function readLastAssistantMarkdown(page: Page, text: string): Promise<stri
 }
 
 async function assistantTurnCount(page: Page): Promise<number> {
+  // Mismo orden que ASSISTANT_PRIMARY_SELECTOR: primero los contenedores que solo
+  // traen la respuesta (UI 2026-11-27), despues los de las UI anteriores.
   return page
-    .locator('[data-testid^="conversation-turn-"][data-message-author-role="assistant"], [data-turn-key]:has([data-conversation-role="assistant"])')
+    .locator(ASSISTANT_PRIMARY_SELECTOR)
     .count()
     .catch(() => 0);
 }
@@ -497,6 +505,11 @@ async function dumpCaptureFailure(page: Page): Promise<void> {
         title: document.title,
         readyState: document.readyState,
         selectors: {
+          // UI 2026-11-27: la respuesta vive en [data-response-body]; el turno
+          // [data-turn-key] envuelve usuario + respuesta (por eso se ve aparte).
+          responseBody: sel('[data-response-body]'),
+          assistantUnit: sel('[data-chatgpt-search-unit-key$=":assistant"]'),
+          markdownAssistant: sel('[data-markdown-text-style="assistant-message"]'),
           conversationTurn: sel('[data-testid^="conversation-turn-"]'),
           authorRole: sel('[data-message-author-role]'),
           markdown: sel(".markdown"),
